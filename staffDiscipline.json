@@ -1,0 +1,81 @@
+{
+  "576954029016481802": {
+    "rank": "as",
+    "strikes": [
+      {
+        "reason": "asd",
+        "date": "2026-01-19T22:13:29.295Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "removed": true,
+        "removedBy": "576954029016481802",
+        "removedReason": "tes",
+        "removedAt": "2026-01-19T22:19:38.826Z"
+      },
+      {
+        "reason": "sd",
+        "date": "2026-01-19T22:24:53.824Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "removed": false
+      },
+      {
+        "reason": "as",
+        "date": "2026-01-19T22:43:18.353Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "removed": false
+      }
+    ],
+    "blacklists": [],
+    "terminations": []
+  },
+  "875422356665929739": {
+    "rank": "tes",
+    "strikes": [
+      {
+        "reason": "test",
+        "date": "2026-01-19T22:46:15.793Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "removed": false
+      }
+    ]
+  },
+  "768641450875289630": {
+    "rank": "haha",
+    "strikes": [
+      {
+        "reason": "loser",
+        "date": "2026-01-19T22:46:16.572Z",
+        "addedBy": {
+          "id": "1382189540986458205",
+          "username": "uhhlyric."
+        },
+        "removed": false
+      }
+    ]
+  },
+  "1382189540986458205": {
+    "rank": "bod",
+    "strikes": [
+      {
+        "reason": "hahaha",
+        "date": "2026-01-19T22:53:21.337Z",
+        "addedBy": {
+          "id": "1382189540986458205",
+          "username": "uhhlyric."
+        },
+        "removed": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "576954029016481802": {
+    "strikes": [
+      {
+        "reason": "ersd",
+        "date": "2026-01-18T20:02:03.069Z",
+        "removed": true,
+        "removedBy": "576954029016481802",
+        "removedReason": "tes",
+        "removedAt": "2026-01-18T20:11:22.067Z"
+      },
+      {
+        "reason": "asd",
+        "date": "2026-01-18T20:06:50.920Z",
+        "removed": true,
+        "removedBy": "576954029016481802",
+        "removedReason": "sd",
+        "removedAt": "2026-01-18T20:17:07.106Z"
+      },
+      {
+        "reason": "dd",
+        "date": "2026-01-18T20:08:34.639Z",
+        "removed": true,
+        "removedBy": "576954029016481802",
+        "removedReason": "re",
+        "removedAt": "2026-01-18T21:04:23.136Z"
+      },
+      {
+        "reason": "dds",
+        "date": "2026-01-18T20:16:15.174Z",
+        "removed": true,
+        "removedBy": "576954029016481802",
+        "removedReason": "xc",
+        "removedAt": "2026-01-18T20:16:35.744Z"
+      },
+      {
+        "reason": "ds",
+        "date": "2026-01-18T20:17:35.323Z",
+        "removed": true,
+        "removedBy": "576954029016481802",
+        "removedReason": "tes",
+        "removedAt": "2026-01-18T20:56:45.497Z"
+      },
+      {
+        "reason": "sdsd",
+        "date": "2026-01-18T21:04:40.007Z",
+        "removed": false
+      },
+      {
+        "reason": "ewe",
+        "date": "2026-01-18T21:11:21.004Z",
+        "removed": false,
+        "addedBy": "576954029016481802"
+      },
+      {
+        "reason": "ds",
+        "date": "2026-01-18T21:40:52.716Z",
+        "addedBy": "576954029016481802",
+        "removed": false
+      },
+      {
+        "reason": "asd",
+        "date": "2026-01-18T22:07:56.781Z",
+        "addedBy": "576954029016481802",
+        "removed": false
+      },
+      {
+        "reason": "s",
+        "date": "2026-01-18T22:13:37.805Z",
+        "addedBy": "576954029016481802",
+        "removed": false
+      },
+      {
+        "reason": "d",
+        "date": "2026-01-18T22:21:38.064Z",
+        "addedBy": "576954029016481802",
+        "removed": false
+      },
+      {
+        "reason": "dd",
+        "date": "2026-01-18T22:25:30.019Z",
+        "addedBy": "576954029016481802",
+        "removed": false
+      },
+      {
+        "reason": "sda",
+        "date": "2026-01-18T22:33:30.155Z",
+        "addedBy": "576954029016481802",
+        "removed": false
+      },
+      {
+        "reason": "asdd",
+        "date": "2026-01-19T22:09:19.347Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "removed": false
+      },
+      {
+        "reason": "sd",
+        "date": "2026-01-19T22:11:27.902Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "removed": false
+      },
+      {
+        "reason": "asd",
+        "date": "2026-01-19T22:13:29.352Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "removed": false
+      }
+    ],
+    "rank": "asd",
+    "terminations": [
+      {
+        "reason": "er",
+        "date": "2026-01-18T21:07:15.651Z",
+        "proof": "rr"
+      },
+      {
+        "reason": "sdsds",
+        "date": "2026-01-18T21:11:53.202Z",
+        "proof": "dd"
+      },
+      {
+        "reason": "sds",
+        "date": "2026-01-18T21:21:09.306Z",
+        "proof": "Not provided"
+      },
+      {
+        "reason": "sd",
+        "date": "2026-01-18T21:32:02.163Z",
+        "proof": "Not provided"
+      },
+      {
+        "reason": "sd",
+        "date": "2026-01-18T21:35:38.541Z",
+        "proof": "sd"
+      },
+      {
+        "reason": "sdsd",
+        "date": "2026-01-18T22:07:42.193Z",
+        "addedBy": "576954029016481802",
+        "proof": "Not provided"
+      },
+      {
+        "reason": "dd",
+        "date": "2026-01-18T22:22:06.903Z",
+        "addedBy": "576954029016481802",
+        "proof": "as"
+      },
+      {
+        "reason": "d",
+        "date": "2026-01-18T22:33:57.112Z",
+        "addedBy": "576954029016481802",
+        "proof": "Not provided"
+      },
+      {
+        "reason": "asd",
+        "date": "2026-01-19T22:14:02.025Z",
+        "addedBy": {
+          "id": "576954029016481802",
+          "username": "connor_is_cool05"
+        },
+        "proof": "Not provided"
+      }
+    ],
+    "blacklist": [
+      {
+        "reason": "asd",
+        "date": "2026-01-18T22:21:21.728Z",
+        "addedBy": "connor_is_cool05"
+      }
+    ]
+  },
+  "1382189540986458205": {
+    "rank": "Board of administration",
+    "strikes": [
+      {
+        "reason": "hahahaha",
+        "date": "2026-01-19T00:38:34.994Z",
+        "addedBy": {
+          "id": "1382189540986458205",
+          "username": "uhhlyric."
+        },
+        "removed": false
+      }
+    ],
+    "terminations": [
+      {
+        "reason": "bitch",
+        "date": "2026-01-18T22:14:21.723Z",
+        "addedBy": "1382189540986458205",
+        "proof": "Not provided"
+      }
+    ],
+    "blacklist": []
+  }
+}
