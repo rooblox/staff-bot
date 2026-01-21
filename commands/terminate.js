@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -8,7 +8,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('terminate')
     .setDescription('Terminate a staff member')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .addUserOption(option =>
       option.setName('user')
         .setDescription('Staff member to terminate')
@@ -30,12 +29,7 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      const staffRoleID = process.env.STAFF_ROLE_ID;
       const logChannelID = process.env.LOG_CHANNEL_ID;
-
-      if (!interaction.member.roles.cache.has(staffRoleID)) {
-        return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
-      }
 
       const user = interaction.options.getUser('user');
       const rank = interaction.options.getString('rank');
