@@ -1,10 +1,9 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('promotion')
     .setDescription('Promote a staff member')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .addUserOption(option =>
       option.setName('user')
         .setDescription('Staff member to promote')
