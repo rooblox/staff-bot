@@ -86,7 +86,6 @@ client.once('ready', async () => {
 
     for (const guild of client.guilds.cache.values()) {
         try {
-            // Clear then re-register guild commands
             await rest.put(
                 Routes.applicationGuildCommands(client.user.id, guild.id),
                 { body: [] }
@@ -99,6 +98,21 @@ client.once('ready', async () => {
         } catch (err) {
             console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
         }
+    }
+});
+
+client.on('guildCreate', async guild => {
+    console.log(`✅ Joined new guild: ${guild.name}`);
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+    try {
+        await rest.put(
+            Routes.applicationGuildCommands(client.user.id, guild.id),
+            { body: cmds }
+        );
+        console.log(`✅ Commands registered in new guild: ${guild.name}`);
+    } catch (err) {
+        console.error(`❌ Failed to register commands in new guild ${guild.name}:`, err);
     }
 });
 
