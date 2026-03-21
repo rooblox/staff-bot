@@ -1,8 +1,8 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { Client, Collection, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const { connectDB, StaffRecord } = require('./db');
+const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
+const { connectDB } = require('./db');
 
 const client = new Client({
     intents: [
@@ -17,10 +17,12 @@ const client = new Client({
 client.commands = new Collection();
 
 const commandFiles = fs.readdirSync('./commands').filter(f => f.endsWith('.js'));
+const cmds = [];
 for (const file of commandFiles) {
     const command = require(`./commands/${file}`);
     if (!command.data || !command.execute) continue;
     client.commands.set(command.data.name, command);
+    cmds.push(command.data.toJSON());
     console.log(`Loaded command: ${command.data.name}`);
 }
 
@@ -74,18 +76,25 @@ client.on('messageCreate', async message => {
     }
 });
 
-connectDB().then(async () => {
-    // Auto-deploy commands on startup
-    const { REST, Routes } = require('discord.js');
+// Register commands to all guilds after bot is ready
+client.once('ready', async () => {
+    console.log(`✅ Logged in as ${client.user.tag}`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-    const cmds = [];
-    for (const file of fs.readdirSync('./commands').filter(f => f.endsWith('.js'))) {
-        const cmd = require(`./commands/${file}`);
-        if (cmd.data) cmds.push(cmd.data.toJSON());
-    }
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: cmds });
-    console.log('✅ Commands deployed!');
 
+    for (const guild of client.guilds.cache.values()) {
+        try {
+            await rest.put(
+                Routes.applicationGuildCommands(client.user.id, guild.id),
+                { body: cmds }
+            );
+            console.log(`✅ Commands registered in guild: ${guild.name}`);
+        } catch (err) {
+            console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
+        }
+    }
+});
+
+connectDB().then(() => {
     client.login(process.env.TOKEN);
     console.log('✅ Bot started successfully!');
 }).catch(err => {
