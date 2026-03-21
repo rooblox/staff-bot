@@ -76,13 +76,21 @@ client.on('messageCreate', async message => {
     }
 });
 
-// Register commands to all guilds after bot is ready
 client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
+    // Clear global commands first
+    await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
+    console.log('✅ Cleared global commands');
+
     for (const guild of client.guilds.cache.values()) {
         try {
+            // Clear then re-register guild commands
+            await rest.put(
+                Routes.applicationGuildCommands(client.user.id, guild.id),
+                { body: [] }
+            );
             await rest.put(
                 Routes.applicationGuildCommands(client.user.id, guild.id),
                 { body: cmds }
