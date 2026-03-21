@@ -1,6 +1,19 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
+const REQUIRED_ROLE_ID = '1484973859513045224';
+
+const DEPARTMENTS = [
+  { name: 'SHR', value: 'SHR' },
+  { name: 'PR Member', value: 'PR Member' },
+  { name: 'MR Member', value: 'MR Member' },
+  { name: 'HR Member', value: 'HR Member' },
+  { name: 'Media Team', value: 'Media Team' },
+  { name: 'Development Member', value: 'Development Member' },
+  { name: 'Development Tester', value: 'Development Tester' },
+  { name: 'Human Resources', value: 'Human Resources' },
+];
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('blacklist')
@@ -14,6 +27,11 @@ module.exports = {
         .setDescription('Reason for blacklist')
         .setRequired(true))
     .addStringOption(option =>
+      option.setName('department')
+        .setDescription('Your department')
+        .setRequired(true)
+        .addChoices(...DEPARTMENTS))
+    .addStringOption(option =>
       option.setName('proof')
         .setDescription('Proof (optional)')
         .setRequired(false)),
@@ -21,10 +39,15 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
+    if (!interaction.member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    }
+
     try {
       const logChannelID = process.env.LOG_CHANNEL_ID;
       const user = interaction.options.getUser('user');
       const reason = interaction.options.getString('reason');
+      const department = interaction.options.getString('department');
       const proof = interaction.options.getString('proof') || 'Not provided';
 
       let record = await StaffRecord.findById(user.id);
@@ -41,7 +64,13 @@ module.exports = {
 
       await record.save();
 
-      const dmMessage = `# ⛔ Blacklist Notice\n\nGreetings, ${user},\n\nI regret to inform you that you have been **blacklisted** following actions at **Kavià Café**.\n\n> 🗒️ *Reason:* **${reason}**\n\nIf you would like clarification, please open a support ticket in the server.\n\n*Signed,*\n**${interaction.user.username}**\n|| ***Human Resources Department***`;
+      const dmMessage = `# ⛔ Blacklist Notice
+Greetings, ${user},
+I regret to inform you that you have been **blacklisted** following actions at **Kavià Café**.
+> 🗒️ **Reason →** *${reason}*
+If you would like clarification, please open a support ticket in the server.
+***Sincerely,***
+**${interaction.user.username} || ${department}**`;
 
       try { await user.send({ content: dmMessage }); } catch {}
 
@@ -52,6 +81,7 @@ module.exports = {
         .addFields(
           { name: '👮 Staff User', value: interaction.user.username },
           { name: '⚡ Blacklisted Member', value: user.username },
+          { name: '🏢 Department', value: department },
           { name: '📝 Reason', value: reason },
           { name: '📎 Proof', value: proof }
         )

@@ -1,6 +1,19 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
+const REQUIRED_ROLE_ID = '1484973859513045224';
+
+const DEPARTMENTS = [
+  { name: 'SHR', value: 'SHR' },
+  { name: 'PR Member', value: 'PR Member' },
+  { name: 'MR Member', value: 'MR Member' },
+  { name: 'HR Member', value: 'HR Member' },
+  { name: 'Media Team', value: 'Media Team' },
+  { name: 'Development Member', value: 'Development Member' },
+  { name: 'Development Tester', value: 'Development Tester' },
+  { name: 'Human Resources', value: 'Human Resources' },
+];
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('terminate')
@@ -18,6 +31,19 @@ module.exports = {
         .setDescription('Reason for termination')
         .setRequired(true))
     .addStringOption(option =>
+      option.setName('appealable')
+        .setDescription('Is this termination appealable?')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Yes', value: 'Yes' },
+          { name: 'No', value: 'No' }
+        ))
+    .addStringOption(option =>
+      option.setName('department')
+        .setDescription('Your department')
+        .setRequired(true)
+        .addChoices(...DEPARTMENTS))
+    .addStringOption(option =>
       option.setName('proof')
         .setDescription('Proof (optional)')
         .setRequired(false)),
@@ -25,12 +51,21 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
+    if (!interaction.member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    }
+
     try {
       const logChannelID = process.env.LOG_CHANNEL_ID;
       const user = interaction.options.getUser('user');
       const rank = interaction.options.getString('rank');
       const reason = interaction.options.getString('reason');
+      const appealable = interaction.options.getString('appealable');
+      const department = interaction.options.getString('department');
       const proof = interaction.options.getString('proof') || 'Not provided';
+
+      const today = new Date();
+      const date = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getFullYear()).slice(-2)}`;
 
       let record = await StaffRecord.findById(user.id);
       if (!record) {
@@ -48,7 +83,17 @@ module.exports = {
 
       await record.save();
 
-      const dmMessage = `# 📢 Termination Notice\n\nGreetings, ${user},\n\nWe regret to inform you that you have been **terminated** from **Kavià Café**.\n\n> 🗒️ Reason: **${reason}**\n\nIf you wish to appeal this decision, please open a support ticket in our main server.\n\n*Signed,*\n**${interaction.user.username}**\n|| ***Human Resources Department***`;
+      const dmMessage = `# <:kaviacafe:1387492814916685845> | Termination Notice
+-# ${date}
+Hello ${user},
+Following review, you have been **Terminated** effective immediately. This decision was reached after careful consideration and is intended to address your actions at Kavià. We ask that you reflect on the circumstances that led to this action and cooperate with any actions we need you to take.
+Please allow time for staff to complete the rank change. Do **not** leave any servers you are currently a member of while the change is in progress.
+> **Reason →** *${reason}*
+> **Appealable →** *${appealable}*
+If this termination is appealable, and you wish to appeal it please open a ticket in the appeals server. A staff member will review your appeal and respond in a timely manner.
+<:reply:1467007523981627392> This action was discussed and approved by members of the SHR+ team and was not taken on a personal bias.
+***Sincerely,***
+**${interaction.user.username} || ${department}**`;
 
       try { await user.send({ content: dmMessage }); } catch {}
 
@@ -60,7 +105,9 @@ module.exports = {
           { name: '👮 Staff User', value: interaction.user.username },
           { name: '⚡ Staff Member Terminated', value: user.username },
           { name: '🏷️ Rank', value: rank },
+          { name: '🏢 Department', value: department },
           { name: '📝 Reason', value: reason },
+          { name: '⚖️ Appealable', value: appealable },
           { name: '📎 Proof', value: proof }
         )
         .setFooter({ text: 'Human Resources Department' })

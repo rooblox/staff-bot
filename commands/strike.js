@@ -1,6 +1,19 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
+const REQUIRED_ROLE_ID = '1484973859513045224';
+
+const DEPARTMENTS = [
+  { name: 'SHR', value: 'SHR' },
+  { name: 'PR Member', value: 'PR Member' },
+  { name: 'MR Member', value: 'MR Member' },
+  { name: 'HR Member', value: 'HR Member' },
+  { name: 'Media Team', value: 'Media Team' },
+  { name: 'Development Member', value: 'Development Member' },
+  { name: 'Development Tester', value: 'Development Tester' },
+  { name: 'Human Resources', value: 'Human Resources' },
+];
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('strike')
@@ -18,6 +31,11 @@ module.exports = {
         .setDescription('Reason for strike')
         .setRequired(true))
     .addStringOption(option =>
+      option.setName('department')
+        .setDescription('Your department')
+        .setRequired(true)
+        .addChoices(...DEPARTMENTS))
+    .addStringOption(option =>
       option.setName('proof')
         .setDescription('Proof (optional)')
         .setRequired(false)),
@@ -25,11 +43,16 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
+    if (!interaction.member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    }
+
     try {
       const logChannelID = process.env.LOG_CHANNEL_ID;
       const user = interaction.options.getUser('user');
       const rank = interaction.options.getString('rank');
       const reason = interaction.options.getString('reason');
+      const department = interaction.options.getString('department');
       const proof = interaction.options.getString('proof') || 'Not provided';
 
       let record = await StaffRecord.findById(user.id);
@@ -48,8 +71,18 @@ module.exports = {
       await record.save();
 
       const activeStrikes = record.strikes.filter(s => !s.removed).length;
+      const strikeLabel = activeStrikes === 1 ? '1st' : activeStrikes === 2 ? '2nd' : `${activeStrikes}th`;
 
-      const dmMessage = `# 📢 Strike notice\n\nGreetings, ${user}\n\nYou have received an official strike at **Kavià Café**. This is your **${activeStrikes}${activeStrikes === 1 ? 'st' : activeStrikes === 2 ? 'nd' : 'th'} strike**.\n\n> 🗒️ *Reason:* **${reason}**\n\nPlease reach out to HR if you need clarification.`;
+      const dmMessage = `**Strike Notice**
+> Greetings, ${user}
+I'm unfortunately saddened to inform you that you have received a strike for your actions at Kavià Cafe.
+This is your **${strikeLabel} strike.**
+> 🗒️ **Reason:** *${reason}*
+If you feel like this was false or inaccurate please *open a ticket*.
+**Regards,**
+**${interaction.user.username}**
+**${rank}**
+**Kavià || ${department}**`;
 
       try { await user.send({ content: dmMessage }); } catch {}
 
@@ -61,6 +94,7 @@ module.exports = {
           { name: '👮 Staff User', value: interaction.user.username },
           { name: '⚡ Staff Member Striked', value: user.username },
           { name: '🏷️ Rank', value: rank },
+          { name: '🏢 Department', value: department },
           { name: '📝 Reason', value: reason },
           { name: '📊 Current Strikes', value: String(activeStrikes) },
           { name: '📎 Proof', value: proof }

@@ -1,6 +1,19 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
+const REQUIRED_ROLE_ID = '1484973859513045224';
+
+const DEPARTMENTS = [
+  { name: 'SHR', value: 'SHR' },
+  { name: 'PR Member', value: 'PR Member' },
+  { name: 'MR Member', value: 'MR Member' },
+  { name: 'HR Member', value: 'HR Member' },
+  { name: 'Media Team', value: 'Media Team' },
+  { name: 'Development Member', value: 'Development Member' },
+  { name: 'Development Tester', value: 'Development Tester' },
+  { name: 'Human Resources', value: 'Human Resources' },
+];
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('removediscipline')
@@ -22,6 +35,11 @@ module.exports = {
       option.setName('reason')
         .setDescription('Reason for removal')
         .setRequired(true))
+    .addStringOption(option =>
+      option.setName('department')
+        .setDescription('Your department')
+        .setRequired(true)
+        .addChoices(...DEPARTMENTS))
     .addIntegerOption(option =>
       option.setName('number')
         .setDescription('Strike number (required if removing a strike)')
@@ -30,12 +48,17 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
+    if (!interaction.member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+    }
+
     try {
       const logChannelID = process.env.LOG_CHANNEL_ID;
       const user = interaction.options.getUser('user');
       const type = interaction.options.getString('type');
       const number = interaction.options.getInteger('number');
       const reason = interaction.options.getString('reason');
+      const department = interaction.options.getString('department');
 
       const record = await StaffRecord.findById(user.id);
       if (!record) {
@@ -48,10 +71,21 @@ module.exports = {
           return interaction.editReply({ content: '❌ Invalid strike number.' });
         }
         const strike = activeStrikes[number - 1];
+        const strikeLabel = number === 1 ? '1st' : number === 2 ? '2nd' : `${number}th`;
         strike.removed = true;
         strike.removedBy = interaction.user.id;
         strike.removedReason = reason;
         strike.removedAt = new Date().toISOString();
+
+        const dmMessage = `# <:kaviacafe:1387492814916685845> | Strike Removal
+Greetings, ${user}
+I am delighted to inform you that your appeal regarding your *${strikeLabel} strike* has been **accepted**. The Human Resources department is currently reversing your strike, please allow some time for them to do so.
+> **Reason for strike removal →** *${reason}*
+Thank you for taking the time to reach out to our staff team about this.
+**Signed,**
+**${interaction.user.username} || ${department}**`;
+
+        try { await user.send({ content: dmMessage }); } catch {}
 
       } else if (type === 'termination') {
         if (!record.terminations || record.terminations.length === 0) {
@@ -83,6 +117,7 @@ module.exports = {
           { name: '👮 Staff User', value: interaction.user.username },
           { name: '⚡ Member', value: user.username },
           { name: '🗂️ Type', value: type.charAt(0).toUpperCase() + type.slice(1) },
+          { name: '🏢 Department', value: department },
           { name: '📝 Reason for Removal', value: reason }
         )
         .setFooter({ text: 'Human Resources Department' })
