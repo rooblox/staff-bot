@@ -74,7 +74,18 @@ client.on('messageCreate', async message => {
     }
 });
 
-connectDB().then(() => {
+connectDB().then(async () => {
+    // Auto-deploy commands on startup
+    const { REST, Routes } = require('discord.js');
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+    const cmds = [];
+    for (const file of fs.readdirSync('./commands').filter(f => f.endsWith('.js'))) {
+        const cmd = require(`./commands/${file}`);
+        if (cmd.data) cmds.push(cmd.data.toJSON());
+    }
+    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: cmds });
+    console.log('✅ Commands deployed!');
+
     client.login(process.env.TOKEN);
     console.log('✅ Bot started successfully!');
 }).catch(err => {
