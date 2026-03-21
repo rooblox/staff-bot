@@ -1,8 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-
-const STAFF_FILE = path.join(__dirname, '../staffDiscipline.json'); // Use your main cache file
+const { StaffRecord } = require('../db');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -30,50 +27,33 @@ module.exports = {
 
     try {
       const logChannelID = process.env.LOG_CHANNEL_ID;
-
       const user = interaction.options.getUser('user');
       const rank = interaction.options.getString('rank');
       const reason = interaction.options.getString('reason');
       const proof = interaction.options.getString('proof') || 'Not provided';
 
-      // --- Use the cache instead of reading file ---
-      const cache = interaction.client.staffDisciplineCache;
-
-      if (!cache[user.id]) {
-        cache[user.id] = { rank, strikes: [] };
+      // Find or create the user's record in MongoDB
+      let record = await StaffRecord.findById(user.id);
+      if (!record) {
+        record = new StaffRecord({ _id: user.id, rank, strikes: [], terminations: [], blacklists: [] });
       }
 
-      cache[user.id].rank = rank;
-
-      cache[user.id].strikes.push({
+      record.rank = rank;
+      record.strikes.push({
         reason,
         date: new Date().toISOString(),
-        addedBy: {
-          id: interaction.user.id,
-          username: interaction.user.username
-        },
+        addedBy: { id: interaction.user.id, username: interaction.user.username },
         removed: false
       });
 
-      // Save immediately
-      fs.writeFileSync(STAFF_FILE, JSON.stringify(cache, null, 2));
+      await record.save();
 
-      const activeStrikes = cache[user.id].strikes.filter(s => !s.removed).length;
+      const activeStrikes = record.strikes.filter(s => !s.removed).length;
 
-      // Build DM message
-      const dmMessage = `# 📢 Strike notice
-
-Greetings, ${user}
-
-You have received an official strike at **Kavià Café**. This is your **${activeStrikes}${activeStrikes === 1 ? 'st' : activeStrikes === 2 ? 'nd' : 'th'} strike**.
-
-> 🗒️ *Reason:* **${reason}**
-
-Please reach out to HR if you need clarification.`;
+      const dmMessage = `# 📢 Strike notice\n\nGreetings, ${user}\n\nYou have received an official strike at **Kavià Café**. This is your **${activeStrikes}${activeStrikes === 1 ? 'st' : activeStrikes === 2 ? 'nd' : 'th'} strike**.\n\n> 🗒️ *Reason:* **${reason}**\n\nPlease reach out to HR if you need clarification.`;
 
       try { await user.send({ content: dmMessage }); } catch {}
 
-      // Build log embed
       const embed = new EmbedBuilder()
         .setTitle('🛑 Staff Strike Issued')
         .setDescription('A strike has been issued to a staff member.')
@@ -90,9 +70,7 @@ Please reach out to HR if you need clarification.`;
         .setTimestamp();
 
       const logChannel = await interaction.client.channels.fetch(logChannelID);
-      if (logChannel?.isTextBased()) {
-        await logChannel.send({ embeds: [embed] });
-      }
+      if (logChannel?.isTextBased()) await logChannel.send({ embeds: [embed] });
 
       await interaction.editReply({ content: `✅ ${user.tag} has been issued a strike.` });
 

@@ -1,8 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-
-const STAFF_FILE = path.join(__dirname, '../staffDiscipline.json'); // Use shared cache
+const { StaffRecord } = require('../db');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -26,52 +23,28 @@ module.exports = {
 
     try {
       const logChannelID = process.env.LOG_CHANNEL_ID;
-
       const user = interaction.options.getUser('user');
       const reason = interaction.options.getString('reason');
       const proof = interaction.options.getString('proof') || 'Not provided';
 
-      const cache = interaction.client.staffDisciplineCache;
-
-      if (!cache[user.id]) {
-        cache[user.id] = { strikes: [], terminations: [], blacklists: [] };
+      let record = await StaffRecord.findById(user.id);
+      if (!record) {
+        record = new StaffRecord({ _id: user.id, strikes: [], terminations: [], blacklists: [] });
       }
 
-      if (!cache[user.id].blacklists) {
-        cache[user.id].blacklists = [];
-      }
-
-      cache[user.id].blacklists.push({
+      record.blacklists.push({
         reason,
         date: new Date().toISOString(),
-        addedBy: {
-          id: interaction.user.id,
-          username: interaction.user.username
-        },
+        addedBy: { id: interaction.user.id, username: interaction.user.username },
         removed: false
       });
 
-      // Save immediately
-      fs.writeFileSync(STAFF_FILE, JSON.stringify(cache, null, 2));
+      await record.save();
 
-      // DM the user
-      const dmMessage = `# ⛔ Blacklist Notice
-
-Greetings, ${user},
-
-I regret to inform you that you have been **blacklisted** following actions at **Kavià Café**.
-
-> 🗒️ *Reason:* **${reason}**
-
-If you would like clarification, please open a support ticket in the server.
-
-*Signed,*
-**${interaction.user.username}**
-|| ***Human Resources Department***`;
+      const dmMessage = `# ⛔ Blacklist Notice\n\nGreetings, ${user},\n\nI regret to inform you that you have been **blacklisted** following actions at **Kavià Café**.\n\n> 🗒️ *Reason:* **${reason}**\n\nIf you would like clarification, please open a support ticket in the server.\n\n*Signed,*\n**${interaction.user.username}**\n|| ***Human Resources Department***`;
 
       try { await user.send({ content: dmMessage }); } catch {}
 
-      // Log embed
       const embed = new EmbedBuilder()
         .setTitle('⛔ Staff Blacklisted')
         .setDescription('A staff member has been blacklisted.')
@@ -86,9 +59,7 @@ If you would like clarification, please open a support ticket in the server.
         .setTimestamp();
 
       const logChannel = await interaction.client.channels.fetch(logChannelID);
-      if (logChannel?.isTextBased()) {
-        await logChannel.send({ embeds: [embed] });
-      }
+      if (logChannel?.isTextBased()) await logChannel.send({ embeds: [embed] });
 
       await interaction.editReply({ content: `✅ ${user.tag} has been blacklisted.` });
 

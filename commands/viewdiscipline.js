@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const { StaffRecord } = require('../db');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,15 +13,11 @@ module.exports = {
 
   async execute(interaction) {
     const targetUser = interaction.options.getUser('user');
-    const cache = interaction.client.staffDisciplineCache;
 
-    if (!cache[targetUser.id]) {
+    const record = await StaffRecord.findById(targetUser.id);
+    if (!record) {
       return interaction.reply({ content: '❌ No discipline record found for this user.', ephemeral: true });
     }
-
-    const userRecord = cache[targetUser.id];
-    const pages = [];
-    const pageSize = 10; // items per page per type
 
     const buildFields = (array, type) => {
       return array.map((entry, index) => {
@@ -36,23 +31,24 @@ module.exports = {
     };
 
     const allEntries = [
-      ...buildFields(userRecord.strikes || [], 'Strike'),
-      ...buildFields(userRecord.terminations || [], 'Termination'),
-      ...buildFields(userRecord.blacklists || [], 'Blacklist')
+      ...buildFields(record.strikes || [], 'Strike'),
+      ...buildFields(record.terminations || [], 'Termination'),
+      ...buildFields(record.blacklists || [], 'Blacklist')
     ];
 
     if (allEntries.length === 0) {
       return interaction.reply({ content: '❌ No discipline record found for this user.', ephemeral: true });
     }
 
-    // Create pages
+    const pageSize = 10;
+    const pages = [];
+
     for (let i = 0; i < allEntries.length; i += pageSize) {
       const embed = new EmbedBuilder()
         .setTitle(`Discipline Record for ${targetUser.tag}`)
         .setColor('#ff0000')
         .setTimestamp()
         .addFields(allEntries.slice(i, i + pageSize));
-
       pages.push(embed);
     }
 
@@ -76,7 +72,7 @@ module.exports = {
 
     if (pages.length <= 1) return;
 
-    const collector = message.createMessageComponentCollector({ time: 600000 }); // 10 minutes
+    const collector = message.createMessageComponentCollector({ time: 600000 });
 
     collector.on('collect', async i => {
       if (i.user.id !== interaction.user.id) return i.reply({ content: '❌ Only the command user can navigate pages.', ephemeral: true });

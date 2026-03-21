@@ -1,8 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-
-const STAFF_FILE = path.join(__dirname, '../staffDiscipline.json'); // Use shared cache file
+const { StaffRecord } = require('../db');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -35,60 +32,50 @@ module.exports = {
 
     try {
       const logChannelID = process.env.LOG_CHANNEL_ID;
-
       const user = interaction.options.getUser('user');
       const type = interaction.options.getString('type');
       const number = interaction.options.getInteger('number');
       const reason = interaction.options.getString('reason');
 
-      const cache = interaction.client.staffDisciplineCache;
-
-      if (!cache[user.id]) {
+      const record = await StaffRecord.findById(user.id);
+      if (!record) {
         return interaction.editReply({ content: '❌ This user has no discipline records.' });
       }
 
-      const record = cache[user.id];
-      let removedEntry;
-
       if (type === 'strike') {
-        const activeStrikes = record.strikes?.filter(s => !s.removed) || [];
+        const activeStrikes = record.strikes.filter(s => !s.removed);
         if (!number || number < 1 || number > activeStrikes.length) {
           return interaction.editReply({ content: '❌ Invalid strike number.' });
         }
-
-        removedEntry = activeStrikes[number - 1];
-        removedEntry.removed = true;
-        removedEntry.removedBy = interaction.user.id;
-        removedEntry.removedReason = reason;
-        removedEntry.removedAt = new Date().toISOString();
+        const strike = activeStrikes[number - 1];
+        strike.removed = true;
+        strike.removedBy = interaction.user.id;
+        strike.removedReason = reason;
+        strike.removedAt = new Date().toISOString();
 
       } else if (type === 'termination') {
         if (!record.terminations || record.terminations.length === 0) {
           return interaction.editReply({ content: '❌ No terminations found for this user.' });
         }
-
-        removedEntry = record.terminations.pop();
-        removedEntry.removed = true;
-        removedEntry.removedBy = interaction.user.id;
-        removedEntry.removedReason = reason;
-        removedEntry.removedAt = new Date().toISOString();
+        const term = record.terminations[record.terminations.length - 1];
+        term.removed = true;
+        term.removedBy = interaction.user.id;
+        term.removedReason = reason;
+        term.removedAt = new Date().toISOString();
 
       } else if (type === 'blacklist') {
         if (!record.blacklists || record.blacklists.length === 0) {
           return interaction.editReply({ content: '❌ No blacklists found for this user.' });
         }
-
-        removedEntry = record.blacklists.pop();
-        removedEntry.removed = true;
-        removedEntry.removedBy = interaction.user.id;
-        removedEntry.removedReason = reason;
-        removedEntry.removedAt = new Date().toISOString();
+        const bl = record.blacklists[record.blacklists.length - 1];
+        bl.removed = true;
+        bl.removedBy = interaction.user.id;
+        bl.removedReason = reason;
+        bl.removedAt = new Date().toISOString();
       }
 
-      // Save cache immediately
-      fs.writeFileSync(STAFF_FILE, JSON.stringify(cache, null, 2));
+      await record.save();
 
-      // Build log embed
       const embed = new EmbedBuilder()
         .setTitle('✅ Discipline Removed')
         .setColor(0x2ECC71)
@@ -102,13 +89,9 @@ module.exports = {
         .setTimestamp();
 
       const logChannel = await interaction.client.channels.fetch(logChannelID);
-      if (logChannel?.isTextBased()) {
-        await logChannel.send({ embeds: [embed] });
-      }
+      if (logChannel?.isTextBased()) await logChannel.send({ embeds: [embed] });
 
-      await interaction.editReply({
-        content: `✅ Successfully removed ${type} record from ${user.tag}.`
-      });
+      await interaction.editReply({ content: `✅ Successfully removed ${type} record from ${user.tag}.` });
 
     } catch (err) {
       console.error('Error in /removediscipline command:', err);
