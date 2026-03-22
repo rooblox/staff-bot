@@ -45,7 +45,8 @@ module.exports = {
 
     try {
       const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-      if (!member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
+      if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 

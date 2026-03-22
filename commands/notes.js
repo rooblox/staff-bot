@@ -6,14 +6,15 @@ const REQUIRED_ROLE_ID = '1484973859513045224';
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('notes')
-    .setDescription('Add or view private internal notes on a staff member')
+    .setDescription('Add, view or remove private internal notes on a staff member')
     .addStringOption(option =>
       option.setName('action')
-        .setDescription('Add or view notes')
+        .setDescription('Add, view or remove notes')
         .setRequired(true)
         .addChoices(
           { name: 'Add Note', value: 'add' },
-          { name: 'View Notes', value: 'view' }
+          { name: 'View Notes', value: 'view' },
+          { name: 'Remove Note', value: 'remove' }
         ))
     .addUserOption(option =>
       option.setName('user')
@@ -22,6 +23,10 @@ module.exports = {
     .addStringOption(option =>
       option.setName('note')
         .setDescription('The note to add (only required when adding)')
+        .setRequired(false))
+    .addIntegerOption(option =>
+      option.setName('number')
+        .setDescription('Note number to remove (only required when removing)')
         .setRequired(false)),
 
   async execute(interaction) {
@@ -29,7 +34,8 @@ module.exports = {
 
     try {
       const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-      if (!member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
+      if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -37,6 +43,7 @@ module.exports = {
       const action = interaction.options.getString('action');
       const user = interaction.options.getUser('user');
       const noteText = interaction.options.getString('note');
+      const number = interaction.options.getInteger('number');
 
       let record = await StaffRecord.findById(user.id);
 
@@ -93,6 +100,35 @@ module.exports = {
         }
 
         await interaction.editReply({ embeds: [embed] });
+
+      } else if (action === 'remove') {
+        if (!record || !record.notes || record.notes.length === 0) {
+          return interaction.editReply({ content: '❌ No notes found for this user.' });
+        }
+
+        if (!number || number < 1 || number > record.notes.length) {
+          return interaction.editReply({ content: `❌ Invalid note number. This user has ${record.notes.length} note(s).` });
+        }
+
+        const removedNote = record.notes[number - 1];
+        record.notes.splice(number - 1, 1);
+        await record.save();
+
+        const embed = new EmbedBuilder()
+          .setTitle('🗑️ Note Removed')
+          .setColor(0xE74C3C)
+          .addFields(
+            { name: '👮 Removed By', value: interaction.user.username },
+            { name: '⚡ About', value: user.username },
+            { name: '📝 Removed Note', value: removedNote.note }
+          )
+          .setFooter({ text: 'Human Resources Department' })
+          .setTimestamp();
+
+        const logChannel = await interaction.client.channels.fetch(logChannelID);
+        if (logChannel?.isTextBased()) await logChannel.send({ embeds: [embed] });
+
+        await interaction.editReply({ content: `✅ Note #${number} removed from ${user.tag}'s record.` });
       }
 
     } catch (err) {
