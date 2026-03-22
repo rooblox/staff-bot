@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
-const { connectDB } = require('./db');
+const { connectDB, Reminder } = require('./db');
 
 const client = new Client({
     intents: [
@@ -99,6 +99,14 @@ client.once('ready', async () => {
             console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
         }
     }
+
+    // Reload pending reminders from MongoDB
+    const { scheduleReminder } = require('./commands/remind');
+    const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
+    for (const reminder of pendingReminders) {
+        scheduleReminder(reminder, client);
+    }
+    console.log(`✅ Reloaded ${pendingReminders.length} pending reminders`);
 });
 
 client.on('guildCreate', async guild => {

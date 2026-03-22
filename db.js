@@ -39,9 +39,23 @@ const staffSchema = new mongoose.Schema({
         removedBy: String,
         removedReason: String,
         removedAt: String
+    }],
+    notes: [{
+        note: String,
+        date: String,
+        addedBy: { id: String, username: String }
     }]
 }, { versionKey: false });
 
-const StaffRecord = mongoose.model('StaffRecord', staffSchema);
+// Separate schema just for reminders
+const reminderSchema = new mongoose.Schema({
+    userId: String,
+    message: String,
+    fireAt: Date,
+    createdAt: Date
+}, { versionKey: false });
 
-module.exports = { connectDB, StaffRecord };
+const StaffRecord = mongoose.model('StaffRecord', staffSchema);
+const Reminder = mongoose.model('Reminder', reminderSchema);
+
+module.exports = { connectDB, StaffRecord, Reminder };
