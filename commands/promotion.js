@@ -1,5 +1,18 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
+const REQUIRED_ROLE_ID = '1484973859513045224';
+
+const DEPARTMENTS = [
+  { name: 'SHR', value: 'SHR' },
+  { name: 'PR Member', value: 'PR Member' },
+  { name: 'MR Member', value: 'MR Member' },
+  { name: 'HR Member', value: 'HR Member' },
+  { name: 'Media Team', value: 'Media Team' },
+  { name: 'Development Member', value: 'Development Member' },
+  { name: 'Development Tester', value: 'Development Tester' },
+  { name: 'Human Resources', value: 'Human Resources' },
+];
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('promotion')
@@ -19,31 +32,46 @@ module.exports = {
     .addStringOption(option =>
       option.setName('reason')
         .setDescription('Reason for promotion')
-        .setRequired(true)),
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('your_rank')
+        .setDescription('Your rank')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('department')
+        .setDescription('Your department')
+        .setRequired(true)
+        .addChoices(...DEPARTMENTS)),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
     try {
+      const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
+      const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
+      if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
+        return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+      }
+
       const logChannelID = process.env.LOG_CHANNEL_ID;
       const user = interaction.options.getUser('user');
       const oldRank = interaction.options.getString('old_rank');
       const newRank = interaction.options.getString('new_rank');
       const reason = interaction.options.getString('reason');
+      const yourRank = interaction.options.getString('your_rank');
+      const department = interaction.options.getString('department');
 
-      const dmMessage = `# 🎉 Promotion notice
-
-Greetings, ${user},
-
-I am delighted to inform you that you have been **Promoted**, following your hard work and dedication at Kavià Café. We have taken notice of this a while ago and felt it was best to promote you.
-
-> **Old rank->** ${oldRank}
-> **New rank->** ${newRank}
-
-I would also like to personally congratulate you, and we are excited to see what the future holds for you at Kavià Café. Please give me a moment to update your roles, and you can settle into your new role.
-
+      const dmMessage = `# <:kaviacafe:1387492814916685845> **Promotion Notice**
+Hello, ${user},
+We are delighted to inform you that you have been **promoted** following your recent actions and performance at **Kavià Café**. Your continued hard work and dedication have not gone unnoticed. You have consistently demonstrated professionalism and commitment, and have set a strong example for other staff.
+On behalf of the **${department}**, we would like to congratulate you. This promotion reflects the trust we have in your abilities and the value you bring to our community. We are confident that you will continue to perform in your new role and set a strong example for others.
+> <:pink_pin:1166850035611353148> **Old Rank →** *${oldRank}*
+> <:pink_pin:1166850035611353148> **New Rank →** *${newRank}*
+You will be ranked in our main server and Roblox group shortly. Should you have any questions or concerns, do not hesitate to reach out to a member of our team.
+We are ecstatic to see what the future holds for you at **Kavià Café**, and we look forward to watching you continue to grow with us.
 ***Signed,***
-**${interaction.user.username}|| Human Resources Department.**`;
+**${interaction.user.username}**
+**${yourRank} || ${department}**`;
 
       try { await user.send({ content: dmMessage }); } catch {}
 
@@ -56,6 +84,7 @@ I would also like to personally congratulate you, and we are excited to see what
           { name: '⚡ Promoted Member', value: user.username },
           { name: '⬅️ Old Rank', value: oldRank },
           { name: '➡️ New Rank', value: newRank },
+          { name: '🏢 Department', value: department },
           { name: '📝 Reason', value: reason }
         )
         .setFooter({ text: 'Human Resources Department' })

@@ -27,6 +27,10 @@ module.exports = {
         .setDescription('Reason for blacklist')
         .setRequired(true))
     .addStringOption(option =>
+      option.setName('your_rank')
+        .setDescription('Your rank')
+        .setRequired(true))
+    .addStringOption(option =>
       option.setName('department')
         .setDescription('Your department')
         .setRequired(true)
@@ -49,6 +53,7 @@ module.exports = {
       const logChannelID = process.env.LOG_CHANNEL_ID;
       const user = interaction.options.getUser('user');
       const reason = interaction.options.getString('reason');
+      const yourRank = interaction.options.getString('your_rank');
       const department = interaction.options.getString('department');
       const proof = interaction.options.getString('proof') || 'Not provided';
 
@@ -66,13 +71,18 @@ module.exports = {
 
       await record.save();
 
-      const dmMessage = `# ⛔ Blacklist Notice
-Greetings, ${user},
-I regret to inform you that you have been **blacklisted** following actions at **Kavià Café**.
-> 🗒️ **Reason →** *${reason}*
-If you would like clarification, please open a support ticket in the server.
-***Sincerely,***
-**${interaction.user.username} || ${department}**`;
+      const dmMessage = `# <:kaviacafe:1387492814916685845> **Blacklist Notice**
+Hello, ${user},
+We regret to inform you that due to your recent actions and behavior, you have been **blacklisted** from **Kavià Café**. Your conduct has not aligned with the standards and expectations we uphold within our community, and as a result, this decision has been made.
+After careful consideration, the **SHR Team** has determined that you are no longer permitted in any of our affiliated servers. Additionally, you are **not welcome to return as staff at any point in the future**. This decision is final and reflects the seriousness of the situation.
+> <:pink_pin:1166850035611353148> **Status →** *Blacklisted*
+> <:pink_pin:1166850035611353148> **Reason →** *${reason}*
+If you wish to appeal this decision, you may do so using the link below:
+[Appeals](https://discord.gg/tXxeJUxd9D)
+Please refrain from attempting to rejoin or reapply, as this will not be accepted. Failure to comply may result in further action.
+***Signed,***
+**${interaction.user.username}**
+**${yourRank} || ${department}**`;
 
       try { await user.send({ content: dmMessage }); } catch {}
 
