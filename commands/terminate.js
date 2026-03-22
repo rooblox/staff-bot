@@ -51,11 +51,12 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
-    if (!interaction.member.roles.cache.has(REQUIRED_ROLE_ID)) {
-      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
-    }
-
     try {
+      const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
+      if (!member.roles.cache.has(REQUIRED_ROLE_ID)) {
+        return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
+      }
+
       const logChannelID = process.env.LOG_CHANNEL_ID;
       const user = interaction.options.getUser('user');
       const rank = interaction.options.getString('rank');
