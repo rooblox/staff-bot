@@ -7,71 +7,63 @@ const activeSessions = new Map();
 
 const sections = [
   {
-    title: '<:emoji_1:1464065515579248854>  Welcome to the Moderation Team',
-    content: `Congratulations and welcome to the **Moderation Department** at Kavià Café!\n\nYou have been assigned the role of **Trial Moderator**. At this stage, you will not have any moderation permissions — these will be granted once you have successfully completed your trial.\n\nThis training will walk you through everything you need to know, including our rules, expectations, logging procedures, and the moderation hierarchy. Please read each section carefully before proceeding.\n\n> ⚠️ If you fail this trial, you are permitted to retake it **once**. Failing a second time will result in removal from the Moderation Department. Any misuse of permissions once granted will result in **immediate disciplinary action**.`
+    title: '<:emoji_1:1464065515579248854>  Welcome to Moderation!',
+    content: `Hello, and congratulations on passing your application and joining our Moderation Department! During this period, you will receive the trial moderator role as you undergo your mentorship.\n\nThis trial was designed to provide a clear explanation of our policies, expectations, procedures, and logging requirements. If you have any questions at any time, do not hesitate to ask.\n\nWe will now send a series of messages covering everything needed to become an excellent moderator. If you fail your trial you will receive only *one* opportunity to retake it. If you fail twice, you will be removed from the department.\n\nThis trial will be open until you achieve the rank of moderator.`
   },
   {
-    title: '<:emoji_1:1464065515579248854>  Server Rules',
-    content: `As a moderator, you must have a thorough understanding of our server rules.\n\n**Harassment & Disrespect**\n> Cyberbullying, inappropriate comments, targeted insults, or any behaviour making members feel unwelcome.\n\n**Discord & Roblox ToS Violations**\n> Scamming, being underage, or engaging in activities prohibited by either platform.\n\n**Chat Flood**\n> Sending 10 or more messages in a row, or repeatedly sending the same message.\n\n**NSFW Content**\n> Sharing inappropriate images, videos, gore, or any explicit content.\n\n**Impersonation**\n> Pretending to be another member, staff member, or public figure.\n\n**Advertisements**\n> Sharing server invite links, asking members to join other servers, or DM advertising.\n\n**Alternative Accounts**\n> If you identify an alt account, you may take action — but please verify before doing so.`
+    title: '<:emoji_1:1464065515579248854>  Rules & Procedures',
+    content: `A moderator's main responsibility is to enforce and uphold all rules found within https://discord.com/channels/1370892833182974035/1370946530894413824. When moderating, you should do so fairly, professionally, and respectfully, as this helps keep our community safe and welcoming for everyone.\n\nAll actions should follow the guidelines listed below. Consistency and sound judgment are crucial when handling situations within the server.\n\n> [Kavià Cafe Rules](https://docs.google.com/spreadsheets/d/1cK-QcY_UXiFTCF8IQXlzCQqnz2uklMdHpEDR99oesm0/edit?usp=sharing)\n\nPlease ensure you are familiar with these rules and review the document periodically to stay informed. If you are ever unsure about what action to take, do not hesitate to contact a member of moderation leadership. We'd rather have you ask for help than blindly take action.`
   },
   {
-    title: '<:emoji_1:1464065515579248854>  Expectations',
-    content: `As a member of the Moderation Department, there is no official activity quota. However, you are still expected to actively perform your duties — prolonged inactivity may result in termination.\n\nModerators and HR staff are held to a higher standard and set the example for MR and LR staff. While you don't need to be extremely formal in general chat, please remain mindful of what you say at all times.\n\n> You are still subject to our standard server rules. Breaking them will result in the appropriate consequences.`
-  },
-  {
-    title: '<:emoji_1:1464065515579248854>  Logging Procedures',
-    content: `All moderation actions must be properly logged. Below is a breakdown of each action.\n\n**Warnings**\n> Use proper grammar when issuing a warning. Log all warnings in the designated channel so prior offences can be tracked.\n\n**Timeouts**\n> A lesser punishment but must still be logged. Use the correct format including the reason and duration.\n\n**Kicks**\n> A serious action — do not kick without sufficient proof. Log it in the kick log channel using the correct format.\n\n**Bans**\n> Submit a ban request and wait for approval before proceeding. Once approved, carry out the ban and log it. **Do not ban without prior approval.**\n\n**SHR Rule Violations**\n> Do not handle SHR violations yourself. Escalate immediately to a member of the Presidential team.`
-  },
-  {
-    title: '<:emoji_1:1464065515579248854>  Moderation Hierarchy',
-    content: `The Moderation Department has several ranks, each with its own requirements and permissions. Promotions are not guaranteed by time alone — your performance must be recognised by a staff member.\n\n**<:emoji_1:1464065515579248854> Trial Moderator**\n> Starting rank. Timeout permissions only while completing your trial.\n\n**<:emoji_1:1464065515579248854> Junior Moderator**\n> Awarded upon trial completion. Can kick members and delete messages. No ban permissions yet.\n\n**<:emoji_1:1464065515579248854> Moderator**\n> Requires 2 weeks as Junior Moderator. Full permissions — ban, kick, and timeout.\n\n**<:emoji_1:1464065515579248854> Senior Moderator**\n> Requires 2 weeks as Moderator. A more experienced and trusted role.\n\n**<:emoji_1:1464065515579248854> Head Moderator**\n> Highest achievable rank below leadership. Requires 1 week as Senior Moderator.`
+    title: '<:emoji_1:1464065515579248854>  Behavioral Expectations',
+    content: `As a moderator, you don't just enforce rules; you're also expected to *follow* them yourself. Your behavior sets the tone for the rest of the server and demonstrates what is acceptable and what is not.\n\nMaintaining positive conduct is just as crucial as enforcing rules on others. After all, who's going to listen to someone who doesn't practice what they preach?\n\nThis policy is especially important in public chat areas. We expect *all* moderators to understand when and where their actions are appropriate.\n\n**Prohibited actions as a moderator:**\n• **Swearing**\n• **Mean-spirited jokes**\n• **Mentions of real-life tragedies in inappropriate contexts**\n• **Disrespect & Drama**\n• **Rank abuse — e.g., threatening members with false punishment**\n\nWhile this list isn't everything, we expect you to use **common sense** to determine what's acceptable. If you think it might cause trouble, don't do it. Failure to do so may result in a strike from leadership.`
   }
 ];
 
 const quizQuestions = [
   {
-    question: 'Which of the following correctly lists the permissions granted to a **Junior Moderator**?',
-    options: { A: 'Ban, kick, and timeout members', B: 'Kick members, timeout members, and delete messages', C: 'Ban members only', D: 'No permissions until fully promoted' },
+    question: 'What is a moderator\'s main responsibility?',
+    options: { A: 'Welcoming new members', B: 'Enforce and uphold all server rules', C: 'Managing server channels', D: 'Organizing events' },
     answer: 'B'
   },
   {
-    question: 'A user is actively engaging in hate speech in the server. What is the correct course of action?',
-    options: { A: 'Issue a formal warning', B: 'Apply a temporary timeout', C: 'Issue an immediate ban', D: 'Escalate to SHR' },
+    question: 'If you are unsure about what action to take in a situation, what should you do?',
+    options: { A: 'Take action anyway', B: 'Ignore the situation', C: 'Contact a member of moderation leadership', D: 'Ask a regular member' },
     answer: 'C'
   },
   {
-    question: '**True or False** — As a moderator, you are required to log every moderation action you take.',
+    question: 'Which of the following is a **prohibited action** as a moderator?',
+    options: { A: 'Enforcing rules fairly', B: 'Swearing in chat', C: 'Logging moderation actions', D: 'Asking for help' },
+    answer: 'B'
+  },
+  {
+    question: 'How many times can you retake the trial if you fail?',
+    options: { A: 'Three times', B: 'Unlimited', C: 'Once', D: 'You cannot retake it' },
+    answer: 'C'
+  },
+  {
+    question: '**True or False** — Moderators are expected to follow the same rules as regular members.',
     options: { A: 'True', B: 'False', C: null, D: null },
     answer: 'A'
   },
   {
-    question: 'At which moderation rank does a staff member first receive **ban permissions**?',
-    options: { A: 'Trial Moderator', B: 'Junior Moderator', C: 'Moderator', D: 'Senior Moderator' },
-    answer: 'C'
-  },
-  {
-    question: 'A user is directly threatening another member of the server. What must you do?',
-    options: { A: 'Issue a warning and monitor the situation', B: 'Apply a timeout until they calm down', C: 'Issue an immediate ban', D: 'Notify SHR and wait for instructions' },
-    answer: 'C'
-  },
-  {
-    question: 'What is the **highest rank** achievable within the Moderation Department, below leadership?',
-    options: { A: 'Senior Moderator', B: 'Moderator', C: 'Head Moderator', D: 'Junior Moderator' },
-    answer: 'C'
-  },
-  {
-    question: '**True or False** — Moderators are not expected to follow the same rules as regular members.',
-    options: { A: 'True', B: 'False', C: null, D: null },
+    question: 'What three qualities should you demonstrate when moderating?',
+    options: { A: 'Speed, strictness, and authority', B: 'Fairly, professionally, and respectfully', C: 'Quickly, quietly, and firmly', D: 'Boldly, clearly, and strictly' },
     answer: 'B'
   },
   {
-    question: 'What is the correct **prefix** used for moderation commands in this server?',
-    options: { A: '!', B: '/', C: '.', D: '?' },
-    answer: 'D'
+    question: 'What should you do if you think an action might cause trouble?',
+    options: { A: 'Do it anyway if you think it\'s right', B: 'Ask a regular member for advice', C: 'Don\'t do it', D: 'Wait and see what happens' },
+    answer: 'C'
+  },
+  {
+    question: '**True or False** — Rank abuse, such as threatening members with false punishment, is permitted.',
+    options: { A: 'True', B: 'False', C: null, D: null },
+    answer: 'B'
   }
 ];
 
-const closingNotes = `<:emoji_1:1464065515579248854>  **Closing Notes**\n\nCongratulations on completing your training! This DM will remain active until you have reached the rank of **Moderator**.\n\nDuring this time, you will be guided by your assigned mentor, who is here to support you, answer your questions, and help you grow within the department.\n\nPlease be aware that your mentor has the right to recommend your removal from the Moderation Department at any time if they feel you are not suited for the role. In the unlikely event that this occurs, you will also be asked to step down from the HR team, as switching between departments is not permitted.\n\nWe wish you the very best of luck — we are excited to have you on the team and look forward to seeing you thrive at **Kavià Café**! 🎉`;
+const closingNotes = `Congratulations on completing your training! This DM will remain active until you have reached the rank of **Moderator**.\n\nDuring this time, you will be guided by your assigned mentor, who is here to support you, answer your questions, and help you grow within the department.\n\nPlease be aware that your mentor has the right to recommend your removal from the Moderation Department at any time if they feel you are not suited for the role. In the unlikely event that this occurs, you will also be asked to step down from the HR team, as switching between departments is not permitted.\n\nWe wish you the very best of luck — we are excited to have you on the team and look forward to seeing you thrive at **Kavià Café**! 🎉`;
 
 function getSectionEmbed(index) {
   const section = sections[index];
