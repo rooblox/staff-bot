@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
 const REQUIRED_ROLE_ID = '1484973859513045224';
+const TARGET_GUILD_ID = '1370892833182974035';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -25,24 +26,54 @@ module.exports = {
       const user = interaction.options.getUser('user');
       const record = await StaffRecord.findById(user.id);
 
-      if (!record) {
-        return interaction.editReply({ content: '❌ No record found for this user.' });
+      // Fetch member from the target guild
+      let targetMember = null;
+      try {
+        const targetGuild = await interaction.client.guilds.fetch(TARGET_GUILD_ID);
+        targetMember = await targetGuild.members.fetch(user.id);
+      } catch {
+        // User might not be in that server
       }
 
-      const activeStrikes = record.strikes?.filter(s => !s.removed) || [];
-      const pastStrikes = record.strikes?.filter(s => s.removed) || [];
-      const activeTerminations = record.terminations?.filter(t => !t.removed) || [];
-      const activeBlacklists = record.blacklists?.filter(b => !b.removed) || [];
-      const notes = record.notes || [];
+      const activeStrikes = record?.strikes?.filter(s => !s.removed) || [];
+      const pastStrikes = record?.strikes?.filter(s => s.removed) || [];
+      const activeTerminations = record?.terminations?.filter(t => !t.removed) || [];
+      const activeBlacklists = record?.blacklists?.filter(b => !b.removed) || [];
+      const notes = record?.notes || [];
+
+      // Account creation date
+      const createdAt = `<t:${Math.floor(user.createdTimestamp / 1000)}:D>`;
+
+      // Server join date
+      const joinedAt = targetMember
+        ? `<t:${Math.floor(targetMember.joinedTimestamp / 1000)}:D>`
+        : 'Not in server';
+
+      // Roles in target server (excluding @everyone)
+      const roles = targetMember
+        ? targetMember.roles.cache
+            .filter(r => r.id !== targetMember.guild.id)
+            .sort((a, b) => b.position - a.position)
+            .map(r => r.name)
+            .slice(0, 10)
+            .join(', ') || 'None'
+        : 'Not in server';
+
+      // Nickname
+      const nickname = targetMember?.nickname || 'None';
 
       const embed = new EmbedBuilder()
         .setTitle(`👤 Staff Info — ${user.tag}`)
         .setColor(0x3498DB)
-        .setThumbnail(user.displayAvatarURL())
+        .setThumbnail(user.displayAvatarURL({ dynamic: true }))
         .addFields(
           {
             name: '📋 Basic Info',
-            value: `**User:** ${user}\n**Rank:** ${record.rank || 'Not set'}`
+            value: `**User:** ${user}\n**Rank:** ${record?.rank || 'Not set'}\n**Nickname:** ${nickname}\n**Account Created:** ${createdAt}\n**Joined Server:** ${joinedAt}`
+          },
+          {
+            name: '🎭 Roles',
+            value: roles
           },
           {
             name: `⚠️ Active Strikes (${activeStrikes.length})`,
