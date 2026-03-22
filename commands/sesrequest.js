@@ -1,8 +1,12 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const REQUEST_CHANNEL_ID = '1462503910559453421';
 const PING_ROLE_ID = '1434623628078743584';
 const PROMOTIONAL_ROLE_ID = '1434623628078743584';
+const REQUIRED_BUTTON_ROLE_ID = '1434623628078743584';
+
+const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
+const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -31,11 +35,10 @@ module.exports = {
         .setDescription('Co-host (leave empty if none)')
         .setRequired(false)),
 
-  async execute(interaction) {
+  async execute(interaction, client) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      // Check if promotional shift is being requested by someone without the role
       const shiftType = interaction.options.getString('shift_type');
       if (shiftType === 'Promotional Shift') {
         const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
@@ -52,7 +55,7 @@ module.exports = {
         .setTitle('📋 Session Request')
         .setColor(0x3498DB)
         .addFields(
-          { name: '👤 Host', value: `${interaction.user}` },
+          { name: '👤 Host', value: `${interaction.user} (${interaction.user.id})` },
           { name: '🎯 Shift Type', value: shiftType },
           { name: '🕒 Time', value: time },
           { name: '🤝 Co-Host', value: cohostText }
@@ -60,11 +63,24 @@ module.exports = {
         .setFooter({ text: 'Kavià Café • Session Requests' })
         .setTimestamp();
 
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sesaccept_${interaction.user.id}_${shiftType}`)
+            .setLabel('✅ Accept Request')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`sesdecline_${interaction.user.id}_${shiftType}`)
+            .setLabel('❌ Decline Request')
+            .setStyle(ButtonStyle.Danger)
+        );
+
       const requestChannel = await interaction.client.channels.fetch(REQUEST_CHANNEL_ID);
       if (requestChannel?.isTextBased()) {
         await requestChannel.send({
           content: `<@&${PING_ROLE_ID}>`,
-          embeds: [embed]
+          embeds: [embed],
+          components: [row]
         });
       }
 
