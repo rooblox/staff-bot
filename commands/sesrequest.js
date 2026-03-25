@@ -3,10 +3,30 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 const REQUEST_CHANNEL_ID = '1462503910559453421';
 const PING_ROLE_ID = '1434623628078743584';
 const PROMOTIONAL_ROLE_ID = '1434623628078743584';
-const REQUIRED_BUTTON_ROLE_ID = '1434623628078743584';
 
 const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
 const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
+
+const SHIFT_TIMES = [
+  { name: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT', value: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT' },
+  { name: '2:00 AM EST | 8:00 AM CET | 11:00 PM PT', value: '2:00 AM EST | 8:00 AM CET | 11:00 PM PT' },
+  { name: '4:00 AM EST | 10:00 AM CET | 1:00 AM PT', value: '4:00 AM EST | 10:00 AM CET | 1:00 AM PT' },
+  { name: '6:00 AM EST | 12:00 PM CET | 3:00 AM PT', value: '6:00 AM EST | 12:00 PM CET | 3:00 AM PT' },
+  { name: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT', value: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT' },
+  { name: '10:00 AM EST | 4:00 PM CET | 7:00 AM PT', value: '10:00 AM EST | 4:00 PM CET | 7:00 AM PT' },
+  { name: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT', value: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT' },
+  { name: '2:00 PM EST | 8:00 PM CET | 11:00 AM PT', value: '2:00 PM EST | 8:00 PM CET | 11:00 AM PT' },
+  { name: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT' },
+  { name: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT', value: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT' },
+  { name: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT' },
+];
+
+const TRAINING_TIMES = [
+  { name: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT', value: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT' },
+  { name: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT', value: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT' },
+  { name: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT' },
+  { name: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT' },
+];
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -22,14 +42,10 @@ module.exports = {
           { name: 'Promotional Shift', value: 'Promotional Shift' }
         ))
     .addStringOption(option =>
-      option.setName('time')
-        .setDescription('Select a time slot')
+      option.setName('shift_time')
+        .setDescription('Select your shift time (use shift times for shifts, training times for training)')
         .setRequired(true)
-        .addChoices(
-          { name: '12:00 EST | 6:00 CET | 9:00 PT', value: '12:00 EST | 6:00 CET | 9:00 PT' },
-          { name: '4:00 EST | 10:00 CET | 1:00 PT', value: '4:00 EST | 10:00 CET | 1:00 PT' },
-          { name: '8:00 EST | 2:00 CET | 5:00 PT', value: '8:00 EST | 2:00 CET | 5:00 PT' }
-        ))
+        .addChoices(...SHIFT_TIMES, ...TRAINING_TIMES))
     .addUserOption(option =>
       option.setName('cohost')
         .setDescription('Co-host (leave empty if none)')
@@ -40,6 +56,7 @@ module.exports = {
 
     try {
       const shiftType = interaction.options.getString('shift_type');
+
       if (shiftType === 'Promotional Shift') {
         const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
         if (!member.roles.cache.has(PROMOTIONAL_ROLE_ID)) {
@@ -47,7 +64,7 @@ module.exports = {
         }
       }
 
-      const time = interaction.options.getString('time');
+      const time = interaction.options.getString('shift_time');
       const cohost = interaction.options.getUser('cohost');
       const cohostText = cohost ? `${cohost}` : 'No co-host — DM me to co-host!';
 
