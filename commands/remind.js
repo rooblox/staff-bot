@@ -132,7 +132,6 @@ module.exports = {
 
         let totalMs = (days * 24 * 60 * 60 * 1000) + (hours * 60 * 60 * 1000) + (minutes * 60 * 1000);
 
-        // If recurring and no manual time set, use the recurring interval as the first fire time
         if (totalMs === 0 && recurring) {
           totalMs = recurringMs[recurring];
         }
@@ -141,7 +140,6 @@ module.exports = {
           return interaction.editReply({ content: '❌ Please provide a time or select a recurring option.' });
         }
 
-        // Make sure fire time is always in the future
         const fireAt = new Date(Date.now() + totalMs);
 
         const reminder = new Reminder({
@@ -190,36 +188,45 @@ module.exports = {
 };
 
 function scheduleReminder(reminder, client) {
+  const MAX_TIMEOUT = 2147483647;
   const delay = new Date(reminder.fireAt).getTime() - Date.now();
 
-  // If delay is less than 1 second, don't fire — something is wrong
   if (delay < 1000) {
     console.warn(`⚠️ Skipping reminder ${reminder._id} — delay too short (${delay}ms)`);
     return;
   }
 
+  if (delay > MAX_TIMEOUT) {
+    setTimeout(() => {
+      scheduleReminder(reminder, client);
+    }, MAX_TIMEOUT);
+    return;
+  }
+
   setTimeout(async () => {
     try {
-      const user = await client.users.fetch(reminder.userId);
+      const latestReminder = await Reminder.findById(reminder._id);
+      if (!latestReminder) return;
+
+      const user = await client.users.fetch(latestReminder.userId);
       await user.send({
         embeds: [
           new EmbedBuilder()
             .setTitle('⏰ Reminder!')
-            .setDescription(`${reminder.message}`)
+            .setDescription(`${latestReminder.message}`)
             .setColor(0x3498DB)
-            .setFooter({ text: reminder.recurring ? `🔁 This is a recurring reminder` : 'Kavia Cafe • Reminders' })
+            .setFooter({ text: latestReminder.recurring ? `🔁 This is a recurring reminder` : 'Kavia Cafe • Reminders' })
             .setTimestamp()
         ]
       });
 
-      if (reminder.recurring && reminder.recurringMs) {
-        // Set next fire time from NOW + interval, never from old fireAt
-        const nextFireAt = new Date(Date.now() + reminder.recurringMs);
-        await Reminder.findByIdAndUpdate(reminder._id, { fireAt: nextFireAt });
-        reminder.fireAt = nextFireAt;
-        scheduleReminder(reminder, client);
+      if (latestReminder.recurring && latestReminder.recurringMs) {
+        const nextFireAt = new Date(Date.now() + latestReminder.recurringMs);
+        await Reminder.findByIdAndUpdate(latestReminder._id, { fireAt: nextFireAt });
+        latestReminder.fireAt = nextFireAt;
+        scheduleReminder(latestReminder, client);
       } else {
-        await Reminder.findByIdAndDelete(reminder._id);
+        await Reminder.findByIdAndDelete(latestReminder._id);
       }
     } catch (err) {
       console.error('Failed to send reminder:', err);
