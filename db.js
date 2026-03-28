@@ -47,12 +47,14 @@ const staffSchema = new mongoose.Schema({
     }]
 }, { versionKey: false });
 
-// Separate schema just for reminders
 const reminderSchema = new mongoose.Schema({
     userId: String,
     message: String,
     fireAt: Date,
-    createdAt: Date
+    createdAt: Date,
+    createdBy: String,
+    recurring: String,
+    recurringMs: Number
 }, { versionKey: false });
 
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
