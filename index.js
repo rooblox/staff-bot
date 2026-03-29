@@ -56,9 +56,17 @@ const {
 } = trainingModule;
 
 const loaModule = require('./commands/loa');
-const { sendLog, scheduleLOAReturnReminder, scheduleLoaAutoDelete } = loaModule;
+const { scheduleLOAReturnReminder } = loaModule;
 
-// ========== LOA HELPERS ==========
+// ========== HELPERS ==========
+async function hasStaffRole(userId) {
+    for (const guild of client.guilds.cache.values()) {
+        const m = await guild.members.fetch(userId).catch(() => null);
+        if (m && m.roles.cache.has(LOA_STAFF_ROLE_ID)) return true;
+    }
+    return false;
+}
+
 async function sendLOALog(user, title, color, loaId, extraFields = []) {
     try {
         const logGuild = await client.guilds.fetch(LOA_LOG_GUILD_ID);
@@ -803,11 +811,9 @@ Should you have any questions or concerns prior to your session, please do not h
         if (interaction.customId.startsWith('loa_accept_')) {
             const loaId = interaction.customId.replace('loa_accept_', '');
 
-          const mainGuild = await client.guilds.fetch('1434556801096876034');
-const staffMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
-if (!staffMember || !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
-    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-}
+            if (!await hasStaffRole(interaction.user.id)) {
+                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            }
 
             try {
                 const loa = await LOA.findById(loaId);
@@ -852,9 +858,7 @@ if (!staffMember || !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
         if (interaction.customId.startsWith('loa_deny_')) {
             const loaId = interaction.customId.replace('loa_deny_', '');
 
-            const guild = interaction.guild ?? await client.guilds.fetch(LOA_LOG_GUILD_ID);
-            const staffMember = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
-            if (staffMember && !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
+            if (!await hasStaffRole(interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             }
 
@@ -877,9 +881,7 @@ if (!staffMember || !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
         if (interaction.customId.startsWith('loa_moreinfo_')) {
             const loaId = interaction.customId.replace('loa_moreinfo_', '');
 
-            const guild = interaction.guild ?? await client.guilds.fetch(LOA_LOG_GUILD_ID);
-            const staffMember = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
-            if (staffMember && !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
+            if (!await hasStaffRole(interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             }
 
@@ -911,7 +913,6 @@ if (!staffMember || !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
             await interaction.update({ components: [] });
             await LOA.findByIdAndUpdate(loaId, { status: 'returned' });
 
-            // Delete LOA message from channel
             try {
                 const loaGuild = await client.guilds.fetch(LOA_GUILD_ID);
                 const loaChannel = await loaGuild.channels.fetch(LOA_CHANNEL_ID);
@@ -998,7 +999,7 @@ After careful review, your request was unable to be approved at this time. Pleas
 > <:pink_pin:1166850035611353148> **Status →** *Declined ❌*
 > <:pink_pin:1166850035611353148> **Reason →** *${reason}*
 We encourage you to review the reason provided and reach out to a member of our team if you have any questions or concerns. We hope to see you submit another request soon!
-***Sincerely,***
+***Signed,***
 **${interaction.user.username}**
 **Kavià Café Staff Team**`;
 
@@ -1145,7 +1146,6 @@ We encourage you to review the reason provided and reach out to a member of our 
                     ]
                 });
 
-                // Reschedule return reminder for new date
                 const updatedLoa = await LOA.findById(loaId);
                 scheduleLOAReturnReminder(updatedLoa, client);
 
