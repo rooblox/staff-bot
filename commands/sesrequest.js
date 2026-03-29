@@ -1,11 +1,13 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Session } = require('../db');
 
 const REQUEST_CHANNEL_ID = '1462503910559453421';
+const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
+const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const PING_ROLE_ID = '1434623628078743584';
 const PROMOTIONAL_ROLE_ID = '1434623628078743584';
-
-const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
-const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
+const SHIFT_PING_ROLE_ID = '1371568661592019044';
+const TRAINING_PING_ROLE_ID = '1371568736569659462';
 
 const SHIFT_TIMES = [
   { name: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT', value: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT' },
@@ -28,6 +30,34 @@ const TRAINING_TIMES = [
   { name: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT' },
 ];
 
+// Parse EST time from the time string and return a Date object for today
+function parseSessionTime(timeStr) {
+  const estPart = timeStr.split('|')[0].trim(); // e.g. "4:00 PM EST"
+  const cleanTime = estPart.replace('EST', '').trim(); // e.g. "4:00 PM"
+
+  const now = new Date();
+  const estOffset = -5 * 60; // EST is UTC-5
+  const utcNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
+  const estNow = new Date(utcNow.getTime() + estOffset * 60000);
+
+  const [time, period] = cleanTime.split(' ');
+  let [hours, minutes] = time.split(':').map(Number);
+
+  if (period === 'PM' && hours !== 12) hours += 12;
+  if (period === 'AM' && hours === 12) hours = 0;
+
+  const sessionDate = new Date(estNow);
+  sessionDate.setHours(hours, minutes, 0, 0);
+
+  // If time has already passed today, use tomorrow
+  if (sessionDate <= estNow) {
+    sessionDate.setDate(sessionDate.getDate() + 1);
+  }
+
+  // Convert back to UTC
+  return new Date(sessionDate.getTime() - estOffset * 60000);
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('sesrequest')
@@ -43,7 +73,7 @@ module.exports = {
         ))
     .addStringOption(option =>
       option.setName('shift_time')
-        .setDescription('Select your shift time (use shift times for shifts, training times for training)')
+        .setDescription('Select your shift time')
         .setRequired(true)
         .addChoices(...SHIFT_TIMES, ...TRAINING_TIMES))
     .addUserOption(option =>
@@ -67,6 +97,25 @@ module.exports = {
       const time = interaction.options.getString('shift_time');
       const cohost = interaction.options.getUser('cohost');
       const cohostText = cohost ? `${cohost}` : 'No co-host — DM me to co-host!';
+      const cohostId = cohost ? cohost.id : null;
+
+      // Save session to MongoDB
+      const session = new Session({
+        hostId: interaction.user.id,
+        coHostId: cohostId,
+        shiftType,
+        time,
+        requestChannelId: REQUEST_CHANNEL_ID,
+        status: 'pending',
+        preSessionReminderSent: false,
+        sessionStarted: false,
+        finishCheckStarted: false,
+        createdAt: new Date(),
+        sessionFireAt: parseSessionTime(time),
+        autoDeleteAt: null
+      });
+
+      await session.save();
 
       const embed = new EmbedBuilder()
         .setTitle('📋 Session Request')
@@ -77,28 +126,31 @@ module.exports = {
           { name: '🕒 Time', value: time },
           { name: '🤝 Co-Host', value: cohostText }
         )
-        .setFooter({ text: 'Kavià Café • Session Requests' })
+        .setFooter({ text: `Session ID: ${session._id} • Kavià Café` })
         .setTimestamp();
 
       const row = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
-            .setCustomId(`sesaccept_${interaction.user.id}_${shiftType}`)
+            .setCustomId(`sesaccept_${session._id}`)
             .setLabel('✅ Accept Request')
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
-            .setCustomId(`sesdecline_${interaction.user.id}_${shiftType}`)
+            .setCustomId(`sesdecline_${session._id}`)
             .setLabel('❌ Decline Request')
             .setStyle(ButtonStyle.Danger)
         );
 
       const requestChannel = await interaction.client.channels.fetch(REQUEST_CHANNEL_ID);
       if (requestChannel?.isTextBased()) {
-        await requestChannel.send({
+        const msg = await requestChannel.send({
           content: `<@&${PING_ROLE_ID}>`,
           embeds: [embed],
           components: [row]
         });
+
+        // Save message ID
+        await Session.findByIdAndUpdate(session._id, { requestMessageId: msg.id });
       }
 
       await interaction.editReply({ content: '✅ Your session request has been submitted!' });
@@ -107,5 +159,12 @@ module.exports = {
       console.error('Error in /sesrequest command:', err);
       try { await interaction.editReply({ content: '❌ Error running command.' }); } catch {}
     }
-  }
+  },
+
+  parseSessionTime,
+  REQUEST_CHANNEL_ID,
+  ANNOUNCEMENT_CHANNEL_ID,
+  ANNOUNCEMENT_GUILD_ID,
+  SHIFT_PING_ROLE_ID,
+  TRAINING_PING_ROLE_ID
 };

@@ -57,7 +57,27 @@ const reminderSchema = new mongoose.Schema({
     recurringMs: Number
 }, { versionKey: false });
 
+const sessionSchema = new mongoose.Schema({
+    hostId: String,
+    coHostId: String,
+    shiftType: String,
+    time: String,
+    announcementMessageId: String,
+    announcementChannelId: String,
+    requestMessageId: String,
+    requestChannelId: String,
+    status: String, // pending, approved, cancelled, finished
+    preSessionReminderSent: Boolean,
+    sessionStarted: Boolean,
+    finishCheckStarted: Boolean,
+    createdAt: Date,
+    approvedAt: Date,
+    sessionFireAt: Date,
+    autoDeleteAt: Date
+}, { versionKey: false });
+
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
 const Reminder = mongoose.model('Reminder', reminderSchema);
+const Session = mongoose.model('Session', sessionSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder };
+module.exports = { connectDB, StaffRecord, Reminder, Session };

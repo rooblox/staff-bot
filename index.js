@@ -2,11 +2,15 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { connectDB, Reminder } = require('./db');
+const { connectDB, Reminder, Session } = require('./db');
 
 const REQUEST_CHANNEL_ID = '1462503910559453421';
+const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
+const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const REQUIRED_BUTTON_ROLE_ID = '1434623628078743584';
 const TRAINING_BUTTON_ROLE_ID = '1464028127440273458';
+const SHIFT_PING_ROLE_ID = '1371568661592019044';
+const TRAINING_PING_ROLE_ID = '1371568736569659462';
 const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
 const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
 
@@ -33,7 +37,6 @@ for (const file of commandFiles) {
     console.log(`Loaded command: ${command.data.name}`);
 }
 
-// Load training module
 const trainingModule = require('./commands/startmodtraining');
 const {
     activeSessions,
@@ -47,9 +50,197 @@ const {
     LOG_CHANNEL_ID
 } = trainingModule;
 
+// ========== SESSION SCHEDULING ==========
+async function schedulePreSessionReminder(session) {
+    const fireAt = new Date(session.sessionFireAt).getTime();
+    const reminderTime = fireAt - 10 * 60 * 1000; // 10 mins before
+    const delay = reminderTime - Date.now();
+
+    if (delay < 0) {
+        console.log(`⚠️ Session ${session._id} time has already passed, skipping pre-session reminder`);
+        return;
+    }
+
+    setTimeout(async () => {
+        try {
+            const latestSession = await Session.findById(session._id);
+            if (!latestSession || latestSession.status !== 'approved') return;
+
+            const host = await client.users.fetch(latestSession.hostId);
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`ses_stillhosting_${session._id}`)
+                    .setLabel('✅ Yes, I am still hosting')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`ses_canthost_${session._id}`)
+                    .setLabel('❌ No, I cannot make it')
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            await host.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('⏰ Session Starting Soon!')
+                        .setDescription(`Your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host?`)
+                        .setColor(0xF39C12)
+                        .setTimestamp()
+                ],
+                components: [row]
+            });
+
+            await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
+        } catch (err) {
+            console.error('Error sending pre-session reminder:', err);
+        }
+    }, delay);
+}
+
+async function postAnnouncement(session) {
+    try {
+        const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID);
+        const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
+
+        const host = await client.users.fetch(session.hostId);
+        const cohost = session.coHostId ? await client.users.fetch(session.coHostId) : null;
+        const cohostText = cohost ? `<@${cohost.id}>` : 'None';
+
+        let announcementContent = '';
+
+        if (session.shiftType === 'Training') {
+            announcementContent = `Hello <@&${TRAINING_PING_ROLE_ID}> !
+‼️ Get ready! I'm excited to announce that I'll be hosting a training at ${session.time} alongside my co-host, ${cohostText}!
+📈 If you're an LR aiming for promotion, this is your moment to step up and shine. We're looking forward to seeing your faces ready to grow within Kavià.
+Don't miss your chance!
+🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)
+🔗 | [Application Center](https://www.roblox.com/games/88140934632053/Kavia-Cafe-Application-Center)
+🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`;
+        } else {
+            announcementContent = `## 🚀 | Shift Commencement
+
+<@&${SHIFT_PING_ROLE_ID}>
+
+**‼️ | We are excited to announce that a shift is now being hosted at our lovely café!**
+
+🍪 | Whether you're a valued customer looking for fast and exceptional service, or a dedicated staff member working toward your next promotion, we encourage you to attend.
+
+✨ | Shifts are the perfect opportunity to demonstrate activity, professionalism, and teamwork. Show up, stay consistent, and make your presence known!
+
+💼 | Hosted by: <@${session.hostId}>
+
+☕ | Join us at the café and be part of the experience today!
+
+🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)`;
+        }
+
+        const msg = await announcementChannel.send({ content: announcementContent });
+
+        const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await Session.findByIdAndUpdate(session._id, {
+            announcementMessageId: msg.id,
+            announcementChannelId: ANNOUNCEMENT_CHANNEL_ID,
+            sessionStarted: true,
+            status: 'active',
+            autoDeleteAt
+        });
+
+        // Schedule finish check 25 mins after announcement
+        scheduleFinishCheck(session._id, msg.id, 25 * 60 * 1000);
+
+        // Schedule auto delete after 24 hours
+        scheduleAutoDelete(session._id, msg.id, 24 * 60 * 60 * 1000);
+
+    } catch (err) {
+        console.error('Error posting announcement:', err);
+    }
+}
+
+function scheduleFinishCheck(sessionId, messageId, delay) {
+    setTimeout(async () => {
+        try {
+            const latestSession = await Session.findById(sessionId);
+            if (!latestSession || latestSession.status === 'finished' || latestSession.status === 'cancelled') return;
+
+            const host = await client.users.fetch(latestSession.hostId);
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`ses_finished_${sessionId}`)
+                    .setLabel('✅ Yes, session is finished')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`ses_notfinished_${sessionId}`)
+                    .setLabel('❌ No, still going')
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            await host.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('🏁 Is your session finished?')
+                        .setDescription(`Hey! It's been 25 minutes since your **${latestSession.shiftType}** was announced. Is it finished?`)
+                        .setColor(0x3498DB)
+                        .setTimestamp()
+                ],
+                components: [row]
+            });
+
+        } catch (err) {
+            console.error('Error sending finish check:', err);
+        }
+    }, delay);
+}
+
+function scheduleAutoDelete(sessionId, messageId, delay) {
+    const MAX_TIMEOUT = 2147483647;
+
+    if (delay > MAX_TIMEOUT) {
+        setTimeout(() => scheduleAutoDelete(sessionId, messageId, delay - MAX_TIMEOUT), MAX_TIMEOUT);
+        return;
+    }
+
+    setTimeout(async () => {
+        try {
+            const latestSession = await Session.findById(sessionId);
+            if (!latestSession || latestSession.status === 'finished' || latestSession.status === 'cancelled') return;
+
+            const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID);
+            const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
+            const msg = await announcementChannel.messages.fetch(messageId).catch(() => null);
+            if (msg) await msg.delete().catch(() => {});
+
+            await Session.findByIdAndUpdate(sessionId, { status: 'finished' });
+            console.log(`✅ Auto deleted announcement for session ${sessionId}`);
+        } catch (err) {
+            console.error('Error auto deleting announcement:', err);
+        }
+    }, delay);
+}
+
+async function restoreSessions() {
+    try {
+        const activeSessions = await Session.find({ status: { $in: ['approved', 'active'] } });
+        for (const session of activeSessions) {
+            if (session.status === 'approved' && !session.preSessionReminderSent) {
+                schedulePreSessionReminder(session);
+            }
+            if (session.status === 'active' && session.announcementMessageId) {
+                const timeLeft = new Date(session.autoDeleteAt).getTime() - Date.now();
+                if (timeLeft > 0) {
+                    scheduleAutoDelete(session._id, session.announcementMessageId, timeLeft);
+                }
+            }
+        }
+        console.log(`✅ Restored ${activeSessions.length} active sessions`);
+    } catch (err) {
+        console.error('Error restoring sessions:', err);
+    }
+}
+
+// ========== INTERACTION HANDLER ==========
 client.on('interactionCreate', async interaction => {
 
-    // Handle slash commands
     if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);
         if (!command) return;
@@ -69,8 +260,8 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Handle buttons
     if (interaction.isButton()) {
+        const member = interaction.member ?? await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
 
         // ========== TRAINING BUTTONS ==========
         if (interaction.customId.startsWith('training_done_')) {
@@ -87,8 +278,6 @@ client.on('interactionCreate', async interaction => {
             if (session.locked) return interaction.reply({ content: '🔒 Your session is locked. Please wait for a staff member to resolve your help request.', ephemeral: true });
 
             const nextSection = sectionIndex + 1;
-
-            // Disable the current buttons
             await interaction.update({ components: [] });
 
             if (nextSection < sections.length) {
@@ -97,7 +286,6 @@ client.on('interactionCreate', async interaction => {
                 const buttons = getSectionButtons(userId, nextSection);
                 await interaction.user.send({ embeds: [embed], components: [buttons] });
             } else {
-                // All sections done, start quiz
                 session.phase = 'quiz';
                 session.quizIndex = 0;
                 session.score = 0;
@@ -175,9 +363,7 @@ client.on('interactionCreate', async interaction => {
             const userId = parts[2];
             const sectionIndex = parseInt(parts[3]);
 
-            // Check staff role
-            const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-            if (!member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
+            if (member && !member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
                 return interaction.reply({ content: '❌ You do not have permission to resolve training sessions.', ephemeral: true });
             }
 
@@ -241,7 +427,6 @@ client.on('interactionCreate', async interaction => {
                     await interaction.user.send({ embeds: [quizEmbed], components: [quizButtons] });
                 }, 1500);
             } else {
-                // Quiz complete — send closing notes then results to log
                 await interaction.user.send({
                     embeds: [
                         new EmbedBuilder()
@@ -290,8 +475,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('training_pass_')) {
             const userId = interaction.customId.split('_')[2];
 
-            const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-            if (!member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
+            if (member && !member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
                 return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             }
 
@@ -314,8 +498,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('training_fail_')) {
             const userId = interaction.customId.split('_')[2];
 
-            const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-            if (!member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
+            if (member && !member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
                 return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             }
 
@@ -332,9 +515,8 @@ client.on('interactionCreate', async interaction => {
                 ]
             });
 
-            // Restart training
             activeSessions.set(userId, {
-                staffId: session?.staffId || interaction.user.id,
+                staffId: interaction.user.id,
                 guildId: interaction.guild.id,
                 section: 0,
                 quizIndex: 0,
@@ -353,33 +535,34 @@ client.on('interactionCreate', async interaction => {
         }
 
         // ========== SESSION REQUEST BUTTONS ==========
-        const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-        if (interaction.customId.startsWith('sesaccept_') || interaction.customId.startsWith('sesdecline_')) {
-            if (!member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID)) {
+        if (interaction.customId.startsWith('sesaccept_')) {
+            if (member && !member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID)) {
                 return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
             }
-        }
 
-        if (interaction.customId.startsWith('sesaccept_')) {
-            const parts = interaction.customId.split('_');
-            const userId = parts[1];
-            const shiftType = parts.slice(2).join('_');
+            const sessionId = interaction.customId.replace('sesaccept_', '');
 
             try {
-                const user = await client.users.fetch(userId);
+                const session = await Session.findById(sessionId);
+                if (!session) return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
+
+                await Session.findByIdAndUpdate(sessionId, { status: 'approved', approvedAt: new Date() });
+
+                const user = await client.users.fetch(session.hostId);
 
                 let linkText = '';
-                if (shiftType === 'Training') {
+                if (session.shiftType === 'Training') {
                     linkText = `\n\nPlease review the training guide before your session:\n${TRAINING_LINK}`;
-                } else if (shiftType === 'Regular Shift') {
+                } else if (session.shiftType === 'Regular Shift') {
                     linkText = `\n\nPlease review the shift guide before your session:\n${SHIFT_LINK}`;
                 }
 
                 const dmMessage = `# <:kaviacafe:1387492814916685845> **Session Request Accepted**
 Hello, ${user},
-We are delighted to inform you that your **${shiftType}** request has been **accepted** at **Kavià Café**! We are looking forward to having you host this session and appreciate your dedication to our community.
+We are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**! We are looking forward to having you host this session and appreciate your dedication to our community.
 Your request has been reviewed and approved by a member of our team. Please ensure you are prepared and ready for your session at the scheduled time.
-> <:pink_pin:1166850035611353148> **Shift Type →** *${shiftType}*
+> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*
+> <:pink_pin:1166850035611353148> **Time →** *${session.time}*
 > <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*
 Should you have any questions or concerns prior to your session, please do not hesitate to reach out to a member of our team. We wish you the best of luck and hope you have a wonderful session!${linkText}
 ***Signed,***
@@ -392,24 +575,32 @@ Should you have any questions or concerns prior to your session, please do not h
                 const newEmbed = EmbedBuilder.from(oldEmbed)
                     .setColor(0x2ECC71)
                     .setTitle('📋 Session Request — ✅ Accepted')
-                    .setFooter({ text: `Accepted by ${interaction.user.username}` });
+                    .setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` });
 
                 await interaction.update({ embeds: [newEmbed], components: [] });
 
+                // Schedule 10 min pre-session reminder
+                session.status = 'approved';
+                await schedulePreSessionReminder(session);
+
             } catch (err) {
-                console.error('Error accepting session request:', err);
+                console.error('Error accepting session:', err);
                 await interaction.reply({ content: '❌ Error accepting request.', ephemeral: true });
             }
             return;
         }
 
-        if (interaction.customId.startsWith('sesdecline_')) {
-            const parts = interaction.customId.split('_');
-            const userId = parts[1];
-            const shiftType = parts.slice(2).join('_');
+        if (interaction.customId.startsWith('sesdecline_') && !interaction.customId.startsWith('sesdeclinemodal_')) {
+            if (member && !member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID)) {
+                return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
+            }
+
+            const sessionId = interaction.customId.replace('sesdecline_', '');
+            const session = await Session.findById(sessionId);
+            if (!session) return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
 
             const modal = new ModalBuilder()
-                .setCustomId(`sesdeclinemodal_${userId}_${shiftType}`)
+                .setCustomId(`sesdeclinemodal_${sessionId}`)
                 .setTitle('Decline Session Request');
 
             const reasonInput = new TextInputBuilder()
@@ -421,31 +612,151 @@ Should you have any questions or concerns prior to your session, please do not h
 
             const row = new ActionRowBuilder().addComponents(reasonInput);
             modal.addComponents(row);
-
             await interaction.showModal(modal);
             return;
         }
+
+        // ========== PRE SESSION REMINDER BUTTONS ==========
+        if (interaction.customId.startsWith('ses_stillhosting_')) {
+            const sessionId = interaction.customId.replace('ses_stillhosting_', '');
+
+            if (interaction.user.id !== (await Session.findById(sessionId))?.hostId) {
+                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+            }
+
+            await interaction.update({ components: [] });
+            await interaction.user.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('✅ Great!')
+                        .setDescription('Awesome! Your session announcement will be posted in the server. Good luck hosting!')
+                        .setColor(0x2ECC71)
+                        .setTimestamp()
+                ]
+            });
+
+            const session = await Session.findById(sessionId);
+            if (session) await postAnnouncement(session);
+            return;
+        }
+
+        if (interaction.customId.startsWith('ses_canthost_')) {
+            const sessionId = interaction.customId.replace('ses_canthost_', '');
+            const session = await Session.findById(sessionId);
+
+            if (!session || interaction.user.id !== session.hostId) {
+                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+            }
+
+            await interaction.update({ components: [] });
+            await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
+
+            await interaction.user.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('❌ Session Cancelled')
+                        .setDescription('Your session has been cancelled. Please let a staff member know if you need to reschedule.')
+                        .setColor(0xE74C3C)
+                        .setTimestamp()
+                ]
+            });
+
+            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
+            if (requestChannel?.isTextBased()) {
+                await requestChannel.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('❌ Session Cancelled')
+                            .setColor(0xE74C3C)
+                            .setDescription(`<@${session.hostId}> is no longer able to host their **${session.shiftType}** at ${session.time}.`)
+                            .setTimestamp()
+                    ]
+                });
+            }
+            return;
+        }
+
+        // ========== FINISH CHECK BUTTONS ==========
+        if (interaction.customId.startsWith('ses_finished_')) {
+            const sessionId = interaction.customId.replace('ses_finished_', '');
+            const session = await Session.findById(sessionId);
+
+            if (!session || interaction.user.id !== session.hostId) {
+                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+            }
+
+            await interaction.update({ components: [] });
+            await Session.findByIdAndUpdate(sessionId, { status: 'finished' });
+
+            try {
+                const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID);
+                const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
+                const msg = await announcementChannel.messages.fetch(session.announcementMessageId).catch(() => null);
+                if (msg) await msg.delete().catch(() => {});
+            } catch (err) {
+                console.error('Error deleting announcement:', err);
+            }
+
+            await interaction.user.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('✅ Session Finished')
+                        .setDescription('Great job! Your session has been marked as finished and the announcement has been removed. Thank you for hosting!')
+                        .setColor(0x2ECC71)
+                        .setTimestamp()
+                ]
+            });
+            return;
+        }
+
+        if (interaction.customId.startsWith('ses_notfinished_')) {
+            const sessionId = interaction.customId.replace('ses_notfinished_', '');
+            const session = await Session.findById(sessionId);
+
+            if (!session || interaction.user.id !== session.hostId) {
+                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+            }
+
+            await interaction.update({ components: [] });
+
+            await interaction.user.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('⏳ Still Going!')
+                        .setDescription('No problem! We\'ll check back in another 25 minutes.')
+                        .setColor(0xF39C12)
+                        .setTimestamp()
+                ]
+            });
+
+            // Schedule another finish check in 25 mins
+            scheduleFinishCheck(sessionId, session.announcementMessageId, 25 * 60 * 1000);
+            return;
+        }
+
         return;
     }
 
-    // Handle modal submissions
+    // ========== MODAL SUBMISSIONS ==========
     if (interaction.isModalSubmit()) {
         if (interaction.customId.startsWith('sesdeclinemodal_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
             try {
-                const parts = interaction.customId.split('_');
-                const userId = parts[1];
-                const shiftType = parts.slice(2).join('_');
+                const sessionId = interaction.customId.replace('sesdeclinemodal_', '');
                 const reason = interaction.fields.getTextInputValue('declinereason');
+                const session = await Session.findById(sessionId);
+                if (!session) return interaction.editReply({ content: '❌ Session not found.' });
 
-                const user = await client.users.fetch(userId);
+                await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
+
+                const user = await client.users.fetch(session.hostId);
 
                 const dmMessage = `# <:kaviacafe:1387492814916685845> **Session Request Declined**
 Hello, ${user},
-We regret to inform you that your **${shiftType}** request has been **declined** at **Kavià Café**. We understand this may be disappointing, and we appreciate your enthusiasm for hosting sessions within our community.
+We regret to inform you that your **${session.shiftType}** request has been **declined** at **Kavià Café**. We understand this may be disappointing, and we appreciate your enthusiasm for hosting sessions within our community.
 After careful review, your request was unable to be approved at this time. Please take note of the reason provided below and feel free to submit a new request in the future.
-> <:pink_pin:1166850035611353148> **Shift Type →** *${shiftType}*
+> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*
 > <:pink_pin:1166850035611353148> **Status →** *Declined ❌*
 > <:pink_pin:1166850035611353148> **Reason →** *${reason}*
 We encourage you to review the reason provided and reach out to a member of our team if you have any questions or concerns. We hope to see you submit another request soon!
@@ -465,7 +776,7 @@ We encourage you to review the reason provided and reach out to a member of our 
                 await interaction.editReply({ content: '✅ Request declined and user notified.' });
 
             } catch (err) {
-                console.error('Error declining session request:', err);
+                console.error('Error declining session:', err);
                 try { await interaction.editReply({ content: '❌ Error declining request.' }); } catch {}
             }
         }
@@ -476,7 +787,6 @@ We encourage you to review the reason provided and reach out to a member of our 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // React with 👀 to DMs during active training
     if (message.channel.type === 1) {
         if (activeSessions.has(message.author.id)) {
             try { await message.react('👀'); } catch {}
@@ -518,14 +828,8 @@ client.once('ready', async () => {
 
     for (const guild of client.guilds.cache.values()) {
         try {
-            await rest.put(
-                Routes.applicationGuildCommands(client.user.id, guild.id),
-                { body: [] }
-            );
-            await rest.put(
-                Routes.applicationGuildCommands(client.user.id, guild.id),
-                { body: cmds }
-            );
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
             console.log(`✅ Commands registered in guild: ${guild.name}`);
         } catch (err) {
             console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
@@ -538,6 +842,8 @@ client.once('ready', async () => {
         scheduleReminder(reminder, client);
     }
     console.log(`✅ Reloaded ${pendingReminders.length} pending reminders`);
+
+    await restoreSessions();
 });
 
 client.on('guildCreate', async guild => {
@@ -545,10 +851,7 @@ client.on('guildCreate', async guild => {
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
     try {
-        await rest.put(
-            Routes.applicationGuildCommands(client.user.id, guild.id),
-            { body: cmds }
-        );
+        await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
         console.log(`✅ Commands registered in new guild: ${guild.name}`);
     } catch (err) {
         console.error(`❌ Failed to register commands in new guild ${guild.name}:`, err);
