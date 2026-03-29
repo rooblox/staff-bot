@@ -34,25 +34,31 @@ function parseSessionTime(timeStr) {
   const estPart = timeStr.split('|')[0].trim();
   const cleanTime = estPart.replace('EST', '').trim();
 
-  const now = new Date();
-  const estOffset = -5 * 60;
-  const utcNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-  const estNow = new Date(utcNow.getTime() + estOffset * 60000);
-
   const [time, period] = cleanTime.split(' ');
   let [hours, minutes] = time.split(':').map(Number);
 
   if (period === 'PM' && hours !== 12) hours += 12;
   if (period === 'AM' && hours === 12) hours = 0;
 
-  const sessionDate = new Date(estNow);
-  sessionDate.setHours(hours, minutes, 0, 0);
+  const now = new Date();
 
-  if (sessionDate <= estNow) {
-    sessionDate.setDate(sessionDate.getDate() + 1);
+  // Create session time in UTC (EST = UTC-5, so add 5 hours)
+  const sessionUTC = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    hours + 5,
+    minutes,
+    0,
+    0
+  ));
+
+  // If already passed today, move to tomorrow
+  if (sessionUTC <= now) {
+    sessionUTC.setUTCDate(sessionUTC.getUTCDate() + 1);
   }
 
-  return new Date(sessionDate.getTime() - estOffset * 60000);
+  return sessionUTC;
 }
 
 module.exports = {
@@ -96,14 +102,13 @@ module.exports = {
       const cohostText = cohost ? `${cohost}` : 'No co-host — DM me to co-host!';
       const cohostId = cohost ? cohost.id : null;
 
-      // Check for time conflict — look for any approved or pending session at the same time
+      // Check for time conflict
       const conflict = await Session.findOne({
         time,
         status: { $in: ['pending', 'approved', 'active'] }
       });
 
       if (conflict) {
-        // DM the user about the conflict
         try {
           await interaction.user.send({
             embeds: [
@@ -119,7 +124,8 @@ module.exports = {
         return interaction.editReply({ content: `❌ That time slot is already taken! Please choose a different time. You have been DM'd with more details.` });
       }
 
-      // Save session to MongoDB
+      const sessionFireAt = parseSessionTime(time);
+
       const session = new Session({
         hostId: interaction.user.id,
         coHostId: cohostId,
@@ -131,7 +137,7 @@ module.exports = {
         sessionStarted: false,
         finishCheckStarted: false,
         createdAt: new Date(),
-        sessionFireAt: parseSessionTime(time),
+        sessionFireAt,
         autoDeleteAt: null
       });
 

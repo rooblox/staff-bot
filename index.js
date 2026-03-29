@@ -121,7 +121,7 @@ async function schedulePreSessionReminder(session) {
                 embeds: [
                     new EmbedBuilder()
                         .setTitle('⏰ Session Starting Soon!')
-                        .setDescription(`Your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host?`)
+                        .setDescription(`Your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host? You have **8 minutes** to respond or your session will be automatically cancelled.`)
                         .setColor(0xF39C12)
                         .setTimestamp()
                 ],
@@ -129,6 +129,46 @@ async function schedulePreSessionReminder(session) {
             });
 
             await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
+
+            // Auto cancel after 8 minutes if no response
+            setTimeout(async () => {
+                try {
+                    const checkSession = await Session.findById(session._id);
+                    if (!checkSession || checkSession.status !== 'approved') return;
+
+                    await Session.findByIdAndUpdate(session._id, { status: 'cancelled' });
+
+                    try {
+                        await host.send({
+                            embeds: [
+                                new EmbedBuilder()
+                                    .setTitle('❌ Session Auto Cancelled')
+                                    .setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response to the hosting confirmation.\n\nIf this was a mistake, please submit a new session request.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                                    .setColor(0xE74C3C)
+                                    .setTimestamp()
+                            ]
+                        });
+                    } catch {}
+
+                    const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
+                    if (requestChannel?.isTextBased()) {
+                        await requestChannel.send({
+                            embeds: [
+                                new EmbedBuilder()
+                                    .setTitle('❌ Session Auto Cancelled')
+                                    .setColor(0xE74C3C)
+                                    .setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response to the hosting confirmation.`)
+                                    .setTimestamp()
+                            ]
+                        });
+                    }
+
+                    console.log(`✅ Auto cancelled session ${session._id} due to no response`);
+                } catch (err) {
+                    console.error('Error auto cancelling session:', err);
+                }
+            }, 8 * 60 * 1000);
+
         } catch (err) {
             console.error('Error sending pre-session reminder:', err);
         }
