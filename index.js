@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { connectDB, Reminder, Session } = require('./db');
+const { connectDB, Reminder, Session, LOA } = require('./db');
 
 const REQUEST_CHANNEL_ID = '1462503910559453421';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
@@ -13,6 +13,11 @@ const SHIFT_PING_ROLE_ID = '1371568661592019044';
 const TRAINING_PING_ROLE_ID = '1371568736569659462';
 const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
 const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
+const LOA_CHANNEL_ID = '1462104324917166174';
+const LOA_GUILD_ID = '1372680943592280217';
+const LOA_LOG_CHANNEL_ID = '1464070445698650316';
+const LOA_LOG_GUILD_ID = '1434556801096876034';
+const LOA_STAFF_ROLE_ID = '1484973859513045224';
 
 const client = new Client({
     intents: [
@@ -49,6 +54,31 @@ const {
     closingNotes,
     LOG_CHANNEL_ID
 } = trainingModule;
+
+const loaModule = require('./commands/loa');
+const { sendLog, scheduleLOAReturnReminder, scheduleLoaAutoDelete } = loaModule;
+
+// ========== LOA HELPERS ==========
+async function sendLOALog(user, title, color, loaId, extraFields = []) {
+    try {
+        const logGuild = await client.guilds.fetch(LOA_LOG_GUILD_ID);
+        const logChannel = await logGuild.channels.fetch(LOA_LOG_CHANNEL_ID);
+
+        const embed = new EmbedBuilder()
+            .setTitle(title)
+            .setColor(color)
+            .addFields(
+                { name: '👤 User', value: `${user.tag} (${user.id})` },
+                ...extraFields
+            )
+            .setTimestamp()
+            .setFooter({ text: `LOA ID: ${loaId}` });
+
+        await logChannel.send({ embeds: [embed] });
+    } catch (err) {
+        console.error('Error sending LOA log:', err);
+    }
+}
 
 // ========== SESSION SCHEDULING ==========
 async function schedulePreSessionReminder(session) {
@@ -102,7 +132,6 @@ async function postAnnouncement(session) {
         const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID);
         const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
 
-        const host = await client.users.fetch(session.hostId);
         const cohost = session.coHostId ? await client.users.fetch(session.coHostId) : null;
         const cohostText = cohost ? `<@${cohost.id}>` : 'None';
 
@@ -262,6 +291,18 @@ async function cleanupStaleSessions() {
         }
     } catch (err) {
         console.error('Error cleaning up stale sessions:', err);
+    }
+}
+
+async function restoreLOAs() {
+    try {
+        const activeLOAs = await LOA.find({ status: 'approved', returnReminderSent: false });
+        for (const loa of activeLOAs) {
+            scheduleLOAReturnReminder(loa, client);
+        }
+        console.log(`✅ Restored ${activeLOAs.length} active LOAs`);
+    } catch (err) {
+        console.error('Error restoring LOAs:', err);
     }
 }
 
@@ -544,7 +585,7 @@ client.on('interactionCreate', async interaction => {
 
             activeSessions.set(userId, {
                 staffId: interaction.user.id,
-                guildId: interaction.guild.id,
+                guildId: interaction.guild?.id,
                 section: 0,
                 quizIndex: 0,
                 score: 0,
@@ -605,7 +646,6 @@ Should you have any questions or concerns prior to your session, please do not h
                     .setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` });
 
                 await interaction.update({ embeds: [newEmbed], components: [] });
-
                 session.status = 'approved';
                 await schedulePreSessionReminder(session);
 
@@ -759,11 +799,184 @@ Should you have any questions or concerns prior to your session, please do not h
             return;
         }
 
+        // ========== LOA BUTTONS ==========
+        if (interaction.customId.startsWith('loa_accept_')) {
+            const loaId = interaction.customId.replace('loa_accept_', '');
+
+            const guild = interaction.guild ?? await client.guilds.fetch(LOA_LOG_GUILD_ID);
+            const staffMember = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+            if (staffMember && !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
+                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            }
+
+            try {
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
+
+                await LOA.findByIdAndUpdate(loaId, { status: 'approved', approvedAt: new Date() });
+
+                const user = await client.users.fetch(loa.userId);
+
+                await user.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('✅ Leave of Absence Approved')
+                            .setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**. We hope you have a restful time away and look forward to welcoming you back!\n\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\nWe will send you a reminder when your LOA comes to an end. If anything changes, please don't hesitate to reach out.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                            .setColor(0x2ECC71)
+                            .setTimestamp()
+                    ]
+                });
+
+                const oldEmbed = interaction.message.embeds[0];
+                const newEmbed = EmbedBuilder.from(oldEmbed)
+                    .setColor(0x2ECC71)
+                    .setTitle('📋 LOA Request — ✅ Approved')
+                    .setFooter({ text: `Approved by ${interaction.user.username} • LOA ID: ${loaId}` });
+
+                await interaction.update({ embeds: [newEmbed], components: [] });
+
+                await sendLOALog(user, '✅ LOA Approved', 0x2ECC71, loaId, [
+                    { name: '👮 Approved By', value: interaction.user.tag },
+                    { name: '📅 Return Date', value: loa.returnDate }
+                ]);
+
+                scheduleLOAReturnReminder(loa, client);
+
+            } catch (err) {
+                console.error('Error approving LOA:', err);
+                await interaction.reply({ content: '❌ Error approving LOA.', ephemeral: true });
+            }
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_deny_')) {
+            const loaId = interaction.customId.replace('loa_deny_', '');
+
+            const guild = interaction.guild ?? await client.guilds.fetch(LOA_LOG_GUILD_ID);
+            const staffMember = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+            if (staffMember && !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
+                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId(`loa_denymodal_${loaId}`)
+                .setTitle('Deny LOA Request');
+
+            const reasonInput = new TextInputBuilder()
+                .setCustomId('denyreason')
+                .setLabel('Reason for denial')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Enter the reason for denying this LOA...')
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+            await interaction.showModal(modal);
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_moreinfo_')) {
+            const loaId = interaction.customId.replace('loa_moreinfo_', '');
+
+            const guild = interaction.guild ?? await client.guilds.fetch(LOA_LOG_GUILD_ID);
+            const staffMember = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+            if (staffMember && !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
+                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId(`loa_moreinfomodal_${loaId}`)
+                .setTitle('Request More Info');
+
+            const infoInput = new TextInputBuilder()
+                .setCustomId('moreinfo')
+                .setLabel('What info is needed?')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Enter what additional information is needed...')
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(infoInput));
+            await interaction.showModal(modal);
+            return;
+        }
+
+        // ========== LOA RETURN BUTTONS ==========
+        if (interaction.customId.startsWith('loa_returned_')) {
+            const loaId = interaction.customId.replace('loa_returned_', '');
+            const loa = await LOA.findById(loaId);
+
+            if (!loa || interaction.user.id !== loa.userId) {
+                return interaction.reply({ content: '❌ This is not your LOA.', ephemeral: true });
+            }
+
+            await interaction.update({ components: [] });
+            await LOA.findByIdAndUpdate(loaId, { status: 'returned' });
+
+            // Delete LOA message from channel
+            try {
+                const loaGuild = await client.guilds.fetch(LOA_GUILD_ID);
+                const loaChannel = await loaGuild.channels.fetch(LOA_CHANNEL_ID);
+                const msg = await loaChannel.messages.fetch(loa.messageId).catch(() => null);
+                if (msg) await msg.delete().catch(() => {});
+            } catch {}
+
+            await interaction.user.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('👋 Welcome Back!')
+                        .setDescription(`Welcome back, <@${loa.userId}>! 🎉\n\nWe're thrilled to have you back at **Kavià Café**. Your LOA has been officially closed and your return has been noted. We hope you're feeling refreshed and ready to dive back in!\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                        .setColor(0x2ECC71)
+                        .setTimestamp()
+                ]
+            });
+
+            const user = await client.users.fetch(loa.userId);
+            await sendLOALog(user, '👋 LOA Returned', 0x2ECC71, loaId, [
+                { name: '📅 Return Date', value: loa.returnDate }
+            ]);
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_extend_')) {
+            const loaId = interaction.customId.replace('loa_extend_', '');
+            const loa = await LOA.findById(loaId);
+
+            if (!loa || interaction.user.id !== loa.userId) {
+                return interaction.reply({ content: '❌ This is not your LOA.', ephemeral: true });
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId(`loa_extendmodal_${loaId}`)
+                .setTitle('Request LOA Extension');
+
+            const extendInput = new TextInputBuilder()
+                .setCustomId('extendtime')
+                .setLabel('How much more time do you need?')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. 1 week, 2 weeks, 1 month')
+                .setRequired(true);
+
+            const newDateInput = new TextInputBuilder()
+                .setCustomId('newreturndate')
+                .setLabel('New return date (DD/MM/YY)')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. 25/04/26')
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(extendInput),
+                new ActionRowBuilder().addComponents(newDateInput)
+            );
+
+            await interaction.showModal(modal);
+            return;
+        }
+
         return;
     }
 
     // ========== MODAL SUBMISSIONS ==========
     if (interaction.isModalSubmit()) {
+
         if (interaction.customId.startsWith('sesdeclinemodal_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
@@ -785,7 +998,7 @@ After careful review, your request was unable to be approved at this time. Pleas
 > <:pink_pin:1166850035611353148> **Status →** *Declined ❌*
 > <:pink_pin:1166850035611353148> **Reason →** *${reason}*
 We encourage you to review the reason provided and reach out to a member of our team if you have any questions or concerns. We hope to see you submit another request soon!
-***Signed,***
+***Sincerely,***
 **${interaction.user.username}**
 **Kavià Café Staff Team**`;
 
@@ -804,7 +1017,152 @@ We encourage you to review the reason provided and reach out to a member of our 
                 console.error('Error declining session:', err);
                 try { await interaction.editReply({ content: '❌ Error declining request.' }); } catch {}
             }
+            return;
         }
+
+        // ========== LOA MODALS ==========
+        if (interaction.customId.startsWith('loa_denymodal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+
+            try {
+                const loaId = interaction.customId.replace('loa_denymodal_', '');
+                const reason = interaction.fields.getTextInputValue('denyreason');
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.editReply({ content: '❌ LOA not found.' });
+
+                await LOA.findByIdAndUpdate(loaId, { status: 'denied' });
+
+                const user = await client.users.fetch(loa.userId);
+
+                await user.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('❌ Leave of Absence Denied')
+                            .setDescription(`Hello, <@${loa.userId}>,\n\nWe regret to inform you that your **Leave of Absence** request has been **denied** at **Kavià Café**. We understand this may be disappointing and appreciate you reaching out.\n\n> <:pink_pin:1166850035611353148> **Status →** *Denied ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n\nIf you have any questions or would like to discuss this further, please reach out to a member of our team.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                            .setColor(0xE74C3C)
+                            .setTimestamp()
+                    ]
+                });
+
+                const oldEmbed = interaction.message.embeds[0];
+                const newEmbed = EmbedBuilder.from(oldEmbed)
+                    .setColor(0xE74C3C)
+                    .setTitle('📋 LOA Request — ❌ Denied')
+                    .setFooter({ text: `Denied by ${interaction.user.username} — Reason: ${reason}` });
+
+                await interaction.message.edit({ embeds: [newEmbed], components: [] });
+
+                await sendLOALog(user, '❌ LOA Denied', 0xE74C3C, loaId, [
+                    { name: '👮 Denied By', value: interaction.user.tag },
+                    { name: '📝 Reason', value: reason }
+                ]);
+
+                await interaction.editReply({ content: '✅ LOA denied and user notified.' });
+
+            } catch (err) {
+                console.error('Error denying LOA:', err);
+                try { await interaction.editReply({ content: '❌ Error denying LOA.' }); } catch {}
+            }
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_moreinfomodal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+
+            try {
+                const loaId = interaction.customId.replace('loa_moreinfomodal_', '');
+                const moreInfo = interaction.fields.getTextInputValue('moreinfo');
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.editReply({ content: '❌ LOA not found.' });
+
+                await LOA.findByIdAndUpdate(loaId, { status: 'more_info' });
+
+                const user = await client.users.fetch(loa.userId);
+
+                await user.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('❓ More Information Required')
+                            .setDescription(`Hello, <@${loa.userId}>,\n\nThank you for submitting your **Leave of Absence** request at **Kavià Café**. Before we can process your request, we require some additional information.\n\n> <:pink_pin:1166850035611353148> **Information Needed →** *${moreInfo}*\n\nPlease resubmit your LOA request using \`/loa\` with the additional information provided above. If you have any questions, please reach out to a member of our team.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                            .setColor(0xF39C12)
+                            .setTimestamp()
+                    ]
+                });
+
+                const oldEmbed = interaction.message.embeds[0];
+                const newEmbed = EmbedBuilder.from(oldEmbed)
+                    .setColor(0xF39C12)
+                    .setTitle('📋 LOA Request — ❓ More Info Requested')
+                    .setFooter({ text: `More info requested by ${interaction.user.username}` });
+
+                await interaction.message.edit({ embeds: [newEmbed], components: [] });
+
+                await sendLOALog(user, '❓ LOA More Info Requested', 0xF39C12, loaId, [
+                    { name: '👮 Requested By', value: interaction.user.tag },
+                    { name: '📝 Info Needed', value: moreInfo }
+                ]);
+
+                await interaction.editReply({ content: '✅ More info requested and user notified.' });
+
+            } catch (err) {
+                console.error('Error requesting more info:', err);
+                try { await interaction.editReply({ content: '❌ Error requesting more info.' }); } catch {}
+            }
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_extendmodal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+
+            try {
+                const loaId = interaction.customId.replace('loa_extendmodal_', '');
+                const extendTime = interaction.fields.getTextInputValue('extendtime');
+                const newReturnDate = interaction.fields.getTextInputValue('newreturndate');
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.editReply({ content: '❌ LOA not found.' });
+
+                const newDateParsed = new Date(newReturnDate.split('/').reverse().join('-'));
+                if (isNaN(newDateParsed.getTime())) {
+                    return interaction.editReply({ content: '❌ Invalid date format. Please use DD/MM/YY.' });
+                }
+
+                await LOA.findByIdAndUpdate(loaId, {
+                    status: 'extended',
+                    returnDate: newReturnDate,
+                    returnDateParsed: newDateParsed,
+                    returnReminderSent: false
+                });
+
+                const user = await client.users.fetch(loa.userId);
+
+                await user.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('⏳ LOA Extension Requested')
+                            .setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** request has been submitted to our staff team for review. We will get back to you as soon as possible.\n\n> <:pink_pin:1166850035611353148> **Extra Time Requested →** *${extendTime}*\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\nThank you for keeping us informed!\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                            .setColor(0xF39C12)
+                            .setTimestamp()
+                    ]
+                });
+
+                // Reschedule return reminder for new date
+                const updatedLoa = await LOA.findById(loaId);
+                scheduleLOAReturnReminder(updatedLoa, client);
+
+                await sendLOALog(user, '⏳ LOA Extension Requested', 0xF39C12, loaId, [
+                    { name: '⏳ Extra Time', value: extendTime },
+                    { name: '📅 New Return Date', value: newReturnDate }
+                ]);
+
+                await interaction.editReply({ content: '✅ Extension request submitted!' });
+
+            } catch (err) {
+                console.error('Error extending LOA:', err);
+                try { await interaction.editReply({ content: '❌ Error submitting extension.' }); } catch {}
+            }
+            return;
+        }
+
         return;
     }
 });
@@ -871,6 +1229,7 @@ client.once('ready', async () => {
     await restoreSessions();
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
+    await restoreLOAs();
 });
 
 client.on('guildCreate', async guild => {

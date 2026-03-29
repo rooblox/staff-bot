@@ -66,7 +66,7 @@ const sessionSchema = new mongoose.Schema({
     announcementChannelId: String,
     requestMessageId: String,
     requestChannelId: String,
-    status: String, // pending, approved, cancelled, finished
+    status: String,
     preSessionReminderSent: Boolean,
     sessionStarted: Boolean,
     finishCheckStarted: Boolean,
@@ -76,8 +76,26 @@ const sessionSchema = new mongoose.Schema({
     autoDeleteAt: Date
 }, { versionKey: false });
 
+const loaSchema = new mongoose.Schema({
+    userId: String,
+    username: String,
+    reason: String,
+    timeGone: String,
+    returnDate: String,
+    returnDateParsed: Date,
+    status: String, // pending, approved, denied, more_info, returned, extended
+    messageId: String,
+    channelId: String,
+    logChannelId: String,
+    createdAt: Date,
+    approvedAt: Date,
+    returnReminderSent: Boolean,
+    autoDeleteAt: Date
+}, { versionKey: false });
+
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
 const Reminder = mongoose.model('Reminder', reminderSchema);
 const Session = mongoose.model('Session', sessionSchema);
+const LOA = mongoose.model('LOA', loaSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA };
