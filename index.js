@@ -803,11 +803,11 @@ Should you have any questions or concerns prior to your session, please do not h
         if (interaction.customId.startsWith('loa_accept_')) {
             const loaId = interaction.customId.replace('loa_accept_', '');
 
-            const guild = interaction.guild ?? await client.guilds.fetch(LOA_LOG_GUILD_ID);
-            const staffMember = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
-            if (staffMember && !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
-                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            }
+          const mainGuild = await client.guilds.fetch('1434556801096876034');
+const staffMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+if (!staffMember || !staffMember.roles.cache.has(LOA_STAFF_ROLE_ID)) {
+    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+}
 
             try {
                 const loa = await LOA.findById(loaId);
