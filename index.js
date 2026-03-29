@@ -1075,7 +1075,7 @@ We encourage you to review the reason provided and reach out to a member of our 
                 const loa = await LOA.findById(loaId);
                 if (!loa) return interaction.editReply({ content: '❌ LOA not found.' });
 
-                await LOA.findByIdAndUpdate(loaId, { status: 'more_info' });
+                await LOA.findByIdAndUpdate(loaId, { status: 'denied' });
 
                 const user = await client.users.fetch(loa.userId);
 
