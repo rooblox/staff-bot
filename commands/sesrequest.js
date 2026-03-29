@@ -47,7 +47,7 @@ function parseSessionTime(timeStr) {
     now.getUTCFullYear(),
     now.getUTCMonth(),
     now.getUTCDate(),
-    hours + 5,
+    hours + 4,
     minutes,
     0,
     0
