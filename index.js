@@ -53,7 +53,7 @@ const {
 // ========== SESSION SCHEDULING ==========
 async function schedulePreSessionReminder(session) {
     const fireAt = new Date(session.sessionFireAt).getTime();
-    const reminderTime = fireAt - 10 * 60 * 1000; // 10 mins before
+    const reminderTime = fireAt - 10 * 60 * 1000;
     const delay = reminderTime - Date.now();
 
     if (delay < 0) {
@@ -145,10 +145,7 @@ Don't miss your chance!
             autoDeleteAt
         });
 
-        // Schedule finish check 25 mins after announcement
         scheduleFinishCheck(session._id, msg.id, 25 * 60 * 1000);
-
-        // Schedule auto delete after 24 hours
         scheduleAutoDelete(session._id, msg.id, 24 * 60 * 60 * 1000);
 
     } catch (err) {
@@ -220,8 +217,8 @@ function scheduleAutoDelete(sessionId, messageId, delay) {
 
 async function restoreSessions() {
     try {
-        const activeSessions = await Session.find({ status: { $in: ['approved', 'active'] } });
-        for (const session of activeSessions) {
+        const sessions = await Session.find({ status: { $in: ['approved', 'active'] } });
+        for (const session of sessions) {
             if (session.status === 'approved' && !session.preSessionReminderSent) {
                 schedulePreSessionReminder(session);
             }
@@ -232,9 +229,39 @@ async function restoreSessions() {
                 }
             }
         }
-        console.log(`✅ Restored ${activeSessions.length} active sessions`);
+        console.log(`✅ Restored ${sessions.length} active sessions`);
     } catch (err) {
         console.error('Error restoring sessions:', err);
+    }
+}
+
+async function cleanupStaleSessions() {
+    try {
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const staleSessions = await Session.find({
+            status: { $in: ['pending', 'approved', 'active'] },
+            createdAt: { $lt: cutoff }
+        });
+
+        for (const session of staleSessions) {
+            if (session.announcementMessageId) {
+                try {
+                    const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID);
+                    const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
+                    const msg = await announcementChannel.messages.fetch(session.announcementMessageId).catch(() => null);
+                    if (msg) await msg.delete().catch(() => {});
+                } catch {}
+            }
+
+            await Session.findByIdAndUpdate(session._id, { status: 'finished' });
+            console.log(`✅ Auto cleaned stale session ${session._id}`);
+        }
+
+        if (staleSessions.length > 0) {
+            console.log(`✅ Cleaned up ${staleSessions.length} stale sessions`);
+        }
+    } catch (err) {
+        console.error('Error cleaning up stale sessions:', err);
     }
 }
 
@@ -579,7 +606,6 @@ Should you have any questions or concerns prior to your session, please do not h
 
                 await interaction.update({ embeds: [newEmbed], components: [] });
 
-                // Schedule 10 min pre-session reminder
                 session.status = 'approved';
                 await schedulePreSessionReminder(session);
 
@@ -619,8 +645,9 @@ Should you have any questions or concerns prior to your session, please do not h
         // ========== PRE SESSION REMINDER BUTTONS ==========
         if (interaction.customId.startsWith('ses_stillhosting_')) {
             const sessionId = interaction.customId.replace('ses_stillhosting_', '');
+            const session = await Session.findById(sessionId);
 
-            if (interaction.user.id !== (await Session.findById(sessionId))?.hostId) {
+            if (!session || interaction.user.id !== session.hostId) {
                 return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
             }
 
@@ -635,8 +662,7 @@ Should you have any questions or concerns prior to your session, please do not h
                 ]
             });
 
-            const session = await Session.findById(sessionId);
-            if (session) await postAnnouncement(session);
+            await postAnnouncement(session);
             return;
         }
 
@@ -729,7 +755,6 @@ Should you have any questions or concerns prior to your session, please do not h
                 ]
             });
 
-            // Schedule another finish check in 25 mins
             scheduleFinishCheck(sessionId, session.announcementMessageId, 25 * 60 * 1000);
             return;
         }
@@ -844,6 +869,8 @@ client.once('ready', async () => {
     console.log(`✅ Reloaded ${pendingReminders.length} pending reminders`);
 
     await restoreSessions();
+    await cleanupStaleSessions();
+    setInterval(cleanupStaleSessions, 60 * 60 * 1000);
 });
 
 client.on('guildCreate', async guild => {
