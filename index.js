@@ -104,7 +104,7 @@ async function schedulePreSessionReminder(session) {
             const latestSession = await Session.findById(session._id);
             if (!latestSession || latestSession.status !== 'approved') return;
 
-            const host = await client.users.fetch(latestSession.hostId);
+            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
 
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -117,16 +117,19 @@ async function schedulePreSessionReminder(session) {
                     .setStyle(ButtonStyle.Danger)
             );
 
-            await host.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('⏰ Session Starting Soon!')
-                        .setDescription(`Your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host? You have **8 minutes** to respond or your session will be automatically cancelled.`)
-                        .setColor(0xF39C12)
-                        .setTimestamp()
-                ],
-                components: [row]
-            });
+            if (requestChannel?.isTextBased()) {
+                await requestChannel.send({
+                    content: `<@${latestSession.hostId}>`,
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('⏰ Session Starting Soon!')
+                            .setDescription(`<@${latestSession.hostId}>, your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host? You have **8 minutes** to respond or your session will be automatically cancelled.\n\n*Only you can click these buttons.*`)
+                            .setColor(0xF39C12)
+                            .setTimestamp()
+                    ],
+                    components: [row]
+                });
+            }
 
             await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
 
@@ -138,7 +141,9 @@ async function schedulePreSessionReminder(session) {
 
                     await Session.findByIdAndUpdate(session._id, { status: 'cancelled' });
 
+                    // DM the host about auto cancel
                     try {
+                        const host = await client.users.fetch(latestSession.hostId);
                         await host.send({
                             embeds: [
                                 new EmbedBuilder()
@@ -150,14 +155,13 @@ async function schedulePreSessionReminder(session) {
                         });
                     } catch {}
 
-                    const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
                     if (requestChannel?.isTextBased()) {
                         await requestChannel.send({
                             embeds: [
                                 new EmbedBuilder()
                                     .setTitle('❌ Session Auto Cancelled')
                                     .setColor(0xE74C3C)
-                                    .setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response to the hosting confirmation.`)
+                                    .setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response.`)
                                     .setTimestamp()
                             ]
                         });
@@ -236,7 +240,7 @@ function scheduleFinishCheck(sessionId, messageId, delay) {
             const latestSession = await Session.findById(sessionId);
             if (!latestSession || latestSession.status === 'finished' || latestSession.status === 'cancelled') return;
 
-            const host = await client.users.fetch(latestSession.hostId);
+            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
 
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -249,16 +253,19 @@ function scheduleFinishCheck(sessionId, messageId, delay) {
                     .setStyle(ButtonStyle.Danger)
             );
 
-            await host.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('🏁 Is your session finished?')
-                        .setDescription(`Hey! It's been 25 minutes since your **${latestSession.shiftType}** was announced. Is it finished?`)
-                        .setColor(0x3498DB)
-                        .setTimestamp()
-                ],
-                components: [row]
-            });
+            if (requestChannel?.isTextBased()) {
+                await requestChannel.send({
+                    content: `<@${latestSession.hostId}>`,
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('🏁 Is your session finished?')
+                            .setDescription(`<@${latestSession.hostId}>, it's been 25 minutes since your **${latestSession.shiftType}** was announced. Is it finished?\n\n*Only you can click these buttons.*`)
+                            .setColor(0x3498DB)
+                            .setTimestamp()
+                    ],
+                    components: [row]
+                });
+            }
 
         } catch (err) {
             console.error('Error sending finish check:', err);
@@ -736,19 +743,23 @@ Should you have any questions or concerns prior to your session, please do not h
             const session = await Session.findById(sessionId);
 
             if (!session || interaction.user.id !== session.hostId) {
-                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+                return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
             }
 
             await interaction.update({ components: [] });
-            await interaction.user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('✅ Great!')
-                        .setDescription('Awesome! Your session announcement will be posted in the server. Good luck hosting!')
-                        .setColor(0x2ECC71)
-                        .setTimestamp()
-                ]
-            });
+
+            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
+            if (requestChannel?.isTextBased()) {
+                await requestChannel.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('✅ Host Confirmed')
+                            .setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**. The announcement will be posted shortly!`)
+                            .setColor(0x2ECC71)
+                            .setTimestamp()
+                    ]
+                });
+            }
 
             await postAnnouncement(session);
             return;
@@ -759,21 +770,25 @@ Should you have any questions or concerns prior to your session, please do not h
             const session = await Session.findById(sessionId);
 
             if (!session || interaction.user.id !== session.hostId) {
-                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+                return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
             }
 
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
 
-            await interaction.user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('❌ Session Cancelled')
-                        .setDescription('Your session has been cancelled. Please let a staff member know if you need to reschedule.')
-                        .setColor(0xE74C3C)
-                        .setTimestamp()
-                ]
-            });
+            // DM the host
+            try {
+                const host = await client.users.fetch(session.hostId);
+                await host.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('❌ Session Cancelled')
+                            .setDescription('Your session has been cancelled. Please let a staff member know if you need to reschedule.')
+                            .setColor(0xE74C3C)
+                            .setTimestamp()
+                    ]
+                });
+            } catch {}
 
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
             if (requestChannel?.isTextBased()) {
@@ -796,7 +811,7 @@ Should you have any questions or concerns prior to your session, please do not h
             const session = await Session.findById(sessionId);
 
             if (!session || interaction.user.id !== session.hostId) {
-                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+                return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
             }
 
             await interaction.update({ components: [] });
@@ -811,15 +826,18 @@ Should you have any questions or concerns prior to your session, please do not h
                 console.error('Error deleting announcement:', err);
             }
 
-            await interaction.user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('✅ Session Finished')
-                        .setDescription('Great job! Your session has been marked as finished and the announcement has been removed. Thank you for hosting!')
-                        .setColor(0x2ECC71)
-                        .setTimestamp()
-                ]
-            });
+            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
+            if (requestChannel?.isTextBased()) {
+                await requestChannel.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('✅ Session Finished')
+                            .setDescription(`<@${session.hostId}>'s **${session.shiftType}** has been marked as finished. The announcement has been removed. Great job!`)
+                            .setColor(0x2ECC71)
+                            .setTimestamp()
+                    ]
+                });
+            }
             return;
         }
 
@@ -828,20 +846,23 @@ Should you have any questions or concerns prior to your session, please do not h
             const session = await Session.findById(sessionId);
 
             if (!session || interaction.user.id !== session.hostId) {
-                return interaction.reply({ content: '❌ This is not your session.', ephemeral: true });
+                return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
             }
 
             await interaction.update({ components: [] });
 
-            await interaction.user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('⏳ Still Going!')
-                        .setDescription('No problem! We\'ll check back in another 25 minutes.')
-                        .setColor(0xF39C12)
-                        .setTimestamp()
-                ]
-            });
+            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
+            if (requestChannel?.isTextBased()) {
+                await requestChannel.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('⏳ Session Still Going')
+                            .setDescription(`<@${session.hostId}>'s **${session.shiftType}** is still in progress. We'll check back in another 25 minutes.`)
+                            .setColor(0xF39C12)
+                            .setTimestamp()
+                    ]
+                });
+            }
 
             scheduleFinishCheck(sessionId, session.announcementMessageId, 25 * 60 * 1000);
             return;

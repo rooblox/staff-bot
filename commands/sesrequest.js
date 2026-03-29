@@ -42,7 +42,6 @@ function parseSessionTime(timeStr) {
 
   const now = new Date();
 
-  // Create session time in UTC (EST = UTC-5, so add 5 hours)
   const sessionUTC = new Date(Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
@@ -53,7 +52,6 @@ function parseSessionTime(timeStr) {
     0
   ));
 
-  // If already passed today, move to tomorrow
   if (sessionUTC <= now) {
     sessionUTC.setUTCDate(sessionUTC.getUTCDate() + 1);
   }
@@ -121,7 +119,7 @@ module.exports = {
           });
         } catch {}
 
-        return interaction.editReply({ content: `❌ That time slot is already taken! Please choose a different time. You have been DM'd with more details.` });
+        return interaction.editReply({ content: `❌ That time slot is already taken! Please choose a different time.` });
       }
 
       const sessionFireAt = parseSessionTime(time);
