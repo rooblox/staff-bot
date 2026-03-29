@@ -30,13 +30,12 @@ const TRAINING_TIMES = [
   { name: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT' },
 ];
 
-// Parse EST time from the time string and return a Date object for today
 function parseSessionTime(timeStr) {
-  const estPart = timeStr.split('|')[0].trim(); // e.g. "4:00 PM EST"
-  const cleanTime = estPart.replace('EST', '').trim(); // e.g. "4:00 PM"
+  const estPart = timeStr.split('|')[0].trim();
+  const cleanTime = estPart.replace('EST', '').trim();
 
   const now = new Date();
-  const estOffset = -5 * 60; // EST is UTC-5
+  const estOffset = -5 * 60;
   const utcNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
   const estNow = new Date(utcNow.getTime() + estOffset * 60000);
 
@@ -49,12 +48,10 @@ function parseSessionTime(timeStr) {
   const sessionDate = new Date(estNow);
   sessionDate.setHours(hours, minutes, 0, 0);
 
-  // If time has already passed today, use tomorrow
   if (sessionDate <= estNow) {
     sessionDate.setDate(sessionDate.getDate() + 1);
   }
 
-  // Convert back to UTC
   return new Date(sessionDate.getTime() - estOffset * 60000);
 }
 
@@ -98,6 +95,29 @@ module.exports = {
       const cohost = interaction.options.getUser('cohost');
       const cohostText = cohost ? `${cohost}` : 'No co-host — DM me to co-host!';
       const cohostId = cohost ? cohost.id : null;
+
+      // Check for time conflict — look for any approved or pending session at the same time
+      const conflict = await Session.findOne({
+        time,
+        status: { $in: ['pending', 'approved', 'active'] }
+      });
+
+      if (conflict) {
+        // DM the user about the conflict
+        try {
+          await interaction.user.send({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle('❌ Session Time Unavailable')
+                .setDescription(`Hello, <@${interaction.user.id}>,\n\nUnfortunately your session request for **${time}** has been automatically declined as that time slot is **already taken** by another host.\n\nPlease submit a new request with a different time slot. If you have any questions, please reach out to a member of our team.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                .setColor(0xE74C3C)
+                .setTimestamp()
+            ]
+          });
+        } catch {}
+
+        return interaction.editReply({ content: `❌ That time slot is already taken! Please choose a different time. You have been DM'd with more details.` });
+      }
 
       // Save session to MongoDB
       const session = new Session({
@@ -149,7 +169,6 @@ module.exports = {
           components: [row]
         });
 
-        // Save message ID
         await Session.findByIdAndUpdate(session._id, { requestMessageId: msg.id });
       }
 
