@@ -35,14 +35,14 @@ module.exports = {
         if (mainMember && !mainMember.roles.cache.has(ALLIED_REP_ROLE_ID)) {
           try {
             await mainMember.roles.add(ALLIED_REP_ROLE_ID);
-            rolesAdded.push(mainMember.user.tag);
+            rolesAdded.push(`${mainMember.user.tag} (${mainMember.user.id})`);
           } catch (err) {
             console.error(`Failed to add role to ${allianceMember.user.tag}:`, err);
           }
         }
 
         if (!mainMember) {
-          notInMain.push(allianceMember.user.tag);
+          notInMain.push(`${allianceMember.user.tag} (${allianceMember.user.id})`);
         }
       }
 
@@ -54,7 +54,7 @@ module.exports = {
           if (!allianceMember) {
             try {
               await mainMember.roles.remove(ALLIED_REP_ROLE_ID);
-              rolesRemoved.push(mainMember.user.tag);
+              rolesRemoved.push(`${mainMember.user.tag} (${mainMember.user.id})`);
             } catch (err) {
               console.error(`Failed to remove role from ${mainMember.user.tag}:`, err);
             }
@@ -62,11 +62,10 @@ module.exports = {
         }
       }
 
-      // Truncate lists to avoid Discord 1024 char field limit
       function formatList(arr) {
         if (arr.length === 0) return 'None';
-        const display = arr.slice(0, 20);
-        const extra = arr.length - 20;
+        const display = arr.slice(0, 15);
+        const extra = arr.length - 15;
         let result = display.join('\n');
         if (extra > 0) result += `\n*...and ${extra} more*`;
         return result;
@@ -78,7 +77,7 @@ module.exports = {
         .addFields(
           { name: `✅ Roles Added (${rolesAdded.length})`, value: formatList(rolesAdded) },
           { name: `❌ Roles Removed (${rolesRemoved.length})`, value: formatList(rolesRemoved) },
-          { name: `⚠️ In Alliance Server But Not Main (${notInMain.length})`, value: formatList(notInMain) },
+          { name: `⚠️ In Alliance But Not Main (${notInMain.length})`, value: formatList(notInMain) },
           { name: '📊 Summary', value: `Checked **${mainMembers.size}** main server members and **${allianceMembers.size}** alliance server members.` }
         )
         .setFooter({ text: `Run by ${interaction.user.tag} • Kavià Café` })
@@ -86,18 +85,20 @@ module.exports = {
 
       await interaction.editReply({ embeds: [resultEmbed] });
 
-      // Log to log channel
+      // Log to log channel with full details
       try {
         const logChannel = await client.channels.fetch(LOG_CHANNEL_ID);
         if (logChannel?.isTextBased()) {
+
           const logEmbed = new EmbedBuilder()
             .setTitle('🔍 Alliance Check Run')
             .setColor(0x3498DB)
             .addFields(
               { name: '👮 Run By', value: `${interaction.user.tag} (${interaction.user.id})` },
-              { name: '✅ Roles Added', value: String(rolesAdded.length) },
-              { name: '❌ Roles Removed', value: String(rolesRemoved.length) },
-              { name: '⚠️ Not In Main Server', value: String(notInMain.length) }
+              { name: '📊 Summary', value: `Checked **${mainMembers.size}** main server members and **${allianceMembers.size}** alliance server members.` },
+              { name: `✅ Roles Added (${rolesAdded.length})`, value: formatList(rolesAdded) },
+              { name: `❌ Roles Removed (${rolesRemoved.length})`, value: formatList(rolesRemoved) },
+              { name: `⚠️ In Alliance But Not In Main Server (${notInMain.length})`, value: formatList(notInMain) }
             )
             .setFooter({ text: 'Kavià Café • Alliance Check' })
             .setTimestamp();
