@@ -2,25 +2,14 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 const { Session } = require('../db');
 
 const REQUEST_CHANNEL_ID = '1462503910559453421';
-const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
-const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const PING_ROLE_ID = '1434623628078743584';
 const PROMOTIONAL_ROLE_ID = '1434623628078743584';
-const SHIFT_PING_ROLE_ID = '1371568661592019044';
-const TRAINING_PING_ROLE_ID = '1371568736569659462';
 
-const SHIFT_TIMES = [
-  { name: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT', value: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT' },
-  { name: '2:00 AM EST | 8:00 AM CET | 11:00 PM PT', value: '2:00 AM EST | 8:00 AM CET | 11:00 PM PT' },
-  { name: '4:00 AM EST | 10:00 AM CET | 1:00 AM PT', value: '4:00 AM EST | 10:00 AM CET | 1:00 AM PT' },
-  { name: '6:00 AM EST | 12:00 PM CET | 3:00 AM PT', value: '6:00 AM EST | 12:00 PM CET | 3:00 AM PT' },
+const TRAINING_TIMES = [
   { name: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT', value: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT' },
-  { name: '10:00 AM EST | 4:00 PM CET | 7:00 AM PT', value: '10:00 AM EST | 4:00 PM CET | 7:00 AM PT' },
   { name: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT', value: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT' },
-  { name: '2:00 PM EST | 8:00 PM CET | 11:00 AM PT', value: '2:00 PM EST | 8:00 PM CET | 11:00 AM PT' },
-  { name: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT' },
-  { name: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT', value: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT' },
-  { name: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT' },
+  { name: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT' },
+  { name: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT' },
 ];
 
 function parseSessionTime(timeStr) {
@@ -54,21 +43,13 @@ function parseSessionTime(timeStr) {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('sesrequest')
-    .setDescription('Submit a session request')
-    .addStringOption(option =>
-      option.setName('shift_type')
-        .setDescription('Type of shift')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Regular Shift', value: 'Regular Shift' },
-          { name: 'Promotional Shift', value: 'Promotional Shift' }
-        ))
+    .setName('trainingrequest')
+    .setDescription('Submit a training session request')
     .addStringOption(option =>
       option.setName('shift_time')
-        .setDescription('Select your shift time')
+        .setDescription('Select your training time')
         .setRequired(true)
-        .addChoices(...SHIFT_TIMES))
+        .addChoices(...TRAINING_TIMES))
     .addUserOption(option =>
       option.setName('cohost')
         .setDescription('Co-host (leave empty if none)')
@@ -78,15 +59,6 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      const shiftType = interaction.options.getString('shift_type');
-
-      if (shiftType === 'Promotional Shift') {
-        const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-        if (!member.roles.cache.has(PROMOTIONAL_ROLE_ID)) {
-          return interaction.editReply({ content: '❌ You do not have permission to request a Promotional Shift.' });
-        }
-      }
-
       const time = interaction.options.getString('shift_time');
       const cohost = interaction.options.getUser('cohost');
       const cohostText = cohost ? `${cohost}` : 'No co-host — DM me to co-host!';
@@ -103,8 +75,8 @@ module.exports = {
           await interaction.user.send({
             embeds: [
               new EmbedBuilder()
-                .setTitle('❌ Session Time Unavailable')
-                .setDescription(`Hello, <@${interaction.user.id}>,\n\nUnfortunately your session request for **${time}** has been automatically declined as that time slot is **already taken** by another host.\n\nPlease submit a new request with a different time slot. If you have any questions, please reach out to a member of our team.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                .setTitle('❌ Training Time Unavailable')
+                .setDescription(`Hello, <@${interaction.user.id}>,\n\nUnfortunately your training request for **${time}** has been automatically declined as that time slot is **already taken** by another host.\n\nPlease submit a new request with a different time slot. If you have any questions, please reach out to a member of our team.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
                 .setColor(0xE74C3C)
                 .setTimestamp()
             ]
@@ -118,7 +90,7 @@ module.exports = {
       const session = new Session({
         hostId: interaction.user.id,
         coHostId: cohostId,
-        shiftType,
+        shiftType: 'Training',
         time,
         requestChannelId: REQUEST_CHANNEL_ID,
         status: 'pending',
@@ -134,11 +106,11 @@ module.exports = {
       await session.save();
 
       const embed = new EmbedBuilder()
-        .setTitle('📋 Session Request')
-        .setColor(0x3498DB)
+        .setTitle('📋 Training Request')
+        .setColor(0x9B59B6)
         .addFields(
           { name: '👤 Host', value: `${interaction.user} (${interaction.user.id})` },
-          { name: '🎯 Shift Type', value: shiftType },
+          { name: '🎯 Shift Type', value: 'Training' },
           { name: '🕒 Time', value: time },
           { name: '🤝 Co-Host', value: cohostText }
         )
@@ -167,18 +139,11 @@ module.exports = {
         await Session.findByIdAndUpdate(session._id, { requestMessageId: msg.id });
       }
 
-      await interaction.editReply({ content: '✅ Your session request has been submitted!' });
+      await interaction.editReply({ content: '✅ Your training request has been submitted!' });
 
     } catch (err) {
-      console.error('Error in /sesrequest command:', err);
+      console.error('Error in /trainingrequest command:', err);
       try { await interaction.editReply({ content: '❌ Error running command.' }); } catch {}
     }
-  },
-
-  parseSessionTime,
-  REQUEST_CHANNEL_ID,
-  ANNOUNCEMENT_CHANNEL_ID,
-  ANNOUNCEMENT_GUILD_ID,
-  SHIFT_PING_ROLE_ID,
-  TRAINING_PING_ROLE_ID
+  }
 };
