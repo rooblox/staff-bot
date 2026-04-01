@@ -23,10 +23,10 @@ const SHIFT_TIMES = [
 ];
 
 const TRAINING_TIMES = [
-  { name: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT (Training)', value: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT (Training)' },
-  { name: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT (Training)', value: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT (Training)' },
-  { name: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT (Training)', value: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT (Training)' },
-  { name: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT (Training)', value: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT (Training)' },
+  { name: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT', value: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT (Training)' },
+  { name: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT', value: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT (Training)' },
+  { name: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT (Training)' },
+  { name: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT (Training)' },
 ];
 
 function parseSessionTime(timeStr) {
