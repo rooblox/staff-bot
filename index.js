@@ -71,7 +71,6 @@ async function sendLOALog(user, title, color, loaId, extraFields = []) {
     try {
         const logGuild = await client.guilds.fetch(LOA_LOG_GUILD_ID);
         const logChannel = await logGuild.channels.fetch(LOA_LOG_CHANNEL_ID);
-
         const embed = new EmbedBuilder()
             .setTitle(title)
             .setColor(color)
@@ -81,7 +80,6 @@ async function sendLOALog(user, title, color, loaId, extraFields = []) {
             )
             .setTimestamp()
             .setFooter({ text: `LOA ID: ${loaId}` });
-
         await logChannel.send({ embeds: [embed] });
     } catch (err) {
         console.error('Error sending LOA log:', err);
@@ -91,7 +89,7 @@ async function sendLOALog(user, title, color, loaId, extraFields = []) {
 // ========== SESSION SCHEDULING ==========
 async function schedulePreSessionReminder(session) {
     const fireAt = new Date(session.sessionFireAt).getTime();
-    const reminderTime = fireAt - 10 * 60 * 1000;
+    const reminderTime = fireAt - 10 * 60 * 1000; // 10 mins before
     const delay = reminderTime - Date.now();
 
     if (delay < 0) {
@@ -99,6 +97,7 @@ async function schedulePreSessionReminder(session) {
         return;
     }
 
+    // Schedule the "are you still hosting?" message 10 mins before
     setTimeout(async () => {
         try {
             const latestSession = await Session.findById(session._id);
@@ -141,14 +140,13 @@ async function schedulePreSessionReminder(session) {
 
                     await Session.findByIdAndUpdate(session._id, { status: 'cancelled' });
 
-                    // DM the host about auto cancel
                     try {
                         const host = await client.users.fetch(latestSession.hostId);
                         await host.send({
                             embeds: [
                                 new EmbedBuilder()
                                     .setTitle('❌ Session Auto Cancelled')
-                                    .setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response to the hosting confirmation.\n\nIf this was a mistake, please submit a new session request.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                                    .setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response.\n\nIf this was a mistake, please submit a new session request.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
                                     .setColor(0xE74C3C)
                                     .setTimestamp()
                             ]
@@ -177,6 +175,36 @@ async function schedulePreSessionReminder(session) {
             console.error('Error sending pre-session reminder:', err);
         }
     }, delay);
+
+    // Schedule announcement to post ON THE DOT of session time
+    const announcementDelay = fireAt - Date.now();
+    if (announcementDelay > 0) {
+        setTimeout(async () => {
+            try {
+                const latestSession = await Session.findById(session._id);
+                // Only post if host confirmed (status is still approved means they said yes)
+                if (!latestSession || latestSession.status !== 'approved' || !latestSession.hostConfirmed) return;
+                await postAnnouncement(latestSession);
+            } catch (err) {
+                console.error('Error posting on-time announcement:', err);
+            }
+        }, announcementDelay);
+    }
+
+    // Schedule finish check 25 mins AFTER session start time
+    const finishCheckDelay = fireAt + 25 * 60 * 1000 - Date.now();
+    if (finishCheckDelay > 0) {
+        setTimeout(async () => {
+            try {
+                const latestSession = await Session.findById(session._id);
+                if (!latestSession || latestSession.status === 'finished' || latestSession.status === 'cancelled') return;
+                if (!latestSession.announcementMessageId) return;
+                scheduleFinishCheck(session._id, latestSession.announcementMessageId, 0);
+            } catch (err) {
+                console.error('Error scheduling post-session finish check:', err);
+            }
+        }, finishCheckDelay > 0 ? finishCheckDelay : 0);
+    }
 }
 
 async function postAnnouncement(session) {
@@ -226,7 +254,6 @@ Don't miss your chance!
             autoDeleteAt
         });
 
-        scheduleFinishCheck(session._id, msg.id, 25 * 60 * 1000);
         scheduleAutoDelete(session._id, msg.id, 24 * 60 * 60 * 1000);
 
     } catch (err) {
@@ -259,7 +286,7 @@ function scheduleFinishCheck(sessionId, messageId, delay) {
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('🏁 Is your session finished?')
-                            .setDescription(`<@${latestSession.hostId}>, it's been 25 minutes since your **${latestSession.shiftType}** was announced. Is it finished?\n\n*Only you can click these buttons.*`)
+                            .setDescription(`<@${latestSession.hostId}>, it's been 25 minutes since your **${latestSession.shiftType}** started. Is it finished?\n\n*Only you can click these buttons.*`)
                             .setColor(0x3498DB)
                             .setTimestamp()
                     ],
@@ -336,7 +363,6 @@ async function cleanupStaleSessions() {
                     if (msg) await msg.delete().catch(() => {});
                 } catch {}
             }
-
             await Session.findByIdAndUpdate(session._id, { status: 'finished' });
             console.log(`✅ Auto cleaned stale session ${session._id}`);
         }
@@ -748,20 +774,21 @@ Should you have any questions or concerns prior to your session, please do not h
 
             await interaction.update({ components: [] });
 
+            // Mark host as confirmed — announcement will post on the dot automatically
+            await Session.findByIdAndUpdate(sessionId, { hostConfirmed: true });
+
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
             if (requestChannel?.isTextBased()) {
                 await requestChannel.send({
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('✅ Host Confirmed')
-                            .setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**. The announcement will be posted shortly!`)
+                            .setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**. The announcement will be posted at the scheduled time!`)
                             .setColor(0x2ECC71)
                             .setTimestamp()
                     ]
                 });
             }
-
-            await postAnnouncement(session);
             return;
         }
 
@@ -776,7 +803,6 @@ Should you have any questions or concerns prior to your session, please do not h
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
 
-            // DM the host
             try {
                 const host = await client.users.fetch(session.hostId);
                 await host.send({

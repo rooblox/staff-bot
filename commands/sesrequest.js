@@ -20,7 +20,6 @@ const SHIFT_TIMES = [
   { name: '2:00 PM EST | 8:00 PM CET | 11:00 AM PT', value: '2:00 PM EST | 8:00 PM CET | 11:00 AM PT' },
   { name: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT' },
   { name: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT', value: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT' },
-  { name: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT' },
 ];
 
 const TRAINING_TIMES = [
@@ -118,7 +117,6 @@ module.exports = {
             ]
           });
         } catch {}
-
         return interaction.editReply({ content: `❌ That time slot is already taken! Please choose a different time.` });
       }
 
@@ -172,7 +170,6 @@ module.exports = {
           embeds: [embed],
           components: [row]
         });
-
         await Session.findByIdAndUpdate(session._id, { requestMessageId: msg.id });
       }
 

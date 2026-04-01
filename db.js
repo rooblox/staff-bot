@@ -70,6 +70,7 @@ const sessionSchema = new mongoose.Schema({
     preSessionReminderSent: Boolean,
     sessionStarted: Boolean,
     finishCheckStarted: Boolean,
+    hostConfirmed: Boolean,
     createdAt: Date,
     approvedAt: Date,
     sessionFireAt: Date,
@@ -83,7 +84,7 @@ const loaSchema = new mongoose.Schema({
     timeGone: String,
     returnDate: String,
     returnDateParsed: Date,
-    status: String, // pending, approved, denied, more_info, returned, extended
+    status: String,
     messageId: String,
     channelId: String,
     logChannelId: String,
