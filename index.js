@@ -136,7 +136,7 @@ async function schedulePreSessionReminder(session) {
             setTimeout(async () => {
                 try {
                     const checkSession = await Session.findById(session._id);
-                    if (!checkSession || checkSession.status !== 'approved') return;
+                    if (!checkSession || checkSession.status !== 'approved' || checkSession.hostConfirmed) return;
 
                     await Session.findByIdAndUpdate(session._id, { status: 'cancelled' });
 
