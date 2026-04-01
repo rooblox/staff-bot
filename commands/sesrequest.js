@@ -21,6 +21,7 @@ const SHIFT_TIMES = [
   { name: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 PM PT' },
   { name: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT', value: '6:00 PM EST | 12:00 AM CET | 3:00 PM PT' },
   { name: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 PM PT' },
+  { name: '10:00 PM EST | 4:00 AM CET | 7:00 PM PT', value: '10:00 PM EST | 4:00 AM CET | 7:00 PM PT' },
 ];
 
 function parseSessionTime(timeStr) {
