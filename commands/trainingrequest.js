@@ -10,6 +10,8 @@ const TRAINING_TIMES = [
   { name: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT', value: '12:00 PM EST | 6:00 PM CET | 9:00 AM PT' },
   { name: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT', value: '4:00 PM EST | 10:00 PM CET | 1:00 AM PT' },
   { name: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT', value: '8:00 PM EST | 2:00 AM CET | 5:00 AM PT' },
+  { name: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT', value: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT' },
+  { name: '4:00 AM EST | 10:00 AM CET | 1:00 AM PT', value: '4:00 AM EST | 10:00 AM CET | 1:00 AM PT' },
 ];
 
 function parseSessionTime(timeStr) {
