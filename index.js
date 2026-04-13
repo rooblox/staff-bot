@@ -7,7 +7,8 @@ const { connectDB, Reminder, Session, LOA } = require('./db');
 const REQUEST_CHANNEL_ID = '1462503910559453421';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
 const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
-const REQUIRED_BUTTON_ROLE_ID = '1434623628078743584';
+const MAIN_GUILD_ID = '1370892833182974035';
+const REQUIRED_BUTTON_ROLE_ID = '1493354187109433434';
 const TRAINING_BUTTON_ROLE_ID = '1464028127440273458';
 const SHIFT_PING_ROLE_ID = '1371568661592019044';
 const TRAINING_PING_ROLE_ID = '1371568736569659462';
@@ -59,6 +60,26 @@ const loaModule = require('./commands/loa');
 const { scheduleLOAReturnReminder } = loaModule;
 
 // ========== HELPERS ==========
+async function hasRequiredRole(userId) {
+    try {
+        const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
+        const member = await mainGuild.members.fetch(userId).catch(() => null);
+        return member && member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID);
+    } catch {
+        return false;
+    }
+}
+
+async function hasTrainingRole(userId) {
+    try {
+        const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
+        const member = await mainGuild.members.fetch(userId).catch(() => null);
+        return member && member.roles.cache.has(TRAINING_BUTTON_ROLE_ID);
+    } catch {
+        return false;
+    }
+}
+
 async function hasStaffRole(userId) {
     for (const guild of client.guilds.cache.values()) {
         const m = await guild.members.fetch(userId).catch(() => null);
@@ -94,7 +115,6 @@ async function scheduleSession(session) {
     const announcementDelay = fireAt - now;
     const finishCheckDelay = fireAt + 25 * 60 * 1000 - now;
 
-    // Schedule the 10 min reminder if not already sent and still in the future
     if (!session.preSessionReminderSent && reminderDelay > 0) {
         setTimeout(async () => {
             try {
@@ -130,7 +150,6 @@ async function scheduleSession(session) {
 
                 await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
 
-                // Auto cancel after 8 minutes if no response and not confirmed
                 setTimeout(async () => {
                     try {
                         const checkSession = await Session.findById(session._id);
@@ -175,7 +194,6 @@ async function scheduleSession(session) {
         }, reminderDelay);
     }
 
-    // Schedule announcement ON THE DOT of session time
     if (announcementDelay > 0) {
         setTimeout(async () => {
             try {
@@ -188,7 +206,6 @@ async function scheduleSession(session) {
         }, announcementDelay);
     }
 
-    // Schedule finish check 25 mins AFTER session start
     if (finishCheckDelay > 0) {
         setTimeout(async () => {
             try {
@@ -331,7 +348,6 @@ async function restoreSessions() {
                 if (timeLeft > 0) {
                     scheduleAutoDelete(session._id, session.announcementMessageId, timeLeft);
                 }
-                // Reschedule finish check for active sessions
                 const finishCheckDelay = new Date(session.sessionFireAt).getTime() + 25 * 60 * 1000 - Date.now();
                 if (finishCheckDelay > 0) {
                     setTimeout(async () => {
@@ -410,7 +426,6 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.isButton()) {
-        const member = interaction.member ?? await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
 
         // ========== TRAINING BUTTONS ==========
         if (interaction.customId.startsWith('training_done_')) {
@@ -512,7 +527,7 @@ client.on('interactionCreate', async interaction => {
             const userId = parts[2];
             const sectionIndex = parseInt(parts[3]);
 
-            if (member && !member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
+            if (!await hasTrainingRole(interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission to resolve training sessions.', ephemeral: true });
             }
 
@@ -624,7 +639,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('training_pass_')) {
             const userId = interaction.customId.split('_')[2];
 
-            if (member && !member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
+            if (!await hasTrainingRole(interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             }
 
@@ -647,7 +662,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('training_fail_')) {
             const userId = interaction.customId.split('_')[2];
 
-            if (member && !member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) {
+            if (!await hasTrainingRole(interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             }
 
@@ -685,7 +700,7 @@ client.on('interactionCreate', async interaction => {
 
         // ========== SESSION REQUEST BUTTONS ==========
         if (interaction.customId.startsWith('sesaccept_')) {
-            if (member && !member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID)) {
+            if (!await hasRequiredRole(interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
             }
 
@@ -738,7 +753,7 @@ Should you have any questions or concerns prior to your session, please do not h
         }
 
         if (interaction.customId.startsWith('sesdecline_') && !interaction.customId.startsWith('sesdeclinemodal_')) {
-            if (member && !member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID)) {
+            if (!await hasRequiredRole(interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
             }
 
@@ -1293,18 +1308,16 @@ client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-    if (process.env.DEPLOY_COMMANDS === 'true') {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-        console.log('✅ Cleared global commands');
+    await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
+    console.log('✅ Cleared global commands');
 
-        for (const guild of client.guilds.cache.values()) {
-            try {
-                await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
-                await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
-                console.log(`✅ Commands registered in guild: ${guild.name}`);
-            } catch (err) {
-                console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
-            }
+    for (const guild of client.guilds.cache.values()) {
+        try {
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
+            console.log(`✅ Commands registered in guild: ${guild.name}`);
+        } catch (err) {
+            console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
         }
     }
 
