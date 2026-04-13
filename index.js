@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { connectDB, Reminder, Session, LOA } = require('./db');
+const { sendGroupAnnouncement } = require('./commands/roblox');
 
 const REQUEST_CHANNEL_ID = '1462503910559453421';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
@@ -229,6 +230,7 @@ async function postAnnouncement(session) {
         const cohostText = cohost ? `<@${cohost.id}>` : 'None';
 
         let announcementContent = '';
+        let groupMessage = '';
 
         if (session.shiftType === 'Training') {
             announcementContent = `Hello <@&${TRAINING_PING_ROLE_ID}> !
@@ -238,6 +240,8 @@ Don't miss your chance!
 🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)
 🔗 | [Application Center](https://www.roblox.com/games/88140934632053/Kavia-Cafe-Application-Center)
 🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`;
+
+            groupMessage = `📚 A training session is now underway at Kavià Café! If you're looking to join our staff team or earn a promotion, now is your chance. Head to the Training Center and prove yourself! 🌟\n\n🔗 Training Center: https://www.roblox.com/games/85441213175174/Kavi-Training-Center`;
         } else {
             announcementContent = `## 🚀 | Shift Commencement
 
@@ -254,9 +258,19 @@ Don't miss your chance!
 ☕ | Join us at the café and be part of the experience today!
 
 🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)`;
+
+            groupMessage = `☕ A shift is now being hosted at Kavià Café! Head to the café and show off your skills. Whether you're staff looking for a promotion or a customer seeking great service, come join us! 🎉\n\n🔗 Café: https://www.roblox.com/games/109860649571330/Kavi-Cafe`;
         }
 
         const msg = await announcementChannel.send({ content: announcementContent });
+
+        // Post to Roblox group
+        try {
+            await sendGroupAnnouncement(process.env.ROBLOX_MAIN_GROUP, groupMessage);
+            console.log(`✅ Group announcement posted for session ${session._id}`);
+        } catch (err) {
+            console.error('Error posting group announcement:', err);
+        }
 
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, {
