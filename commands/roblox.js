@@ -1,4 +1,34 @@
-const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
+const https = require('https');
+
+function fetch(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        const urlObj = new URL(url);
+        const reqOptions = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: options.method || 'GET',
+            headers: options.headers || {}
+        };
+
+        const req = https.request(reqOptions, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode,
+                    headers: res.headers,
+                    json: () => Promise.resolve(JSON.parse(data)),
+                    text: () => Promise.resolve(data)
+                });
+            });
+        });
+
+        req.on('error', reject);
+        if (options.body) req.write(options.body);
+        req.end();
+    });
+}
 
 const COOKIE = () => process.env.ROBLOX_COOKIE;
 
@@ -11,7 +41,8 @@ async function getRobloxIdFromUsername(username) {
         });
         const data = await res.json();
         return data?.data?.[0]?.id || null;
-    } catch {
+    } catch (err) {
+        console.error('getRobloxIdFromUsername error:', err);
         return null;
     }
 }
@@ -21,7 +52,8 @@ async function getRobloxUsername(robloxId) {
         const res = await fetch(`https://users.roblox.com/v1/users/${robloxId}`);
         const data = await res.json();
         return data?.name || null;
-    } catch {
+    } catch (err) {
+        console.error('getRobloxUsername error:', err);
         return null;
     }
 }
@@ -31,7 +63,8 @@ async function getAvatarUrl(robloxId) {
         const res = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${robloxId}&size=150x150&format=Png&isCircular=false`);
         const data = await res.json();
         return data?.data?.[0]?.imageUrl || null;
-    } catch {
+    } catch (err) {
+        console.error('getAvatarUrl error:', err);
         return null;
     }
 }
@@ -41,7 +74,8 @@ async function getGroupRanks(groupId) {
         const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/roles`);
         const data = await res.json();
         return (data.roles || []).filter(r => r.rank !== 0 && r.rank !== 255);
-    } catch {
+    } catch (err) {
+        console.error('getGroupRanks error:', err);
         return [];
     }
 }
@@ -52,7 +86,8 @@ async function getUserRankInGroup(groupId, robloxId) {
         const data = await res.json();
         const group = (data.data || []).find(g => String(g.group.id) === String(groupId));
         return group?.role || null;
-    } catch {
+    } catch (err) {
+        console.error('getUserRankInGroup error:', err);
         return null;
     }
 }
@@ -63,8 +98,9 @@ async function getCsrfToken() {
             method: 'POST',
             headers: { 'Cookie': `.ROBLOSECURITY=${COOKIE()}` }
         });
-        return res.headers.get('x-csrf-token');
-    } catch {
+        return res.headers['x-csrf-token'] || null;
+    } catch (err) {
+        console.error('getCsrfToken error:', err);
         return null;
     }
 }
@@ -81,8 +117,13 @@ async function setRank(groupId, robloxId, rankId) {
             },
             body: JSON.stringify({ roleId: rankId })
         });
+        if (!res.ok) {
+            const text = await res.text();
+            console.error('setRank failed:', res.status, text);
+        }
         return res.ok;
-    } catch {
+    } catch (err) {
+        console.error('setRank error:', err);
         return false;
     }
 }
@@ -98,8 +139,13 @@ async function kickFromGroup(groupId, robloxId) {
                 'x-csrf-token': csrfToken
             }
         });
+        if (!res.ok) {
+            const text = await res.text();
+            console.error('kickFromGroup failed:', res.status, text);
+        }
         return res.ok;
-    } catch {
+    } catch (err) {
+        console.error('kickFromGroup error:', err);
         return false;
     }
 }
@@ -116,8 +162,13 @@ async function sendGroupAnnouncement(groupId, message) {
             },
             body: JSON.stringify({ message })
         });
+        if (!res.ok) {
+            const text = await res.text();
+            console.error('sendGroupAnnouncement failed:', res.status, text);
+        }
         return res.ok;
-    } catch {
+    } catch (err) {
+        console.error('sendGroupAnnouncement error:', err);
         return false;
     }
 }
