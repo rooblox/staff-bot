@@ -425,6 +425,90 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
+    // ========== SELECT MENU HANDLER ==========
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId.startsWith('changerank_select_')) {
+            const parts = interaction.customId.replace('changerank_select_', '').split('_');
+            const robloxId = parts[0];
+            const groupId = parts.slice(1).join('_');
+
+            const context = client.rankChangeContext?.get(`${robloxId}_${groupId}`);
+            if (!context) {
+                return interaction.reply({ content: '❌ This selection has expired. Please run the command again.', ephemeral: true });
+            }
+
+            await interaction.deferUpdate().catch(() => {});
+
+            const selectedRoleId = interaction.values[0];
+            const { setRank, getGroupRanks } = require('./commands/roblox');
+
+            const allRanks = await getGroupRanks(groupId);
+            const selectedRole = allRanks.find(r => String(r.id) === selectedRoleId);
+
+            if (!selectedRole) {
+                return interaction.editReply({ content: '❌ Could not find that rank.', components: [], embeds: [] });
+            }
+
+            const success = await setRank(groupId, context.robloxId, selectedRoleId);
+            if (!success) {
+                return interaction.editReply({ content: '❌ Failed to change rank. Check that the bot account has permission.', components: [], embeds: [] });
+            }
+
+            if (context.discordUser) {
+                const dmMessage = `# <:kaviacafe:1387492814916685845> **Rank Change Notice**
+Hello, ${context.discordUser},
+Your rank in the **Kavià Café** Roblox group has been updated.
+> <:pink_pin:1166850035611353148> **Old Rank →** *${context.currentRole?.name || 'Unknown'}*
+> <:pink_pin:1166850035611353148> **New Rank →** *${selectedRole.name}*
+> <:pink_pin:1166850035611353148> **Reason →** *${context.reason}*
+If you have any questions, please reach out to a staff member.
+***Signed,***
+**${context.staffUser.username} || ${context.department}**`;
+                try { await context.discordUser.send({ content: dmMessage }); } catch {}
+            }
+
+            const logEmbed = new EmbedBuilder()
+                .setTitle('🔄 Rank Changed')
+                .setColor(0x3498DB)
+                .setThumbnail(context.avatarUrl)
+                .addFields(
+                    { name: '🎮 Roblox Username', value: context.robloxUsername, inline: true },
+                    { name: '👤 Discord User', value: context.discordUser ? `${context.discordUser.tag}` : 'Not provided', inline: true },
+                    { name: '\u200B', value: '\u200B', inline: true },
+                    { name: '⬅️ Old Rank', value: context.currentRole?.name || 'Unknown', inline: true },
+                    { name: '➡️ New Rank', value: selectedRole.name, inline: true },
+                    { name: '\u200B', value: '\u200B', inline: true },
+                    { name: '📝 Reason', value: context.reason },
+                    { name: '🏢 Department', value: context.department, inline: true },
+                    { name: '👮 Actioned By', value: context.staffUser.tag, inline: true },
+                    { name: '💬 DM Sent', value: context.discordUser ? 'Yes' : 'No', inline: true }
+                )
+                .setFooter({ text: 'Kavià Café • Ranking System' })
+                .setTimestamp();
+
+            const logChannel = await client.channels.fetch(process.env.RANKING_LOG_CHANNEL);
+            if (logChannel?.isTextBased()) await logChannel.send({ embeds: [logEmbed] });
+
+            client.rankChangeContext?.delete(`${robloxId}_${groupId}`);
+
+            const replyEmbed = new EmbedBuilder()
+                .setTitle('✅ Rank Changed Successfully')
+                .setColor(0x3498DB)
+                .setThumbnail(context.avatarUrl)
+                .addFields(
+                    { name: '🎮 Roblox User', value: context.robloxUsername, inline: true },
+                    { name: '⬅️ Old Rank', value: context.currentRole?.name || 'Unknown', inline: true },
+                    { name: '➡️ New Rank', value: selectedRole.name, inline: true }
+                )
+                .setFooter({ text: 'Kavià Café • Ranking System' })
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [replyEmbed], components: [] });
+            return;
+        }
+        return;
+    }
+
     if (interaction.isButton()) {
 
         // ========== TRAINING BUTTONS ==========
@@ -1123,7 +1207,6 @@ We encourage you to review the reason provided and reach out to a member of our 
             return;
         }
 
-        // ========== LOA MODALS ==========
         if (interaction.customId.startsWith('loa_denymodal_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
