@@ -1,7 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
-const REQUIRED_ROLE_ID = '1484973859513045224';
+const REQUIRED_ROLE_ID = '1493354187109433434';
+const MAIN_GUILD_ID = '1370892833182974035';
 
 const DEPARTMENTS = [
   { name: 'SHR', value: 'SHR' },
@@ -19,34 +20,23 @@ module.exports = {
     .setName('blacklist')
     .setDescription('Blacklist a staff member')
     .addUserOption(option =>
-      option.setName('user')
-        .setDescription('Staff member to blacklist')
-        .setRequired(true))
+      option.setName('user').setDescription('Staff member to blacklist').setRequired(true))
     .addStringOption(option =>
-      option.setName('reason')
-        .setDescription('Reason for blacklist')
-        .setRequired(true))
+      option.setName('reason').setDescription('Reason for blacklist').setRequired(true))
     .addStringOption(option =>
-      option.setName('your_rank')
-        .setDescription('Your rank')
-        .setRequired(true))
+      option.setName('your_rank').setDescription('Your rank').setRequired(true))
     .addStringOption(option =>
-      option.setName('department')
-        .setDescription('Your department')
-        .setRequired(true)
-        .addChoices(...DEPARTMENTS))
+      option.setName('department').setDescription('Your department').setRequired(true).addChoices(...DEPARTMENTS))
     .addStringOption(option =>
-      option.setName('proof')
-        .setDescription('Proof (optional)')
-        .setRequired(false)),
+      option.setName('proof').setDescription('Proof (optional)').setRequired(false)),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-      const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
-      if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      const mainGuild = await interaction.client.guilds.fetch(MAIN_GUILD_ID);
+      const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+      if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 

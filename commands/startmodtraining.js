@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 
 const LOG_CHANNEL_ID = '1485349514486480947';
 const REQUIRED_ROLE_ID = '1464028127440273458';
+const MAIN_GUILD_ID = '1370892833182974035';
 
 const activeSessions = new Map();
 
@@ -106,14 +107,12 @@ function getQuizEmbed(questionIndex, score) {
 function getQuizButtons(userId, questionIndex) {
   const q = quizQuestions[questionIndex];
   const validOptions = Object.entries(q.options).filter(([, v]) => v !== null);
-
   const buttons = validOptions.map(([key]) =>
     new ButtonBuilder()
       .setCustomId(`quiz_${key}_${userId}_${questionIndex}`)
       .setLabel(key)
       .setStyle(ButtonStyle.Primary)
   );
-
   return new ActionRowBuilder().addComponents(buttons);
 }
 
@@ -124,16 +123,14 @@ module.exports = {
     .setName('startmodtraining')
     .setDescription('Start moderation training for a user')
     .addUserOption(option =>
-      option.setName('user')
-        .setDescription('User to train')
-        .setRequired(true)),
+      option.setName('user').setDescription('User to train').setRequired(true)),
 
   async execute(interaction, client) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
-    const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-    const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
-    if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
+    const mainGuild = await interaction.client.guilds.fetch(MAIN_GUILD_ID);
+    const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+    if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 

@@ -1,41 +1,34 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
-const REQUIRED_ROLE_ID = '1484973859513045224';
+const REQUIRED_ROLE_ID = '1493354187109433434';
+const MAIN_GUILD_ID = '1370892833182974035';
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('notes')
     .setDescription('Add, view or remove private internal notes on a staff member')
     .addStringOption(option =>
-      option.setName('action')
-        .setDescription('Add, view or remove notes')
-        .setRequired(true)
+      option.setName('action').setDescription('Add, view or remove notes').setRequired(true)
         .addChoices(
           { name: 'Add Note', value: 'add' },
           { name: 'View Notes', value: 'view' },
           { name: 'Remove Note', value: 'remove' }
         ))
     .addUserOption(option =>
-      option.setName('user')
-        .setDescription('Staff member')
-        .setRequired(true))
+      option.setName('user').setDescription('Staff member').setRequired(true))
     .addStringOption(option =>
-      option.setName('note')
-        .setDescription('The note to add (only required when adding)')
-        .setRequired(false))
+      option.setName('note').setDescription('The note to add (only required when adding)').setRequired(false))
     .addIntegerOption(option =>
-      option.setName('number')
-        .setDescription('Note number to remove (only required when removing)')
-        .setRequired(false)),
+      option.setName('number').setDescription('Note number to remove (only required when removing)').setRequired(false)),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-      const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
-      if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      const mainGuild = await interaction.client.guilds.fetch(MAIN_GUILD_ID);
+      const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+      if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -48,9 +41,7 @@ module.exports = {
       let record = await StaffRecord.findById(user.id);
 
       if (action === 'add') {
-        if (!noteText) {
-          return interaction.editReply({ content: '❌ You must provide a note to add.' });
-        }
+        if (!noteText) return interaction.editReply({ content: '❌ You must provide a note to add.' });
 
         if (!record) {
           record = new StaffRecord({ _id: user.id, strikes: [], terminations: [], blacklists: [], notes: [] });

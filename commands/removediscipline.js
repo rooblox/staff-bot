@@ -1,7 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
 
-const REQUIRED_ROLE_ID = '1484973859513045224';
+const REQUIRED_ROLE_ID = '1493354187109433434';
+const MAIN_GUILD_ID = '1370892833182974035';
 
 const DEPARTMENTS = [
   { name: 'SHR', value: 'SHR' },
@@ -19,39 +20,28 @@ module.exports = {
     .setName('removediscipline')
     .setDescription('Remove a strike, termination, or blacklist entry from a staff member')
     .addUserOption(option =>
-      option.setName('user')
-        .setDescription('Staff member')
-        .setRequired(true))
+      option.setName('user').setDescription('Staff member').setRequired(true))
     .addStringOption(option =>
-      option.setName('type')
-        .setDescription('Type of discipline to remove')
-        .setRequired(true)
+      option.setName('type').setDescription('Type of discipline to remove').setRequired(true)
         .addChoices(
           { name: 'Strike', value: 'strike' },
           { name: 'Termination', value: 'termination' },
           { name: 'Blacklist', value: 'blacklist' }
         ))
     .addStringOption(option =>
-      option.setName('reason')
-        .setDescription('Reason for removal')
-        .setRequired(true))
+      option.setName('reason').setDescription('Reason for removal').setRequired(true))
     .addStringOption(option =>
-      option.setName('department')
-        .setDescription('Your department')
-        .setRequired(true)
-        .addChoices(...DEPARTMENTS))
+      option.setName('department').setDescription('Your department').setRequired(true).addChoices(...DEPARTMENTS))
     .addIntegerOption(option =>
-      option.setName('number')
-        .setDescription('Strike number (required if removing a strike)')
-        .setRequired(false)),
+      option.setName('number').setDescription('Strike number (required if removing a strike)').setRequired(false)),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-      const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
-      if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
+      const mainGuild = await interaction.client.guilds.fetch(MAIN_GUILD_ID);
+      const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+      if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
         return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
 
@@ -63,9 +53,7 @@ module.exports = {
       const department = interaction.options.getString('department');
 
       const record = await StaffRecord.findById(user.id);
-      if (!record) {
-        return interaction.editReply({ content: '❌ This user has no discipline records.' });
-      }
+      if (!record) return interaction.editReply({ content: '❌ This user has no discipline records.' });
 
       if (type === 'strike') {
         const activeStrikes = record.strikes.filter(s => !s.removed);
