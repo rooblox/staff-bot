@@ -98,7 +98,9 @@ async function getCsrfToken() {
             method: 'POST',
             headers: { 'Cookie': `.ROBLOSECURITY=${COOKIE()}` }
         });
-        return res.headers['x-csrf-token'] || null;
+        const token = res.headers['x-csrf-token'] || null;
+        console.log('getCsrfToken result:', token ? '✅ Got token' : '❌ No token');
+        return token;
     } catch (err) {
         console.error('getCsrfToken error:', err);
         return null;
@@ -168,9 +170,17 @@ async function getAuditLog(groupId, limit = 100) {
 async function sendGroupAnnouncement(groupId, title, content) {
     try {
         const csrfToken = await getCsrfToken();
+        console.log('📢 Attempting announcement...');
+        console.log('Group ID:', groupId);
+        console.log('Title:', title);
+        console.log('Content:', content);
+        console.log('CSRF Token:', csrfToken ? '✅ Present' : '❌ Missing');
 
-        // Try new announcements endpoint first
-        const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/announcements`, {
+        // Try new announcements endpoint
+        const url = `https://groups.roblox.com/v1/groups/${groupId}/announcements`;
+        console.log('URL:', url);
+
+        const res = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -180,10 +190,10 @@ async function sendGroupAnnouncement(groupId, title, content) {
             body: JSON.stringify({ title, content })
         });
 
-        if (!res.ok) {
-            const text = await res.text();
-            console.error('sendGroupAnnouncement failed:', res.status, text);
-        }
+        const responseText = await res.text();
+        console.log('📢 Announcement status:', res.status);
+        console.log('📢 Announcement response:', responseText);
+
         return res.ok;
     } catch (err) {
         console.error('sendGroupAnnouncement error:', err);
