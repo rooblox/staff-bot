@@ -1,13 +1,15 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { Session } = require('../db');
 
-const REQUEST_CHANNEL_ID = '1462503910559453421';
+const REQUEST_CHANNEL_ID = '1493737208597971045';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
 const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const PING_ROLE_ID = '1434623628078743584';
 const PROMOTIONAL_ROLE_ID = '1434623628078743584';
+const REQUIRED_ROLE_ID = '1434563855354167358';
 const SHIFT_PING_ROLE_ID = '1371568661592019044';
 const TRAINING_PING_ROLE_ID = '1371568736569659462';
+const MAIN_GUILD_ID = '1370892833182974035';
 
 const SHIFT_TIMES = [
   { name: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT', value: '12:00 AM EST | 6:00 AM CET | 9:00 PM PT' },
@@ -79,11 +81,18 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
+      // Check general required role in main server
+      const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
+      const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+      if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
+        return interaction.editReply({ content: '❌ You do not have permission to submit a session request.' });
+      }
+
       const shiftType = interaction.options.getString('shift_type');
 
+      // Extra check for Promotional Shift
       if (shiftType === 'Promotional Shift') {
-        const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-        if (!member.roles.cache.has(PROMOTIONAL_ROLE_ID)) {
+        if (!mainMember.roles.cache.has(PROMOTIONAL_ROLE_ID)) {
           return interaction.editReply({ content: '❌ You do not have permission to request a Promotional Shift.' });
         }
       }
@@ -158,7 +167,7 @@ module.exports = {
             .setStyle(ButtonStyle.Danger)
         );
 
-      const requestChannel = await interaction.client.channels.fetch(REQUEST_CHANNEL_ID);
+      const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
       if (requestChannel?.isTextBased()) {
         const msg = await requestChannel.send({
           content: `<@&${PING_ROLE_ID}>`,
