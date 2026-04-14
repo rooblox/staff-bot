@@ -9,9 +9,15 @@ module.exports = {
         .setName('announcements')
         .setDescription('Post an announcement to the Roblox group')
         .addStringOption(option =>
-            option.setName('message')
-                .setDescription('The announcement message to post')
-                .setRequired(true)),
+            option.setName('title')
+                .setDescription('Title of the announcement (max 120 characters)')
+                .setRequired(true)
+                .setMaxLength(120))
+        .addStringOption(option =>
+            option.setName('content')
+                .setDescription('Content of the announcement (max 1000 characters)')
+                .setRequired(true)
+                .setMaxLength(1000)),
 
     async execute(interaction, client) {
         await interaction.deferReply({ ephemeral: true }).catch(() => {});
@@ -23,16 +29,16 @@ module.exports = {
                 return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
             }
 
-            const message = interaction.options.getString('message');
+            const title = interaction.options.getString('title');
+            const content = interaction.options.getString('content');
             const groupId = process.env.ROBLOX_MAIN_GROUP;
 
-            const success = await sendGroupAnnouncement(groupId, message);
+            const success = await sendGroupAnnouncement(groupId, title, content);
 
             if (!success) {
                 return interaction.editReply({ content: '❌ Failed to post announcement. Make sure the bot account has permission to post announcements in the group.' });
             }
 
-            // Log it
             const logChannel = await client.channels.fetch(process.env.RANKING_LOG_CHANNEL);
             if (logChannel?.isTextBased()) {
                 await logChannel.send({
@@ -42,7 +48,8 @@ module.exports = {
                             .setColor(0x3498DB)
                             .addFields(
                                 { name: '👮 Posted By', value: interaction.user.tag },
-                                { name: '📝 Message', value: message }
+                                { name: '📌 Title', value: title },
+                                { name: '📝 Content', value: content }
                             )
                             .setFooter({ text: 'Kavià Café • Announcements' })
                             .setTimestamp()
@@ -50,7 +57,7 @@ module.exports = {
                 });
             }
 
-            await interaction.editReply({ content: '✅ Announcement posted to the Roblox group!' });
+            await interaction.editReply({ content: `✅ Announcement **"${title}"** posted to the Roblox group!` });
 
         } catch (err) {
             console.error('Error in /announcements command:', err);

@@ -150,18 +150,36 @@ async function kickFromGroup(groupId, robloxId) {
     }
 }
 
-async function sendGroupAnnouncement(groupId, message) {
+async function getAuditLog(groupId, limit = 100) {
+    try {
+        const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/audit-log?actionType=ChangeRank&limit=${limit}`, {
+            headers: {
+                'Cookie': `.ROBLOSECURITY=${COOKIE()}`
+            }
+        });
+        const data = await res.json();
+        return data?.data || [];
+    } catch (err) {
+        console.error('getAuditLog error:', err);
+        return [];
+    }
+}
+
+async function sendGroupAnnouncement(groupId, title, content) {
     try {
         const csrfToken = await getCsrfToken();
-        const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/status`, {
-            method: 'PATCH',
+
+        // Try new announcements endpoint first
+        const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/announcements`, {
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Cookie': `.ROBLOSECURITY=${COOKIE()}`,
                 'x-csrf-token': csrfToken
             },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({ title, content })
         });
+
         if (!res.ok) {
             const text = await res.text();
             console.error('sendGroupAnnouncement failed:', res.status, text);
@@ -181,5 +199,6 @@ module.exports = {
     getUserRankInGroup,
     setRank,
     kickFromGroup,
+    getAuditLog,
     sendGroupAnnouncement
 };
