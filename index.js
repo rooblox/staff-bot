@@ -15,10 +15,6 @@ const SHIFT_PING_ROLE_ID = '1371568661592019044';
 const TRAINING_PING_ROLE_ID = '1371568736569659462';
 const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
 const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
-const LOA_CHANNEL_ID = '1462104324917166174';
-const LOA_GUILD_ID = '1372680943592280217';
-const LOA_LOG_CHANNEL_ID = '1464070445698650316';
-const LOA_LOG_GUILD_ID = '1434556801096876034';
 const LOA_STAFF_ROLE_ID = '1434623628078743584';
 
 const client = new Client({
@@ -58,7 +54,7 @@ const {
 } = trainingModule;
 
 const loaModule = require('./commands/loa');
-const { scheduleLOAReturnReminder } = loaModule;
+const { scheduleLOAReturnReminder, DEPARTMENTS } = loaModule;
 
 // ========== HELPERS ==========
 async function hasRequiredRole(userId) {
@@ -91,17 +87,28 @@ async function hasStaffRole(userId) {
 
 async function sendLOALog(user, title, color, loaId, extraFields = []) {
     try {
-        const logGuild = await client.guilds.fetch(LOA_LOG_GUILD_ID);
-        const logChannel = await logGuild.channels.fetch(LOA_LOG_CHANNEL_ID);
+        const loa = await LOA.findById(loaId);
+        const deptConfig = loa?.department ? DEPARTMENTS[loa.department] : null;
+
+        if (!deptConfig) {
+            console.error('No dept config found for LOA log:', loa?.department);
+            return;
+        }
+
+        const logGuild = await client.guilds.fetch(deptConfig.serverId);
+        const logChannel = await logGuild.channels.fetch(deptConfig.loaLogChannelId);
+
         const embed = new EmbedBuilder()
             .setTitle(title)
             .setColor(color)
             .addFields(
                 { name: '👤 User', value: `${user.tag} (${user.id})` },
+                { name: '🏢 Department', value: loa.department || 'Unknown' },
                 ...extraFields
             )
             .setTimestamp()
             .setFooter({ text: `LOA ID: ${loaId}` });
+
         await logChannel.send({ embeds: [embed] });
     } catch (err) {
         console.error('Error sending LOA log:', err);
@@ -230,7 +237,6 @@ async function postAnnouncement(session) {
         const cohostText = cohost ? `<@${cohost.id}>` : 'None';
 
         let announcementContent = '';
-        let groupMessage = '';
 
         if (session.shiftType === 'Training') {
             announcementContent = `Hello <@&${TRAINING_PING_ROLE_ID}> !
@@ -240,8 +246,6 @@ Don't miss your chance!
 🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)
 🔗 | [Application Center](https://www.roblox.com/games/88140934632053/Kavia-Cafe-Application-Center)
 🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`;
-
-            groupMessage = `📚 A training session is now underway at Kavià Café! If you're looking to join our staff team or earn a promotion, now is your chance. Head to the Training Center and prove yourself! 🌟\n\n🔗 Training Center: https://www.roblox.com/games/85441213175174/Kavi-Training-Center`;
         } else {
             announcementContent = `## 🚀 | Shift Commencement
 
@@ -258,19 +262,9 @@ Don't miss your chance!
 ☕ | Join us at the café and be part of the experience today!
 
 🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)`;
-
-            groupMessage = `☕ A shift is now being hosted at Kavià Café! Head to the café and show off your skills. Whether you're staff looking for a promotion or a customer seeking great service, come join us! 🎉\n\n🔗 Café: https://www.roblox.com/games/109860649571330/Kavi-Cafe`;
         }
 
         const msg = await announcementChannel.send({ content: announcementContent });
-
-        // Post to Roblox group
-        try {
-            await sendGroupAnnouncement(process.env.ROBLOX_MAIN_GROUP, groupMessage);
-            console.log(`✅ Group announcement posted for session ${session._id}`);
-        } catch (err) {
-            console.error('Error posting group announcement:', err);
-        }
 
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, {
@@ -821,12 +815,11 @@ If you have any questions, please reach out to a staff member.
 
                 const dmMessage = `# <:kaviacafe:1387492814916685845> **Session Request Accepted**
 Hello, ${user},
-We are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**! We are looking forward to having you host this session and appreciate your dedication to our community.
-Your request has been reviewed and approved by a member of our team. Please ensure you are prepared and ready for your session at the scheduled time.
+We are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**!
 > <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*
 > <:pink_pin:1166850035611353148> **Time →** *${session.time}*
 > <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*
-Should you have any questions or concerns prior to your session, please do not hesitate to reach out to a member of our team. We wish you the best of luck and hope you have a wonderful session!${linkText}
+Should you have any questions or concerns prior to your session, please do not hesitate to reach out to a member of our team. We wish you the best of luck!${linkText}
 ***Signed,***
 **${interaction.user.username}**
 **Kavià Café Staff Team**`;
@@ -1027,7 +1020,7 @@ Should you have any questions or concerns prior to your session, please do not h
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('✅ Leave of Absence Approved')
-                            .setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**. We hope you have a restful time away and look forward to welcoming you back!\n\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\nWe will send you a reminder when your LOA comes to an end. If anything changes, please don't hesitate to reach out.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                            .setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\nWe will send you a reminder when your LOA comes to an end.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
                             .setColor(0x2ECC71)
                             .setTimestamp()
                     ]
@@ -1114,24 +1107,26 @@ Should you have any questions or concerns prior to your session, please do not h
             await LOA.findByIdAndUpdate(loaId, { status: 'returned' });
 
             try {
-                const loaGuild = await client.guilds.fetch(LOA_GUILD_ID);
-                const loaChannel = await loaGuild.channels.fetch(LOA_CHANNEL_ID);
-                const msg = await loaChannel.messages.fetch(loa.messageId).catch(() => null);
-                if (msg) await msg.delete().catch(() => {});
+                const deptConfig = DEPARTMENTS[loa.department];
+                if (deptConfig) {
+                    const loaGuild = await client.guilds.fetch(deptConfig.serverId);
+                    const loaChannel = await loaGuild.channels.fetch(deptConfig.loaChannelId);
+                    const msg = await loaChannel.messages.fetch(loa.messageId).catch(() => null);
+                    if (msg) await msg.delete().catch(() => {});
+                }
             } catch {}
 
             await interaction.user.send({
                 embeds: [
                     new EmbedBuilder()
                         .setTitle('👋 Welcome Back!')
-                        .setDescription(`Welcome back, <@${loa.userId}>! 🎉\n\nWe're thrilled to have you back at **Kavià Café**. Your LOA has been officially closed and your return has been noted. We hope you're feeling refreshed and ready to dive back in!\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                        .setDescription(`Welcome back, <@${loa.userId}>! 🎉\n\nWe're thrilled to have you back at **Kavià Café**. Your LOA has been officially closed and your return has been noted.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
                         .setColor(0x2ECC71)
                         .setTimestamp()
                 ]
             });
 
-            const user = await client.users.fetch(loa.userId);
-            await sendLOALog(user, '👋 LOA Returned', 0x2ECC71, loaId, [
+            await sendLOALog(await client.users.fetch(loa.userId), '👋 LOA Returned', 0x2ECC71, loaId, [
                 { name: '📅 Return Date', value: loa.returnDate }
             ]);
             return;
@@ -1193,12 +1188,10 @@ Should you have any questions or concerns prior to your session, please do not h
 
                 const dmMessage = `# <:kaviacafe:1387492814916685845> **Session Request Declined**
 Hello, ${user},
-We regret to inform you that your **${session.shiftType}** request has been **declined** at **Kavià Café**. We understand this may be disappointing, and we appreciate your enthusiasm for hosting sessions within our community.
-After careful review, your request was unable to be approved at this time. Please take note of the reason provided below and feel free to submit a new request in the future.
+We regret to inform you that your **${session.shiftType}** request has been **declined** at **Kavià Café**.
 > <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*
 > <:pink_pin:1166850035611353148> **Status →** *Declined ❌*
 > <:pink_pin:1166850035611353148> **Reason →** *${reason}*
-We encourage you to review the reason provided and reach out to a member of our team if you have any questions or concerns. We hope to see you submit another request soon!
 ***Signed,***
 **${interaction.user.username}**
 **Kavià Café Staff Team**`;
@@ -1238,7 +1231,7 @@ We encourage you to review the reason provided and reach out to a member of our 
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('❌ Leave of Absence Denied')
-                            .setDescription(`Hello, <@${loa.userId}>,\n\nWe regret to inform you that your **Leave of Absence** request has been **denied** at **Kavià Café**. We understand this may be disappointing and appreciate you reaching out.\n\n> <:pink_pin:1166850035611353148> **Status →** *Denied ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n\nIf you have any questions or would like to discuss this further, please reach out to a member of our team.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                            .setDescription(`Hello, <@${loa.userId}>,\n\nWe regret to inform you that your **Leave of Absence** request has been **denied** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Status →** *Denied ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
                             .setColor(0xE74C3C)
                             .setTimestamp()
                     ]
@@ -1283,7 +1276,7 @@ We encourage you to review the reason provided and reach out to a member of our 
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('❓ More Information Required')
-                            .setDescription(`Hello, <@${loa.userId}>,\n\nThank you for submitting your **Leave of Absence** request at **Kavià Café**. Before we can process your request, we require some additional information.\n\n> <:pink_pin:1166850035611353148> **Information Needed →** *${moreInfo}*\n\nPlease resubmit your LOA request using \`/loa\` with the additional information provided above. If you have any questions, please reach out to a member of our team.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                            .setDescription(`Hello, <@${loa.userId}>,\n\nThank you for submitting your **Leave of Absence** request at **Kavià Café**. Before we can process your request, we require some additional information.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Information Needed →** *${moreInfo}*\n\nPlease resubmit your LOA request using \`/loa\` with the additional information.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
                             .setColor(0xF39C12)
                             .setTimestamp()
                     ]
@@ -1339,7 +1332,7 @@ We encourage you to review the reason provided and reach out to a member of our 
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('⏳ LOA Extension Requested')
-                            .setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** request has been submitted to our staff team for review. We will get back to you as soon as possible.\n\n> <:pink_pin:1166850035611353148> **Extra Time Requested →** *${extendTime}*\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\nThank you for keeping us informed!\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                            .setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** request has been noted.\n\n> <:pink_pin:1166850035611353148> **Extra Time Requested →** *${extendTime}*\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\nThank you for keeping us informed!\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
                             .setColor(0xF39C12)
                             .setTimestamp()
                     ]

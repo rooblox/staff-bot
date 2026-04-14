@@ -15,6 +15,7 @@ const staffSchema = new mongoose.Schema({
     strikes: [{
         reason: String,
         date: String,
+        department: String,
         addedBy: { id: String, username: String },
         removed: Boolean,
         removedBy: String,
@@ -24,6 +25,7 @@ const staffSchema = new mongoose.Schema({
     terminations: [{
         reason: String,
         date: String,
+        department: String,
         addedBy: { id: String, username: String },
         proof: String,
         removed: Boolean,
@@ -34,6 +36,7 @@ const staffSchema = new mongoose.Schema({
     blacklists: [{
         reason: String,
         date: String,
+        department: String,
         addedBy: { id: String, username: String },
         removed: Boolean,
         removedBy: String,
@@ -43,6 +46,7 @@ const staffSchema = new mongoose.Schema({
     notes: [{
         note: String,
         date: String,
+        department: String,
         addedBy: { id: String, username: String }
     }]
 }, { versionKey: false });
@@ -80,6 +84,7 @@ const sessionSchema = new mongoose.Schema({
 const loaSchema = new mongoose.Schema({
     userId: String,
     username: String,
+    department: String,
     reason: String,
     timeGone: String,
     returnDate: String,
