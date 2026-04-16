@@ -1369,6 +1369,12 @@ client.on('messageCreate', async message => {
         }
 
         const logChannelId = client.dmLogChannels?.get(message.author.id) || '1462580398935642144';
+
+        console.log(`📨 DM received from: ${message.author.id}`);
+        console.log(`📨 Map size: ${client.dmLogChannels?.size}`);
+        console.log(`📨 Mapped channel: ${client.dmLogChannels?.get(message.author.id)}`);
+        console.log(`📨 Using channel: ${logChannelId}`);
+
         const timestamp = `<t:${Math.floor(Date.now() / 1000)}:F>`;
 
         try { await message.react('✅'); } catch (err) {
