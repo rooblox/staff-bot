@@ -3,9 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { connectDB, Reminder, Session, LOA } = require('./db');
-const { sendGroupAnnouncement } = require('./commands/roblox');
 
-const REQUEST_CHANNEL_ID = '1462503910559453421';
+const REQUEST_CHANNEL_ID = '1493737208597971045';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
 const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const MAIN_GUILD_ID = '1370892833182974035';
@@ -27,6 +26,8 @@ const client = new Client({
     ],
     partials: ['CHANNEL']
 });
+
+client.dmLogChannels = new Map();
 
 client.commands = new Collection();
 
@@ -1367,7 +1368,7 @@ client.on('messageCreate', async message => {
             try { await message.react('👀'); } catch {}
         }
 
-        const logChannelId = '1462580398935642144';
+        const logChannelId = client.dmLogChannels?.get(message.author.id) || '1462580398935642144';
         const timestamp = `<t:${Math.floor(Date.now() / 1000)}:F>`;
 
         try { await message.react('✅'); } catch (err) {
@@ -1380,7 +1381,7 @@ client.on('messageCreate', async message => {
             .addFields(
                 { name: '📤 From (User)', value: `${message.author.tag} (${message.author.id})` },
                 { name: '📥 To (Bot)', value: `${client.user.tag}` },
-                { name: '📝 Message', value: message.content },
+                { name: '📝 Message', value: message.content || '*No text content*' },
                 { name: '🕒 Date & Time', value: timestamp }
             )
             .setFooter({ text: 'Kavia Cafe • DM Logs' });
