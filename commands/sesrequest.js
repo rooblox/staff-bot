@@ -7,6 +7,7 @@ const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const PING_ROLE_ID = '1434623628078743584';
 const PROMOTIONAL_ROLE_ID = '1434623628078743584';
 const REQUIRED_ROLE_ID = '1434563855354167358';
+const REQUIRED_GUILD_ID = '1434556801096876034';
 const SHIFT_PING_ROLE_ID = '1371568661592019044';
 const TRAINING_PING_ROLE_ID = '1371568736569659462';
 const MAIN_GUILD_ID = '1370892833182974035';
@@ -81,18 +82,20 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      // Check general required role in main server
-      const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
-      const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
-      if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
+      // Check required role in the correct server
+      const requiredGuild = await client.guilds.fetch(REQUIRED_GUILD_ID);
+      const requiredMember = await requiredGuild.members.fetch(interaction.user.id).catch(() => null);
+      if (!requiredMember || !requiredMember.roles.cache.has(REQUIRED_ROLE_ID)) {
         return interaction.editReply({ content: '❌ You do not have permission to submit a session request.' });
       }
 
       const shiftType = interaction.options.getString('shift_type');
 
-      // Extra check for Promotional Shift
+      // Extra check for Promotional Shift — uses main server
       if (shiftType === 'Promotional Shift') {
-        if (!mainMember.roles.cache.has(PROMOTIONAL_ROLE_ID)) {
+        const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
+        const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+        if (!mainMember || !mainMember.roles.cache.has(PROMOTIONAL_ROLE_ID)) {
           return interaction.editReply({ content: '❌ You do not have permission to request a Promotional Shift.' });
         }
       }
