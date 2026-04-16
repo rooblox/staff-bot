@@ -4,7 +4,7 @@ const { Session } = require('../db');
 const REQUEST_CHANNEL_ID = '1493737208597971045';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
 const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
-const PING_ROLE_ID = '1434623628078743584';
+const PING_ROLE_ID = '1439608585381478471';
 const PROMOTIONAL_ROLE_ID = '1434623628078743584';
 const REQUIRED_ROLE_ID = '1434563855354167358';
 const REQUIRED_GUILD_ID = '1434556801096876034';
@@ -82,7 +82,12 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
-      // Check required role in the correct server
+      // Only allow this command in the required server
+      if (interaction.guildId !== REQUIRED_GUILD_ID) {
+        return interaction.editReply({ content: '❌ This command can only be used in the correct server.' });
+      }
+
+      // Check required role
       const requiredGuild = await client.guilds.fetch(REQUIRED_GUILD_ID);
       const requiredMember = await requiredGuild.members.fetch(interaction.user.id).catch(() => null);
       if (!requiredMember || !requiredMember.roles.cache.has(REQUIRED_ROLE_ID)) {
@@ -91,7 +96,7 @@ module.exports = {
 
       const shiftType = interaction.options.getString('shift_type');
 
-      // Extra check for Promotional Shift — uses main server
+      // Extra check for Promotional Shift
       if (shiftType === 'Promotional Shift') {
         const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
         const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
