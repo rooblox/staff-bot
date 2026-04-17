@@ -1,9 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { Session } = require('../db');
 
-const REQUEST_CHANNEL_ID = '1462503910559453421';
-const PING_ROLE_ID = '1434623628078743584';
-const PROMOTIONAL_ROLE_ID = '1434623628078743584';
+const REQUEST_CHANNEL_ID = '1493737208597971045';
+const PING_ROLE_ID = '1439608585381478471';
+const REQUIRED_ROLE_ID = '1434563855354167358';
+const REQUIRED_GUILD_ID = '1434556801096876034';
 
 const TRAINING_TIMES = [
   { name: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT', value: '8:00 AM EST | 2:00 PM CET | 5:00 AM PT' },
@@ -61,6 +62,18 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
+      // Only allow this command in the required server
+      if (interaction.guildId !== REQUIRED_GUILD_ID) {
+        return interaction.editReply({ content: '❌ This command can only be used in the correct server.' });
+      }
+
+      // Check required role
+      const requiredGuild = await client.guilds.fetch(REQUIRED_GUILD_ID);
+      const requiredMember = await requiredGuild.members.fetch(interaction.user.id).catch(() => null);
+      if (!requiredMember || !requiredMember.roles.cache.has(REQUIRED_ROLE_ID)) {
+        return interaction.editReply({ content: '❌ You do not have permission to submit a training request.' });
+      }
+
       const time = interaction.options.getString('shift_time');
       const cohost = interaction.options.getUser('cohost');
       const cohostText = cohost ? `${cohost}` : 'No co-host — DM me to co-host!';
@@ -131,7 +144,7 @@ module.exports = {
             .setStyle(ButtonStyle.Danger)
         );
 
-      const requestChannel = await interaction.client.channels.fetch(REQUEST_CHANNEL_ID);
+      const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
       if (requestChannel?.isTextBased()) {
         const msg = await requestChannel.send({
           content: `<@&${PING_ROLE_ID}>`,
