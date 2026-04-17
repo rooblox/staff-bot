@@ -125,6 +125,9 @@ async function scheduleSession(session) {
     const finishCheckDelay = fireAt + 25 * 60 * 1000 - now;
 
     if (!session.preSessionReminderSent && reminderDelay > 0) {
+        // Mark as scheduled immediately to prevent double scheduling on restart
+        await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
+
         setTimeout(async () => {
             try {
                 const latestSession = await Session.findById(session._id);
@@ -156,8 +159,6 @@ async function scheduleSession(session) {
                         components: [row]
                     });
                 }
-
-                await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
 
                 setTimeout(async () => {
                     try {
@@ -350,7 +351,10 @@ async function restoreSessions() {
         const sessions = await Session.find({ status: { $in: ['approved', 'active'] } });
         for (const session of sessions) {
             if (session.status === 'approved') {
-                await scheduleSession(session);
+                const fireAt = new Date(session.sessionFireAt).getTime();
+                if (fireAt > Date.now()) {
+                    await scheduleSession(session);
+                }
             }
             if (session.status === 'active' && session.announcementMessageId) {
                 const timeLeft = new Date(session.autoDeleteAt).getTime() - Date.now();
