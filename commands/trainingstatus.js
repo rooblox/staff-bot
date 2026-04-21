@@ -1,7 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { activeSessions, sections, quizQuestions } = require('./startmodtraining');
 
-const REQUIRED_ROLE_ID = '1464028127440273458';
+const REQUIRED_ROLE_ID = '1495951292605009930';
+const REQUIRED_GUILD_ID = '1301333604315561994';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,9 +16,9 @@ module.exports = {
   async execute(interaction, client) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
-    const member = interaction.member ?? await interaction.guild.members.fetch(interaction.user.id);
-    const roleExists = interaction.guild.roles.cache.has(REQUIRED_ROLE_ID);
-    if (roleExists && !member.roles.cache.has(REQUIRED_ROLE_ID)) {
+    const requiredGuild = await client.guilds.fetch(REQUIRED_GUILD_ID);
+    const requiredMember = await requiredGuild.members.fetch(interaction.user.id).catch(() => null);
+    if (!requiredMember || !requiredMember.roles.cache.has(REQUIRED_ROLE_ID)) {
       return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
     }
 

@@ -1,8 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const LOG_CHANNEL_ID = '1485349514486480947';
-const REQUIRED_ROLE_ID = '1464028127440273458';
-const MAIN_GUILD_ID = '1370892833182974035';
+const REQUIRED_ROLE_ID = '1495951292605009930';
+const MAIN_GUILD_ID = '1301333604315561994';
 
 const activeSessions = new Map();
 
@@ -128,53 +128,68 @@ module.exports = {
   async execute(interaction, client) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
-    const mainGuild = await interaction.client.guilds.fetch(MAIN_GUILD_ID);
-    const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
-    if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
-      return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
-    }
-
-    const user = interaction.options.getUser('user');
-
-    if (activeSessions.has(user.id)) {
-      return interaction.editReply({ content: `❌ ${user.tag} already has an active training session.` });
-    }
-
-    activeSessions.set(user.id, {
-      staffId: interaction.user.id,
-      guildId: interaction.guild.id,
-      section: 0,
-      quizIndex: 0,
-      score: 0,
-      phase: 'sections',
-      locked: false,
-      client
-    });
-
     try {
-      const embed = getSectionEmbed(0);
-      const buttons = getSectionButtons(user.id, 0);
-      await user.send({ embeds: [embed], components: [buttons] });
-      await interaction.editReply({ content: `✅ Training started for ${user.tag}! Sections are being sent to their DMs.` });
+      const mainGuild = await interaction.client.guilds.fetch(MAIN_GUILD_ID);
+      const mainMember = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
 
-      const logChannel = await client.channels.fetch(LOG_CHANNEL_ID);
-      if (logChannel?.isTextBased()) {
-        await logChannel.send({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('📚 Training Session Started')
-              .setColor(0x3498DB)
-              .addFields(
-                { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
-                { name: '👮 Started By', value: `${interaction.user.tag}` }
-              )
-              .setTimestamp()
-          ]
-        });
+      console.log(`🔍 startmodtraining check`);
+      console.log(`   Guild ID: ${MAIN_GUILD_ID}`);
+      console.log(`   User ID: ${interaction.user.id}`);
+      console.log(`   Member found: ${!!mainMember}`);
+      console.log(`   Role ID checking: ${REQUIRED_ROLE_ID}`);
+      console.log(`   Has role: ${mainMember?.roles.cache.has(REQUIRED_ROLE_ID)}`);
+      console.log(`   All roles: ${mainMember?.roles.cache.map(r => r.id).join(', ')}`);
+
+      if (!mainMember || !mainMember.roles.cache.has(REQUIRED_ROLE_ID)) {
+        return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
       }
+
+      const user = interaction.options.getUser('user');
+
+      if (activeSessions.has(user.id)) {
+        return interaction.editReply({ content: `❌ ${user.tag} already has an active training session.` });
+      }
+
+      activeSessions.set(user.id, {
+        staffId: interaction.user.id,
+        guildId: interaction.guild.id,
+        section: 0,
+        quizIndex: 0,
+        score: 0,
+        phase: 'sections',
+        locked: false,
+        client
+      });
+
+      try {
+        const embed = getSectionEmbed(0);
+        const buttons = getSectionButtons(user.id, 0);
+        await user.send({ embeds: [embed], components: [buttons] });
+        await interaction.editReply({ content: `✅ Training started for ${user.tag}! Sections are being sent to their DMs.` });
+
+        const logChannel = await client.channels.fetch(LOG_CHANNEL_ID);
+        if (logChannel?.isTextBased()) {
+          await logChannel.send({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle('📚 Training Session Started')
+                .setColor(0x3498DB)
+                .addFields(
+                  { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
+                  { name: '👮 Started By', value: `${interaction.user.tag}` }
+                )
+                .setTimestamp()
+            ]
+          });
+        }
+      } catch (err) {
+        activeSessions.delete(user.id);
+        await interaction.editReply({ content: `❌ Could not DM ${user.tag}. They may have DMs closed.` });
+      }
+
     } catch (err) {
-      activeSessions.delete(user.id);
-      await interaction.editReply({ content: `❌ Could not DM ${user.tag}. They may have DMs closed.` });
+      console.error('Error in /startmodtraining:', err);
+      try { await interaction.editReply({ content: '❌ Error running command.' }); } catch {}
     }
   },
 

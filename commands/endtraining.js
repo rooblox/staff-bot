@@ -1,8 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { activeSessions } = require('./startmodtraining');
 
-const REQUIRED_ROLE_ID = '1464028127440273458';
-const MAIN_GUILD_ID = '1370892833182974035';
+const REQUIRED_ROLE_ID = '1495951292605009930';
+const MAIN_GUILD_ID = '1301333604315561994';
 const LOG_CHANNEL_ID = '1485349514486480947';
 
 module.exports = {
