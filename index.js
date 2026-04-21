@@ -9,7 +9,8 @@ const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
 const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const MAIN_GUILD_ID = '1370892833182974035';
 const REQUIRED_BUTTON_ROLE_ID = '1493354187109433434';
-const TRAINING_BUTTON_ROLE_ID = '1464028127440273458';
+const TRAINING_BUTTON_ROLE_ID = '1495951292605009930';
+const TRAINING_BUTTON_GUILD_ID = '1301333604315561994';
 const SHIFT_PING_ROLE_ID = '1371568661592019044';
 const TRAINING_PING_ROLE_ID = '1371568736569659462';
 const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
@@ -70,8 +71,8 @@ async function hasRequiredRole(userId) {
 
 async function hasTrainingRole(userId) {
     try {
-        const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
-        const member = await mainGuild.members.fetch(userId).catch(() => null);
+        const trainingGuild = await client.guilds.fetch(TRAINING_BUTTON_GUILD_ID);
+        const member = await trainingGuild.members.fetch(userId).catch(() => null);
         return member && member.roles.cache.has(TRAINING_BUTTON_ROLE_ID);
     } catch {
         return false;
@@ -125,7 +126,6 @@ async function scheduleSession(session) {
     const finishCheckDelay = fireAt + 25 * 60 * 1000 - now;
 
     if (!session.preSessionReminderSent && reminderDelay > 0) {
-        // Mark as scheduled immediately to prevent double scheduling on restart
         await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
 
         setTimeout(async () => {
