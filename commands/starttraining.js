@@ -47,7 +47,7 @@ const INTRO_TO_MENTORSHIP_SECTIONS = [
     },
     {
         title: '📋 Age Verification',
-        content: `Before proceeding to the next stage of your internship, you are required to complete age verification to confirm that you are **13 years of age or older**.\n\nTo verify your age, please follow these steps:\n1. Open the Roblox App\n2. Go to Settings\n3. Select Account Info\n4. Navigate to Personal\n5. Take a screenshot of the attached page\n\nBelow you will find an example of how your screenshot should appear. You are allowed to cross out or blur any other personal information shown in the image for your privacy. However, your **username and age must remain visible** so that staff can confirm your eligibility.\n\n**Privacy Notice**\nAt Kavià Café, we respect and value your privacy. Your age verification screenshot will only be reviewed for confirmation purposes and will not be shared outside of the designated verification channel.\n\n-# If it is confirmed that you are under the age of 13, you will be removed from the community in accordance with platform policies. Refusal to complete age verification will result in immediate termination of your internship.\n-# Age verification must be completed in order to proceed.\n\n**Please send your screenshot or image link as a DM reply. A staff member will review it and confirm your eligibility before you can continue.**`
+        content: `Before proceeding to the next stage of your internship, you are required to complete age verification to confirm that you are **13 years of age or older**.\n\nTo verify your age, please follow these steps:\n1. Open the Roblox App\n2. Go to Settings\n3. Select Account Info\n4. Navigate to Personal\n5. Take a screenshot of the attached page\n\nYou are allowed to cross out or blur any other personal information shown in the image for your privacy. However, your **username and age must remain visible**.\n\n**Privacy Notice**\nAt Kavià Café, we respect and value your privacy. Your age verification screenshot will only be reviewed for confirmation purposes and will not be shared outside of the designated verification channel.\n\n-# If it is confirmed that you are under the age of 13, you will be removed from the community in accordance with platform policies. Refusal to complete age verification will result in immediate termination of your internship.\n\n**Please send your screenshot or image link as a reply to this DM. A staff member will review it shortly.**`
     },
     {
         title: '🎫 Ticket Information',
@@ -145,27 +145,15 @@ const MOD_BASIC_QUIZ = [
     }
 ];
 
-// ========== ACTIVE SESSIONS MAP ==========
-// Map<userId, sessionData>
 const activeSessions = new Map();
 
-// ========== HELPERS ==========
 function getTrainingConfig(department, training) {
-    if (OTHER_DEPTS.includes(department)) {
-        return { sections: null, quiz: null, notSetup: true };
-    }
-
+    if (OTHER_DEPTS.includes(department)) return { sections: null, quiz: null, notSetup: true };
     if (training === 'Basic Training') {
-        if (department === 'Mod') {
-            return { sections: MOD_BASIC_SECTIONS, quiz: MOD_BASIC_QUIZ, passScore: 6, notSetup: false };
-        }
+        if (department === 'Mod') return { sections: MOD_BASIC_SECTIONS, quiz: MOD_BASIC_QUIZ, passScore: 6, notSetup: false };
         return { sections: null, quiz: null, notSetup: true };
     }
-
-    if (training === 'Intro to Mentorship') {
-        return { sections: INTRO_TO_MENTORSHIP_SECTIONS, quiz: INTRO_TO_MENTORSHIP_QUIZ, passScore: 3, notSetup: false };
-    }
-
+    if (training === 'Intro to Mentorship') return { sections: INTRO_TO_MENTORSHIP_SECTIONS, quiz: INTRO_TO_MENTORSHIP_QUIZ, passScore: 3, notSetup: false };
     return { sections: null, quiz: null, notSetup: true };
 }
 
@@ -178,15 +166,7 @@ function getSectionEmbed(section, index, total, department, training) {
         .setTimestamp();
 }
 
-function getSectionButtons(userId, sectionIndex, isAgeVerification = false) {
-    if (isAgeVerification) {
-        return new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`st_ageverif_submitted_${userId}`)
-                .setLabel('✅ I\'ve Sent My Screenshot')
-                .setStyle(ButtonStyle.Success)
-        );
-    }
+function getSectionButtons(userId, sectionIndex) {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(`st_done_${userId}_${sectionIndex}`)
@@ -204,7 +184,6 @@ function getQuizEmbed(q, questionIndex, score, total, department, training) {
         .filter(([, v]) => v !== null)
         .map(([k, v]) => `**${k})** ${v}`)
         .join('\n');
-
     return new EmbedBuilder()
         .setTitle(`📝 Quiz — Question ${questionIndex + 1} of ${total}`)
         .setDescription(`${q.question}\n\n${options}`)
@@ -224,7 +203,6 @@ function getQuizButtons(userId, questionIndex, q) {
     return new ActionRowBuilder().addComponents(buttons);
 }
 
-// ========== COMMAND ==========
 module.exports = {
     activeSessions,
 
@@ -246,30 +224,24 @@ module.exports = {
             const training = interaction.options.getString('training');
             const member = interaction.options.getUser('member');
 
-            // Check if dept is other (not setup)
             if (OTHER_DEPTS.includes(department)) {
                 return interaction.editReply({ content: `❌ **${department}** does not have any trainings set up yet.` });
             }
 
             const deptConfig = TRAINING_DEPTS[department];
-            if (!deptConfig) {
-                return interaction.editReply({ content: `❌ Department config not found.` });
-            }
+            if (!deptConfig) return interaction.editReply({ content: `❌ Department config not found.` });
 
-            // Check permissions
             const deptGuild = await client.guilds.fetch(deptConfig.serverId);
             const deptMember = await deptGuild.members.fetch(interaction.user.id).catch(() => null);
             if (!deptMember || !deptMember.roles.cache.has(deptConfig.roleId)) {
                 return interaction.editReply({ content: `❌ You do not have permission to give trainings in the **${department}** department.` });
             }
 
-            // Check training config
             const trainingConfig = getTrainingConfig(department, training);
             if (trainingConfig.notSetup) {
                 return interaction.editReply({ content: `❌ **${training}** is not set up yet for **${department}**.` });
             }
 
-            // Check if Basic Training requires Intro to Mentorship first
             if (training === 'Basic Training' && (department === 'Mod' || department === 'Human Resources')) {
                 const record = await CompletedTrainings.findById(member.id);
                 const requiredTraining = `Intro to Mentorship — ${department}`;
@@ -278,12 +250,10 @@ module.exports = {
                 }
             }
 
-            // Check if already in a session
             if (activeSessions.has(member.id)) {
                 return interaction.editReply({ content: `❌ **${member.tag}** already has an active training session.` });
             }
 
-            // Start session
             const sessionData = {
                 staffId: interaction.user.id,
                 staffTag: interaction.user.tag,
@@ -298,26 +268,28 @@ module.exports = {
                 locked: false,
                 awaitingAgeVerif: false,
                 lastAgeVerifContent: null,
-                ageVerifMessageId: null,
+                ageVerifLogMessageId: null,
+                ageVerifLogChannelId: null,
                 ageVerifRepingTimeout: null,
                 client
             };
 
             activeSessions.set(member.id, sessionData);
 
-            // Send first section
             try {
                 const isAgeVerif = training === 'Intro to Mentorship' && sessionData.section === 1;
-                const embed = getSectionEmbed(
-                    trainingConfig.sections[0], 0,
-                    trainingConfig.sections.length, department, training
-                );
-                const buttons = getSectionButtons(member.id, 0, false);
-                await member.send({ embeds: [embed], components: [buttons] });
+                const embed = getSectionEmbed(trainingConfig.sections[0], 0, trainingConfig.sections.length, department, training);
+
+                if (isAgeVerif) {
+                    await member.send({ embeds: [embed] });
+                    sessionData.awaitingAgeVerif = true;
+                } else {
+                    const buttons = getSectionButtons(member.id, 0);
+                    await member.send({ embeds: [embed], components: [buttons] });
+                }
 
                 await interaction.editReply({ content: `✅ Training started for **${member.tag}**! Sections are being sent to their DMs.` });
 
-                // Log to dept channel
                 const logChannel = await client.channels.fetch(deptConfig.logChannelId);
                 if (logChannel?.isTextBased()) {
                     await logChannel.send({

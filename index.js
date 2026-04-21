@@ -54,9 +54,7 @@ async function hasRequiredRole(userId) {
         const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
         const member = await mainGuild.members.fetch(userId).catch(() => null);
         return member && member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID);
-    } catch {
-        return false;
-    }
+    } catch { return false; }
 }
 
 async function hasTrainingRole(userId) {
@@ -64,16 +62,11 @@ async function hasTrainingRole(userId) {
         const trainingGuild = await client.guilds.fetch(TRAINING_BUTTON_GUILD_ID);
         const member = await trainingGuild.members.fetch(userId).catch(() => null);
         if (member && member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) return true;
-
-        // Also check HR server
         const hrGuild = await client.guilds.fetch('1434556801096876034');
         const hrMember = await hrGuild.members.fetch(userId).catch(() => null);
         if (hrMember && hrMember.roles.cache.has('1484973859513045224')) return true;
-
         return false;
-    } catch {
-        return false;
-    }
+    } catch { return false; }
 }
 
 async function hasStaffRole(userId) {
@@ -92,19 +85,11 @@ async function sendLOALog(user, title, color, loaId, extraFields = []) {
         const logGuild = await client.guilds.fetch(deptConfig.serverId);
         const logChannel = await logGuild.channels.fetch(deptConfig.loaLogChannelId);
         const embed = new EmbedBuilder()
-            .setTitle(title)
-            .setColor(color)
-            .addFields(
-                { name: '👤 User', value: `${user.tag} (${user.id})` },
-                { name: '🏢 Department', value: loa.department || 'Unknown' },
-                ...extraFields
-            )
-            .setTimestamp()
-            .setFooter({ text: `LOA ID: ${loaId}` });
+            .setTitle(title).setColor(color)
+            .addFields({ name: '👤 User', value: `${user.tag} (${user.id})` }, { name: '🏢 Department', value: loa.department || 'Unknown' }, ...extraFields)
+            .setTimestamp().setFooter({ text: `LOA ID: ${loaId}` });
         await logChannel.send({ embeds: [embed] });
-    } catch (err) {
-        console.error('Error sending LOA log:', err);
-    }
+    } catch (err) { console.error('Error sending LOA log:', err); }
 }
 
 // ========== SESSION SCHEDULING ==========
@@ -117,7 +102,6 @@ async function scheduleSession(session) {
 
     if (!session.preSessionReminderSent && reminderDelay > 0) {
         await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
-
         setTimeout(async () => {
             try {
                 const latestSession = await Session.findById(session._id);
@@ -130,13 +114,7 @@ async function scheduleSession(session) {
                 if (requestChannel?.isTextBased()) {
                     await requestChannel.send({
                         content: `<@${latestSession.hostId}>`,
-                        embeds: [
-                            new EmbedBuilder()
-                                .setTitle('⏰ Session Starting Soon!')
-                                .setDescription(`<@${latestSession.hostId}>, your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host? You have **8 minutes** to respond or your session will be automatically cancelled.\n\n*Only you can click these buttons.*`)
-                                .setColor(0xF39C12)
-                                .setTimestamp()
-                        ],
+                        embeds: [new EmbedBuilder().setTitle('⏰ Session Starting Soon!').setDescription(`<@${latestSession.hostId}>, your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host? You have **8 minutes** to respond or your session will be automatically cancelled.\n\n*Only you can click these buttons.*`).setColor(0xF39C12).setTimestamp()],
                         components: [row]
                     });
                 }
@@ -145,13 +123,8 @@ async function scheduleSession(session) {
                         const checkSession = await Session.findById(session._id);
                         if (!checkSession || checkSession.status !== 'approved' || checkSession.hostConfirmed) return;
                         await Session.findByIdAndUpdate(session._id, { status: 'cancelled' });
-                        try {
-                            const host = await client.users.fetch(latestSession.hostId);
-                            await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response.\n\nIf this was a mistake, please submit a new session request.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
-                        } catch {}
-                        if (requestChannel?.isTextBased()) {
-                            await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setColor(0xE74C3C).setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response.`).setTimestamp()] });
-                        }
+                        try { const host = await client.users.fetch(latestSession.hostId); await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] }); } catch {}
+                        if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setColor(0xE74C3C).setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response.`).setTimestamp()] });
                     } catch (err) { console.error('Error auto cancelling session:', err); }
                 }, 8 * 60 * 1000);
             } catch (err) { console.error('Error sending pre-session reminder:', err); }
@@ -186,12 +159,9 @@ async function postAnnouncement(session) {
         const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
         const cohost = session.coHostId ? await client.users.fetch(session.coHostId) : null;
         const cohostText = cohost ? `<@${cohost.id}>` : 'None';
-        let announcementContent = '';
-        if (session.shiftType === 'Training') {
-            announcementContent = `Hello <@&${TRAINING_PING_ROLE_ID}> !\n‼️ Get ready! I'm excited to announce that I'll be hosting a training at ${session.time} alongside my co-host, ${cohostText}!\n📈 If you're an LR aiming for promotion, this is your moment to step up and shine.\nDon't miss your chance!\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`;
-        } else {
-            announcementContent = `## 🚀 | Shift Commencement\n\n<@&${SHIFT_PING_ROLE_ID}>\n\n**‼️ | We are excited to announce that a shift is now being hosted at our lovely café!**\n\n💼 | Hosted by: <@${session.hostId}>\n\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)`;
-        }
+        let announcementContent = session.shiftType === 'Training'
+            ? `Hello <@&${TRAINING_PING_ROLE_ID}> !\n‼️ Get ready! I'm excited to announce that I'll be hosting a training at ${session.time} alongside my co-host, ${cohostText}!\n📈 If you're an LR aiming for promotion, this is your moment to step up and shine.\nDon't miss your chance!\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`
+            : `## 🚀 | Shift Commencement\n\n<@&${SHIFT_PING_ROLE_ID}>\n\n**‼️ | We are excited to announce that a shift is now being hosted at our lovely café!**\n\n💼 | Hosted by: <@${session.hostId}>\n\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)`;
         const msg = await announcementChannel.send({ content: announcementContent });
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, { announcementMessageId: msg.id, announcementChannelId: ANNOUNCEMENT_CHANNEL_ID, sessionStarted: true, status: 'active', autoDeleteAt });
@@ -285,16 +255,16 @@ async function sendNextSection(userId, session) {
     const { trainingConfig, section, department, training } = session;
     const sections = trainingConfig.sections;
     const isAgeVerif = training === 'Intro to Mentorship' && section === 1;
-
     const embed = getSectionEmbed(sections[section], section, sections.length, department, training);
-    const buttons = getSectionButtons(userId, section, isAgeVerif);
-
     const user = await client.users.fetch(userId);
-    await user.send({ embeds: [embed], components: [buttons] });
 
     if (isAgeVerif) {
+        await user.send({ embeds: [embed] });
         session.awaitingAgeVerif = true;
         scheduleAgeVerifReping(userId, session);
+    } else {
+        const buttons = getSectionButtons(userId, section);
+        await user.send({ embeds: [embed], components: [buttons] });
     }
 }
 
@@ -332,7 +302,6 @@ async function startQuiz(userId, session) {
     session.phase = 'quiz';
     session.quizIndex = 0;
     session.score = 0;
-
     await user.send({
         embeds: [
             new EmbedBuilder()
@@ -342,7 +311,6 @@ async function startQuiz(userId, session) {
                 .setTimestamp()
         ]
     });
-
     setTimeout(async () => {
         const q = session.trainingConfig.quiz[0];
         const embed = getQuizEmbed(q, 0, 0, session.trainingConfig.quiz.length, session.department, session.training);
@@ -352,16 +320,13 @@ async function startQuiz(userId, session) {
 }
 
 async function sendQuizResults(userId, session) {
-    const user = await client.users.fetch(userId);
     const passed = session.score >= session.trainingConfig.passScore;
     const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
-
     if (logChannel?.isTextBased()) {
         const resultRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`st_pass_${userId}`).setLabel('✅ Pass').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`st_fail_${userId}`).setLabel('❌ Fail').setStyle(ButtonStyle.Danger)
         );
-
         await logChannel.send({
             content: `<@&${session.deptConfig.pingRoleId}>`,
             embeds: [
@@ -408,7 +373,7 @@ client.on('interactionCreate', async interaction => {
             const robloxId = parts[0];
             const groupId = parts.slice(1).join('_');
             const context = client.rankChangeContext?.get(`${robloxId}_${groupId}`);
-            if (!context) return interaction.reply({ content: '❌ This selection has expired. Please run the command again.', ephemeral: true });
+            if (!context) return interaction.reply({ content: '❌ This selection has expired.', ephemeral: true });
             await interaction.deferUpdate().catch(() => {});
             const selectedRoleId = interaction.values[0];
             const { setRank, getGroupRanks } = require('./commands/roblox');
@@ -418,8 +383,7 @@ client.on('interactionCreate', async interaction => {
             const success = await setRank(groupId, context.robloxId, selectedRoleId);
             if (!success) return interaction.editReply({ content: '❌ Failed to change rank.', components: [], embeds: [] });
             if (context.discordUser) {
-                const dmMessage = `# <:kaviacafe:1387492814916685845> **Rank Change Notice**\nHello, ${context.discordUser},\nYour rank in the **Kavià Café** Roblox group has been updated.\n> <:pink_pin:1166850035611353148> **Old Rank →** *${context.currentRole?.name || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **New Rank →** *${selectedRole.name}*\n> <:pink_pin:1166850035611353148> **Reason →** *${context.reason}*\n***Signed,***\n**${context.staffUser.username} || ${context.department}**`;
-                try { await context.discordUser.send({ content: dmMessage }); } catch {}
+                try { await context.discordUser.send({ content: `# <:kaviacafe:1387492814916685845> **Rank Change Notice**\nHello, ${context.discordUser},\nYour rank in the **Kavià Café** Roblox group has been updated.\n> <:pink_pin:1166850035611353148> **Old Rank →** *${context.currentRole?.name || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **New Rank →** *${selectedRole.name}*\n> <:pink_pin:1166850035611353148> **Reason →** *${context.reason}*\n***Signed,***\n**${context.staffUser.username} || ${context.department}**` }); } catch {}
             }
             const logEmbed = new EmbedBuilder().setTitle('🔄 Rank Changed').setColor(0x3498DB).setThumbnail(context.avatarUrl).addFields(
                 { name: '🎮 Roblox Username', value: context.robloxUsername, inline: true },
@@ -454,19 +418,12 @@ client.on('interactionCreate', async interaction => {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
             const sectionIndex = parseInt(parts[3]);
-
-            if (interaction.user.id !== userId) {
-                return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
-            }
-
+            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
             if (session.locked) return interaction.reply({ content: '🔒 Your session is locked. Please wait for a staff member to resolve your help request.', ephemeral: true });
-
             await interaction.update({ components: [] });
-
             const nextSection = sectionIndex + 1;
-
             if (nextSection < session.trainingConfig.sections.length) {
                 session.section = nextSection;
                 await sendNextSection(userId, session);
@@ -480,49 +437,23 @@ client.on('interactionCreate', async interaction => {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
             const sectionIndex = parseInt(parts[3]);
-
-            if (interaction.user.id !== userId) {
-                return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
-            }
-
+            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
-
             session.locked = true;
             await interaction.update({ components: [] });
-
-            await interaction.user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('🆘 Help Request Sent')
-                        .setDescription('Your help request has been sent to a staff member. Your session has been paused until the issue is resolved.')
-                        .setColor(0xE74C3C)
-                        .setTimestamp()
-                ]
-            });
-
+            await interaction.user.send({ embeds: [new EmbedBuilder().setTitle('🆘 Help Request Sent').setDescription('Your help request has been sent to a staff member. Your session has been paused until the issue is resolved.').setColor(0xE74C3C).setTimestamp()] });
             const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
             if (logChannel?.isTextBased()) {
-                const resolveRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`st_resolve_${userId}_${sectionIndex}`)
-                        .setLabel('✅ Mark as Resolved')
-                        .setStyle(ButtonStyle.Success)
-                );
+                const resolveRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`st_resolve_${userId}_${sectionIndex}`).setLabel('✅ Mark as Resolved').setStyle(ButtonStyle.Success));
                 await logChannel.send({
                     content: `<@&${session.deptConfig.pingRoleId}>`,
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle('🆘 Training Help Request')
-                            .setColor(0xE74C3C)
-                            .addFields(
-                                { name: '👤 Trainee', value: `<@${userId}> (${userId})` },
-                                { name: '🏢 Department', value: session.department },
-                                { name: '📖 Training', value: session.training },
-                                { name: '📖 Section', value: `Section ${sectionIndex + 1} — ${session.trainingConfig.sections[sectionIndex].title}` }
-                            )
-                            .setTimestamp()
-                    ],
+                    embeds: [new EmbedBuilder().setTitle('🆘 Training Help Request').setColor(0xE74C3C).addFields(
+                        { name: '👤 Trainee', value: `<@${userId}> (${userId})` },
+                        { name: '🏢 Department', value: session.department },
+                        { name: '📖 Training', value: session.training },
+                        { name: '📖 Section', value: `Section ${sectionIndex + 1} — ${session.trainingConfig.sections[sectionIndex].title}` }
+                    ).setTimestamp()],
                     components: [resolveRow]
                 });
             }
@@ -533,113 +464,44 @@ client.on('interactionCreate', async interaction => {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
             const sectionIndex = parseInt(parts[3]);
-
-            if (!await hasTrainingRole(interaction.user.id)) {
-                return interaction.reply({ content: '❌ You do not have permission to resolve training sessions.', ephemeral: true });
-            }
-
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to resolve training sessions.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
-
             session.locked = false;
             await interaction.update({ components: [] });
-
             const user = await client.users.fetch(userId);
-            await user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('✅ Help Request Resolved')
-                        .setDescription('A staff member has resolved your help request. You may now continue your training by clicking **Done** below.')
-                        .setColor(0x2ECC71)
-                        .setTimestamp()
-                ]
-            });
-
+            await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Help Request Resolved').setDescription('A staff member has resolved your help request. You may now continue your training by clicking **Done** below.').setColor(0x2ECC71).setTimestamp()] });
             await sendNextSection(userId, session);
-            return;
-        }
-
-        if (interaction.customId.startsWith('st_ageverif_submitted_')) {
-            const userId = interaction.customId.replace('st_ageverif_submitted_', '');
-
-            if (interaction.user.id !== userId) {
-                return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
-            }
-
-            const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
-
-            await interaction.update({ components: [] });
-
-            await interaction.user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('📋 Screenshot Submitted')
-                        .setDescription('Your age verification submission has been sent to staff for review. Please wait — you cannot proceed until it is approved.\n\nIf you have not yet sent your screenshot, please send it now as a DM and a staff member will review it.')
-                        .setColor(0x3498DB)
-                        .setTimestamp()
-                ]
-            });
-
-            const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
-            if (logChannel?.isTextBased()) {
-                const verifyRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`st_ageverif_accept_${userId}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId(`st_ageverif_deny_${userId}`).setLabel('❌ Deny').setStyle(ButtonStyle.Danger)
-                );
-
-                const submissionContent = session.lastAgeVerifContent || 'No content received yet — trainee may send their screenshot now.';
-
-                await logChannel.send({
-                    content: `<@&${session.deptConfig.pingRoleId}>`,
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle('🪪 Age Verification Submission')
-                            .setColor(0x3498DB)
-                            .addFields(
-                                { name: '👤 Trainee', value: `<@${userId}> (${userId})` },
-                                { name: '🏢 Department', value: session.department },
-                                { name: '📖 Training', value: session.training },
-                                { name: '📝 Submitted Content', value: submissionContent }
-                            )
-                            .setTimestamp()
-                    ],
-                    components: [verifyRow]
-                });
-
-                session.ageVerifMessageId = 'pending';
-                scheduleAgeVerifReping(userId, session);
-            }
             return;
         }
 
         if (interaction.customId.startsWith('st_ageverif_accept_')) {
             const userId = interaction.customId.replace('st_ageverif_accept_', '');
-
-            if (!await hasTrainingRole(interaction.user.id)) {
-                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            }
-
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
-
             if (session.ageVerifRepingTimeout) clearTimeout(session.ageVerifRepingTimeout);
             session.awaitingAgeVerif = false;
-            session.ageVerifMessageId = null;
 
+            // Update the log message to show accepted
             await interaction.update({ components: [] });
+            try {
+                const logChannel = await client.channels.fetch(session.ageVerifLogChannelId);
+                const logMsg = await logChannel.messages.fetch(session.ageVerifLogMessageId).catch(() => null);
+                if (logMsg) {
+                    const acceptedEmbed = EmbedBuilder.from(logMsg.embeds[0])
+                        .setTitle('✅ Age Verification Accepted')
+                        .setColor(0x2ECC71)
+                        .addFields({ name: '👮 Accepted By', value: interaction.user.tag });
+                    await logMsg.edit({ embeds: [acceptedEmbed], components: [] });
+                }
+            } catch {}
+
+            session.ageVerifLogMessageId = null;
+            session.ageVerifLogChannelId = null;
 
             const user = await client.users.fetch(userId);
-            await user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('✅ Age Verification Approved')
-                        .setDescription('Your age has been successfully verified! You may now continue with your training.')
-                        .setColor(0x2ECC71)
-                        .setTimestamp()
-                ]
-            });
-
+            await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Age Verification Approved').setDescription('Your age has been successfully verified! You may now continue with your training.').setColor(0x2ECC71).setTimestamp()] });
             session.section += 1;
             await sendNextSection(userId, session);
             return;
@@ -647,26 +509,11 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.customId.startsWith('st_ageverif_deny_')) {
             const userId = interaction.customId.replace('st_ageverif_deny_', '');
-
-            if (!await hasTrainingRole(interaction.user.id)) {
-                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            }
-
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
-
-            const modal = new ModalBuilder()
-                .setCustomId(`st_ageverif_denymodal_${userId}`)
-                .setTitle('Deny Age Verification');
-
-            const reasonInput = new TextInputBuilder()
-                .setCustomId('denyreason')
-                .setLabel('Reason for denial')
-                .setStyle(TextInputStyle.Paragraph)
-                .setPlaceholder('Enter the reason for denying age verification...')
-                .setRequired(true);
-
-            modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+            const modal = new ModalBuilder().setCustomId(`st_ageverif_denymodal_${userId}`).setTitle('Deny Age Verification');
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying age verification...').setRequired(true)));
             await interaction.showModal(modal);
             return;
         }
@@ -676,30 +523,15 @@ client.on('interactionCreate', async interaction => {
             const answer = parts[2];
             const userId = parts[3];
             const questionIndex = parseInt(parts[4]);
-
-            if (interaction.user.id !== userId) {
-                return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
-            }
-
+            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
-
             const q = session.trainingConfig.quiz[questionIndex];
             const correct = answer === q.answer;
             if (correct) session.score++;
-
             await interaction.update({ components: [] });
-
-            await interaction.user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setDescription(correct ? '✅ Correct!' : `❌ Incorrect. The correct answer was **${q.answer}) ${q.options[q.answer]}**`)
-                        .setColor(correct ? 0x2ECC71 : 0xE74C3C)
-                ]
-            });
-
+            await interaction.user.send({ embeds: [new EmbedBuilder().setDescription(correct ? '✅ Correct!' : `❌ Incorrect. The correct answer was **${q.answer}) ${q.options[q.answer]}**`).setColor(correct ? 0x2ECC71 : 0xE74C3C)] });
             const nextQuestion = questionIndex + 1;
-
             if (nextQuestion < session.trainingConfig.quiz.length) {
                 session.quizIndex = nextQuestion;
                 setTimeout(async () => {
@@ -716,129 +548,66 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.customId.startsWith('st_pass_')) {
             const userId = interaction.customId.replace('st_pass_', '');
-
-            if (!await hasTrainingRole(interaction.user.id)) {
-                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            }
-
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
-
             await interaction.update({ components: [] });
-
-            // Save completed training to MongoDB
             try {
                 const trainingKey = `${session.training} — ${session.department}`;
-                await CompletedTrainings.findByIdAndUpdate(
-                    userId,
-                    { $addToSet: { completedTrainings: trainingKey } },
-                    { upsert: true }
-                );
+                await CompletedTrainings.findByIdAndUpdate(userId, { $addToSet: { completedTrainings: trainingKey } }, { upsert: true });
             } catch (err) { console.error('Error saving completed training:', err); }
-
             const user = await client.users.fetch(userId);
             activeSessions.delete(userId);
-
-            await user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('🎉 Congratulations!')
-                        .setDescription(`Congratulations, ${user}! 🎉\n\nYou have successfully **passed** your **${session.training}** for the **${session.department}** department at **Kavià Café**!\n\nYour hard work and dedication have not gone unnoticed. Your permissions will be updated shortly.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
-                        .setColor(0x2ECC71)
-                        .setTimestamp()
-                ]
-            });
-
-            // Log pass result
+            await user.send({ embeds: [new EmbedBuilder().setTitle('🎉 Congratulations!').setDescription(`Congratulations, ${user}! 🎉\n\nYou have successfully **passed** your **${session.training}** for the **${session.department}** department at **Kavià Café**!\n\nYour hard work and dedication have not gone unnoticed. Your permissions will be updated shortly.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
             const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
             if (logChannel?.isTextBased()) {
-                await logChannel.send({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle('✅ Training Passed')
-                            .setColor(0x2ECC71)
-                            .addFields(
-                                { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
-                                { name: '🏢 Department', value: session.department },
-                                { name: '📖 Training', value: session.training },
-                                { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` },
-                                { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` },
-                                { name: '👮 Passed By', value: interaction.user.tag },
-                                { name: '💬 DM Sent', value: '✅ Yes' }
-                            )
-                            .setTimestamp()
-                    ]
-                });
+                await logChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Training Passed').setColor(0x2ECC71).addFields(
+                    { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
+                    { name: '🏢 Department', value: session.department },
+                    { name: '📖 Training', value: session.training },
+                    { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` },
+                    { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` },
+                    { name: '👮 Passed By', value: interaction.user.tag },
+                    { name: '💬 DM Sent', value: '✅ Yes' }
+                ).setTimestamp()] });
             }
             return;
         }
 
         if (interaction.customId.startsWith('st_fail_')) {
             const userId = interaction.customId.replace('st_fail_', '');
-
-            if (!await hasTrainingRole(interaction.user.id)) {
-                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            }
-
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
-
             await interaction.update({ components: [] });
-
             const user = await client.users.fetch(userId);
-
-            await user.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('❌ Training Result')
-                        .setDescription(`Hello, ${user}.\n\nUnfortunately, you have **not passed** your **${session.training}** for the **${session.department}** department at this time.\n\nPlease don't be discouraged — this is a learning experience. Your training will now restart from the beginning. Please take your time to carefully review each section.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
-                        .setColor(0xE74C3C)
-                        .setTimestamp()
-                ]
-            });
-
-            // Log fail result
+            await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Training Result').setDescription(`Hello, ${user}.\n\nUnfortunately, you have **not passed** your **${session.training}** for the **${session.department}** department at this time.\n\nPlease don't be discouraged — this is a learning experience. Your training will now restart from the beginning.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
             const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
             if (logChannel?.isTextBased()) {
-                await logChannel.send({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle('❌ Training Failed — Restarting')
-                            .setColor(0xE74C3C)
-                            .addFields(
-                                { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
-                                { name: '🏢 Department', value: session.department },
-                                { name: '📖 Training', value: session.training },
-                                { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` },
-                                { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` },
-                                { name: '👮 Failed By', value: interaction.user.tag },
-                                { name: '💬 DM Sent', value: '✅ Yes' },
-                                { name: '🔄 Status', value: 'Training restarted from section 1' }
-                            )
-                            .setTimestamp()
-                    ]
-                });
+                await logChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Training Failed — Restarting').setColor(0xE74C3C).addFields(
+                    { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
+                    { name: '🏢 Department', value: session.department },
+                    { name: '📖 Training', value: session.training },
+                    { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` },
+                    { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` },
+                    { name: '👮 Failed By', value: interaction.user.tag },
+                    { name: '💬 DM Sent', value: '✅ Yes' },
+                    { name: '🔄 Status', value: 'Training restarted from section 1' }
+                ).setTimestamp()] });
             }
-
-            // Restart training
             session.section = 0;
             session.phase = 'sections';
             session.score = 0;
             session.quizIndex = 0;
             session.locked = false;
             session.awaitingAgeVerif = false;
-
-            setTimeout(async () => {
-                await sendNextSection(userId, session);
-            }, 2000);
+            setTimeout(async () => { await sendNextSection(userId, session); }, 2000);
             return;
         }
 
         // ========== SESSION REQUEST BUTTONS ==========
         if (interaction.customId.startsWith('sesaccept_')) {
-            if (!await hasRequiredRole(interaction.user.id)) {
-                return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
-            }
+            if (!await hasRequiredRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
             const sessionId = interaction.customId.replace('sesaccept_', '');
             try {
                 const session = await Session.findById(sessionId);
@@ -848,17 +617,13 @@ client.on('interactionCreate', async interaction => {
                 let linkText = '';
                 if (session.shiftType === 'Training') linkText = `\n\nPlease review the training guide before your session:\n${TRAINING_LINK}`;
                 else if (session.shiftType === 'Regular Shift') linkText = `\n\nPlease review the shift guide before your session:\n${SHIFT_LINK}`;
-                const dmMessage = `# <:kaviacafe:1387492814916685845> **Session Request Accepted**\nHello, ${user},\nWe are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**!\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Time →** *${session.time}*\n> <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*\nShould you have any questions or concerns prior to your session, please do not hesitate to reach out.${linkText}\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`;
-                await user.send({ content: dmMessage });
+                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Accepted**\nHello, ${user},\nWe are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**!\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Time →** *${session.time}*\n> <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*\nShould you have any questions or concerns prior to your session, please do not hesitate to reach out.${linkText}\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
                 const oldEmbed = interaction.message.embeds[0];
                 const newEmbed = EmbedBuilder.from(oldEmbed).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` });
                 await interaction.update({ embeds: [newEmbed], components: [] });
                 session.status = 'approved';
                 await scheduleSession(session);
-            } catch (err) {
-                console.error('Error accepting session:', err);
-                await interaction.reply({ content: '❌ Error accepting request.', ephemeral: true });
-            }
+            } catch (err) { console.error('Error accepting session:', err); await interaction.reply({ content: '❌ Error accepting request.', ephemeral: true }); }
             return;
         }
 
@@ -868,8 +633,7 @@ client.on('interactionCreate', async interaction => {
             const session = await Session.findById(sessionId);
             if (!session) return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`sesdeclinemodal_${sessionId}`).setTitle('Decline Session Request');
-            const reasonInput = new TextInputBuilder().setCustomId('declinereason').setLabel('Reason for declining').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for declining this request...').setRequired(true);
-            modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('declinereason').setLabel('Reason for declining').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for declining this request...').setRequired(true)));
             await interaction.showModal(modal);
             return;
         }
@@ -997,25 +761,31 @@ client.on('interactionCreate', async interaction => {
                 if (!session) return interaction.editReply({ content: '❌ No active session found.' });
 
                 const user = await client.users.fetch(userId);
+                await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Age Verification Denied').setDescription(`Hello, <@${userId}>,\n\nUnfortunately your age verification submission has been **denied**.\n\n> **Reason →** *${reason}*\n\nPlease send a new screenshot or image link as a DM reply and a staff member will review it.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
 
-                await user.send({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle('❌ Age Verification Denied')
-                            .setDescription(`Hello, <@${userId}>,\n\nUnfortunately your age verification submission has been **denied**.\n\n> **Reason →** *${reason}*\n\nPlease send a new screenshot or image link and click the button again to resubmit.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
-                            .setColor(0xE74C3C)
-                            .setTimestamp()
-                    ]
-                });
+                // Update log message to show denied
+                try {
+                    if (session.ageVerifLogChannelId && session.ageVerifLogMessageId) {
+                        const logChannel = await client.channels.fetch(session.ageVerifLogChannelId);
+                        const logMsg = await logChannel.messages.fetch(session.ageVerifLogMessageId).catch(() => null);
+                        if (logMsg) {
+                            const deniedEmbed = EmbedBuilder.from(logMsg.embeds[0])
+                                .setTitle('❌ Age Verification Denied')
+                                .setColor(0xE74C3C)
+                                .addFields(
+                                    { name: '👮 Denied By', value: interaction.user.tag },
+                                    { name: '📝 Reason', value: reason }
+                                );
+                            await logMsg.edit({ embeds: [deniedEmbed], components: [] });
+                        }
+                    }
+                } catch {}
 
-                // Resend age verification section with button
-                const sections = session.trainingConfig.sections;
-                const embed = getSectionEmbed(sections[1], 1, sections.length, session.department, session.training);
-                const buttons = getSectionButtons(userId, 1, true);
-                await user.send({ embeds: [embed], components: [buttons] });
+                // Reset so next DM creates a new log message
+                session.ageVerifLogMessageId = null;
+                session.ageVerifLogChannelId = null;
 
-                await interaction.message.edit({ components: [] });
-                await interaction.editReply({ content: '✅ Age verification denied and user notified. They can resubmit.' });
+                await interaction.editReply({ content: '✅ Age verification denied and user notified. Waiting for their next submission.' });
 
             } catch (err) {
                 console.error('Error denying age verif:', err);
@@ -1033,8 +803,7 @@ client.on('interactionCreate', async interaction => {
                 if (!session) return interaction.editReply({ content: '❌ Session not found.' });
                 await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
                 const user = await client.users.fetch(session.hostId);
-                const dmMessage = `# <:kaviacafe:1387492814916685845> **Session Request Declined**\nHello, ${user},\nWe regret to inform you that your **${session.shiftType}** request has been **declined** at **Kavià Café**.\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Status →** *Declined ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`;
-                await user.send({ content: dmMessage });
+                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Declined**\nHello, ${user},\nWe regret to inform you that your **${session.shiftType}** request has been **declined** at **Kavià Café**.\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Status →** *Declined ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
                 const oldEmbed = interaction.message.embeds[0];
                 const newEmbed = EmbedBuilder.from(oldEmbed).setColor(0xE74C3C).setTitle('📋 Session Request — ❌ Declined').setFooter({ text: `Declined by ${interaction.user.username} — Reason: ${reason}` });
                 await interaction.message.edit({ embeds: [newEmbed], components: [] });
@@ -1110,11 +879,11 @@ client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
     if (message.channel.type === 1) {
-        // Check if user is in training and awaiting age verification
+        // Check if user is awaiting age verification
         const trainingSession = activeSessions.get(message.author.id);
         if (trainingSession && trainingSession.awaitingAgeVerif) {
-            trainingSession.lastAgeVerifContent = message.content || '[Image/Attachment]';
-            // Log to dept channel
+            trainingSession.lastAgeVerifContent = message.content || '[Attachment]';
+
             try {
                 const logChannel = await client.channels.fetch(trainingSession.deptConfig.logChannelId);
                 if (logChannel?.isTextBased()) {
@@ -1124,7 +893,7 @@ client.on('messageCreate', async message => {
                     );
 
                     const logEmbed = new EmbedBuilder()
-                        .setTitle('🪪 Age Verification Submission Received')
+                        .setTitle('🪪 Age Verification Submission')
                         .setColor(0x3498DB)
                         .addFields(
                             { name: '👤 Trainee', value: `<@${message.author.id}> (${message.author.id})` },
@@ -1134,7 +903,6 @@ client.on('messageCreate', async message => {
                         )
                         .setTimestamp();
 
-                    // Include attachments if any
                     if (message.attachments.size > 0) {
                         const attachment = message.attachments.first();
                         logEmbed.setImage(attachment.url);
@@ -1142,11 +910,15 @@ client.on('messageCreate', async message => {
                         trainingSession.lastAgeVerifContent = attachment.url;
                     }
 
-                    await logChannel.send({
+                    const logMsg = await logChannel.send({
                         content: `<@&${trainingSession.deptConfig.pingRoleId}>`,
                         embeds: [logEmbed],
                         components: [verifyRow]
                     });
+
+                    // Store for editing on accept/deny
+                    trainingSession.ageVerifLogMessageId = logMsg.id;
+                    trainingSession.ageVerifLogChannelId = logChannel.id;
                 }
             } catch (err) { console.error('Error logging age verif submission:', err); }
             return;
@@ -1161,7 +933,6 @@ client.on('messageCreate', async message => {
         console.log(`📨 Using channel: ${logChannelId}`);
 
         const timestamp = `<t:${Math.floor(Date.now() / 1000)}:F>`;
-
         try { await message.react('✅'); } catch (err) { console.error('Failed to react to user DM:', err); }
 
         const userReplyEmbed = new EmbedBuilder()
