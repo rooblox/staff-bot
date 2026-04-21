@@ -99,9 +99,15 @@ const loaSchema = new mongoose.Schema({
     autoDeleteAt: Date
 }, { versionKey: false });
 
+const completedTrainingsSchema = new mongoose.Schema({
+    _id: String, // Discord user ID
+    completedTrainings: [String] // e.g. ['Intro to Mentorship — Mod', 'Intro to Mentorship — HR']
+}, { versionKey: false });
+
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
 const Reminder = mongoose.model('Reminder', reminderSchema);
 const Session = mongoose.model('Session', sessionSchema);
 const LOA = mongoose.model('LOA', loaSchema);
+const CompletedTrainings = mongoose.model('CompletedTrainings', completedTrainingsSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings };
