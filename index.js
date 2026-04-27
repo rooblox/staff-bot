@@ -68,12 +68,21 @@ async function hasTrainingRole(userId) {
     } catch { return false; }
 }
 
-async function hasStaffRole(userId) {
-    for (const guild of client.guilds.cache.values()) {
-        const m = await guild.members.fetch(userId).catch(() => null);
-        if (m && m.roles.cache.has(LOA_STAFF_ROLE_ID)) return true;
-    }
-    return false;
+async function hasStaffRole(userId, department) {
+    try {
+        const deptConfig = department ? DEPARTMENTS[department] : null;
+        if (deptConfig) {
+            const guild = await client.guilds.fetch(deptConfig.serverId);
+            const member = await guild.members.fetch(userId).catch(() => null);
+            if (member && member.roles.cache.has(deptConfig.roleId)) return true;
+        }
+        // Fallback — check main staff role across all guilds
+        for (const guild of client.guilds.cache.values()) {
+            const m = await guild.members.fetch(userId).catch(() => null);
+            if (m && m.roles.cache.has(LOA_STAFF_ROLE_ID)) return true;
+        }
+        return false;
+    } catch { return false; }
 }
 
 async function sendLOALog(user, title, color, loaId, extraFields = []) {
@@ -665,10 +674,12 @@ client.on('interactionCreate', async interaction => {
         // ========== LOA BUTTONS ==========
         if (interaction.customId.startsWith('loa_accept_')) {
             const loaId = interaction.customId.replace('loa_accept_', '');
-            if (!await hasStaffRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             try {
                 const loa = await LOA.findById(loaId);
                 if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) {
+                    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+                }
                 await LOA.findByIdAndUpdate(loaId, { status: 'approved', approvedAt: new Date() });
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Leave of Absence Approved').setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
@@ -683,19 +694,31 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.customId.startsWith('loa_deny_')) {
             const loaId = interaction.customId.replace('loa_deny_', '');
-            if (!await hasStaffRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            const modal = new ModalBuilder().setCustomId(`loa_denymodal_${loaId}`).setTitle('Deny LOA Request');
-            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying this LOA...').setRequired(true)));
-            await interaction.showModal(modal);
+            try {
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) {
+                    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+                }
+                const modal = new ModalBuilder().setCustomId(`loa_denymodal_${loaId}`).setTitle('Deny LOA Request');
+                modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying this LOA...').setRequired(true)));
+                await interaction.showModal(modal);
+            } catch (err) { console.error('Error denying LOA:', err); }
             return;
         }
 
         if (interaction.customId.startsWith('loa_moreinfo_')) {
             const loaId = interaction.customId.replace('loa_moreinfo_', '');
-            if (!await hasStaffRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            const modal = new ModalBuilder().setCustomId(`loa_moreinfomodal_${loaId}`).setTitle('Request More Info');
-            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('moreinfo').setLabel('What info is needed?').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter what additional information is needed...').setRequired(true)));
-            await interaction.showModal(modal);
+            try {
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) {
+                    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+                }
+                const modal = new ModalBuilder().setCustomId(`loa_moreinfomodal_${loaId}`).setTitle('Request More Info');
+                modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('moreinfo').setLabel('What info is needed?').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter what additional information is needed...').setRequired(true)));
+                await interaction.showModal(modal);
+            } catch (err) { console.error('Error requesting more info:', err); }
             return;
         }
 
@@ -752,7 +775,6 @@ client.on('interactionCreate', async interaction => {
                         }
                     }
                 } catch {}
-                // Clear so next DM creates a fresh log message
                 session.ageVerifLogMessageId = null;
                 session.ageVerifLogChannelId = null;
                 await interaction.editReply({ content: '✅ Age verification denied and user notified. Waiting for their next submission.' });
@@ -849,7 +871,6 @@ client.on('messageCreate', async message => {
         if (trainingSession && trainingSession.awaitingAgeVerif) {
             trainingSession.lastAgeVerifContent = message.content || '[Attachment]';
 
-            // If there's already a pending submission awaiting review, ignore new messages
             if (trainingSession.ageVerifLogMessageId) {
                 try { await message.react('⏳'); } catch {}
                 return;
@@ -862,7 +883,6 @@ client.on('messageCreate', async message => {
                         new ButtonBuilder().setCustomId(`st_ageverif_accept_${message.author.id}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId(`st_ageverif_deny_${message.author.id}`).setLabel('❌ Deny').setStyle(ButtonStyle.Danger)
                     );
-
                     const logEmbed = new EmbedBuilder()
                         .setTitle('🪪 Age Verification Submission')
                         .setColor(0x3498DB)
@@ -873,20 +893,17 @@ client.on('messageCreate', async message => {
                             { name: '📝 Message', value: message.content || '*No text*' }
                         )
                         .setTimestamp();
-
                     if (message.attachments.size > 0) {
                         const attachment = message.attachments.first();
                         logEmbed.setImage(attachment.url);
                         logEmbed.addFields({ name: '🖼️ Attachment', value: attachment.url });
                         trainingSession.lastAgeVerifContent = attachment.url;
                     }
-
                     const logMsg = await logChannel.send({
                         content: `<@&${trainingSession.deptConfig.pingRoleId}>`,
                         embeds: [logEmbed],
                         components: [verifyRow]
                     });
-
                     trainingSession.ageVerifLogMessageId = logMsg.id;
                     trainingSession.ageVerifLogChannelId = logChannel.id;
                 }
@@ -894,20 +911,15 @@ client.on('messageCreate', async message => {
             return;
         }
 
-        // Regular DM logging
         const logChannelId = client.dmLogChannels?.get(message.author.id) || '1462580398935642144';
-
         console.log(`📨 DM received from: ${message.author.id}`);
         console.log(`📨 Map size: ${client.dmLogChannels?.size}`);
         console.log(`📨 Mapped channel: ${client.dmLogChannels?.get(message.author.id)}`);
         console.log(`📨 Using channel: ${logChannelId}`);
-
         const timestamp = `<t:${Math.floor(Date.now() / 1000)}:F>`;
         try { await message.react('✅'); } catch (err) { console.error('Failed to react to user DM:', err); }
-
         const userReplyEmbed = new EmbedBuilder()
-            .setColor(0x3498DB)
-            .setTitle('💬 **DM Received**')
+            .setColor(0x3498DB).setTitle('💬 **DM Received**')
             .addFields(
                 { name: '📤 From (User)', value: `${message.author.tag} (${message.author.id})` },
                 { name: '📥 To (Bot)', value: `${client.user.tag}` },
@@ -915,7 +927,6 @@ client.on('messageCreate', async message => {
                 { name: '🕒 Date & Time', value: timestamp }
             )
             .setFooter({ text: 'Kavia Cafe • DM Logs' });
-
         try {
             const logChannel = await client.channels.fetch(logChannelId);
             if (logChannel) await logChannel.send({ embeds: [userReplyEmbed] });

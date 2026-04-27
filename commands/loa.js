@@ -2,8 +2,6 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 const { LOA } = require('../db');
 const { DEPARTMENTS, DEPT_CHOICES } = require('./departments');
 
-const PING_ROLE_ID = '1434623628078743584';
-
 function parseReturnDate(dateStr) {
     const parts = dateStr.split('/');
     if (parts.length !== 3) return null;
@@ -98,22 +96,19 @@ module.exports = {
                 new ButtonBuilder().setCustomId(`loa_moreinfo_${loa._id}`).setLabel('❓ Request More Info').setStyle(ButtonStyle.Secondary)
             );
 
-            // Post to department LOA channel
             const loaGuild = await client.guilds.fetch(deptConfig.serverId);
             const loaChannel = await loaGuild.channels.fetch(deptConfig.loaChannelId);
 
             const msg = await loaChannel.send({
-                content: `<@&${PING_ROLE_ID}>`,
+                content: `<@&${deptConfig.roleId}>`,
                 embeds: [embed],
                 components: [row]
             });
 
             await LOA.findByIdAndUpdate(loa._id, { messageId: msg.id });
 
-            // Log submission to department LOA log channel
             try {
-                const logGuild = await client.guilds.fetch(deptConfig.serverId);
-                const logChannel = await logGuild.channels.fetch(deptConfig.loaLogChannelId);
+                const logChannel = await loaGuild.channels.fetch(deptConfig.loaLogChannelId);
                 await logChannel.send({
                     embeds: [
                         new EmbedBuilder()
@@ -148,26 +143,21 @@ module.exports = {
 function scheduleLOAReturnReminder(loa, client) {
     const MAX_TIMEOUT = 2147483647;
     const delay = new Date(loa.returnDateParsed).getTime() - Date.now();
-
     if (delay < 0) return;
     if (delay > MAX_TIMEOUT) {
         setTimeout(() => scheduleLOAReturnReminder(loa, client), MAX_TIMEOUT);
         return;
     }
-
     setTimeout(async () => {
         try {
             const latestLOA = await LOA.findById(loa._id);
             if (!latestLOA || latestLOA.status !== 'approved') return;
-
             const user = await client.users.fetch(latestLOA.userId);
             const deptConfig = DEPARTMENTS[latestLOA.department];
-
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId(`loa_returned_${loa._id}`).setLabel('✅ I am ready to return').setStyle(ButtonStyle.Success),
                 new ButtonBuilder().setCustomId(`loa_extend_${loa._id}`).setLabel('⏳ Request More Time').setStyle(ButtonStyle.Secondary)
             );
-
             await user.send({
                 embeds: [
                     new EmbedBuilder()
@@ -178,10 +168,8 @@ function scheduleLOAReturnReminder(loa, client) {
                 ],
                 components: [row]
             });
-
             await LOA.findByIdAndUpdate(loa._id, { returnReminderSent: true });
             scheduleLoaAutoDelete(loa._id, client, deptConfig, 24 * 60 * 60 * 1000);
-
         } catch (err) {
             console.error('Error sending LOA return reminder:', err);
         }
@@ -190,27 +178,22 @@ function scheduleLOAReturnReminder(loa, client) {
 
 async function scheduleLoaAutoDelete(loaId, client, deptConfig, delay) {
     const MAX_TIMEOUT = 2147483647;
-
     if (delay > MAX_TIMEOUT) {
         setTimeout(() => scheduleLoaAutoDelete(loaId, client, deptConfig, delay - MAX_TIMEOUT), MAX_TIMEOUT);
         return;
     }
-
     setTimeout(async () => {
         try {
             const loa = await LOA.findById(loaId);
             if (!loa || loa.status === 'returned' || loa.status === 'extended') return;
-
             const config = deptConfig || DEPARTMENTS[loa.department];
             if (!config) return;
-
             try {
                 const loaGuild = await client.guilds.fetch(config.serverId);
                 const loaChannel = await loaGuild.channels.fetch(config.loaChannelId);
                 const msg = await loaChannel.messages.fetch(loa.messageId).catch(() => null);
                 if (msg) await msg.delete().catch(() => {});
             } catch {}
-
             await LOA.findByIdAndUpdate(loaId, { status: 'returned' });
         } catch (err) {
             console.error('Error auto deleting LOA:', err);
