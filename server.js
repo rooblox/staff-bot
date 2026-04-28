@@ -77,6 +77,17 @@ function createServer(client) {
         res.status(200).json({ status: 'ok', bot: client.user?.tag || 'not ready' });
     });
 
+    // ========== RANKS DEBUG ==========
+    app.get('/ranks', async (req, res) => {
+        try {
+            const { getGroupRanks } = require('./commands/roblox');
+            const ranks = await getGroupRanks('13827902');
+            res.json(ranks);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, '0.0.0.0', (err) => {
         if (err) {
@@ -107,7 +118,6 @@ async function handleRankButton(interaction, client) {
         return true;
     }
 
-    // Split on first underscore after rank_interview_ to safely separate userId from username
     const withoutPrefix = interaction.customId.replace('rank_interview_', '');
     const firstUnderscoreIndex = withoutPrefix.indexOf('_');
     const userId = withoutPrefix.substring(0, firstUnderscoreIndex);
