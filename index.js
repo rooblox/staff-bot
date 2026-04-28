@@ -952,7 +952,6 @@ client.once('ready', async () => {
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
     await restoreLOAs();
-    createServer(client);
 });
 
 client.on('guildCreate', async guild => {
@@ -965,6 +964,7 @@ client.on('guildCreate', async guild => {
 });
 
 connectDB().then(() => {
+    createServer(client);
     client.login(process.env.TOKEN);
     console.log('✅ Bot started successfully!');
 }).catch(err => {
