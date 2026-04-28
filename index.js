@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { connectDB, Reminder, Session, LOA, CompletedTrainings } = require('./db');
+const { createServer, handleRankButton } = require('./server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
@@ -76,7 +77,6 @@ async function hasStaffRole(userId, department) {
             const member = await guild.members.fetch(userId).catch(() => null);
             if (member && member.roles.cache.has(deptConfig.roleId)) return true;
         }
-        // Fallback — check main staff role across all guilds
         for (const guild of client.guilds.cache.values()) {
             const m = await guild.members.fetch(userId).catch(() => null);
             if (m && m.roles.cache.has(LOA_STAFF_ROLE_ID)) return true;
@@ -407,6 +407,10 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.isButton()) {
 
+        // ========== INTERVIEW RANK BUTTON ==========
+        const handled = await handleRankButton(interaction, client);
+        if (handled) return;
+
         // ========== TRAINING BUTTONS (st_) ==========
         if (interaction.customId.startsWith('st_done_')) {
             const parts = interaction.customId.split('_');
@@ -677,9 +681,7 @@ client.on('interactionCreate', async interaction => {
             try {
                 const loa = await LOA.findById(loaId);
                 if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) {
-                    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-                }
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
                 await LOA.findByIdAndUpdate(loaId, { status: 'approved', approvedAt: new Date() });
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Leave of Absence Approved').setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
@@ -697,9 +699,7 @@ client.on('interactionCreate', async interaction => {
             try {
                 const loa = await LOA.findById(loaId);
                 if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) {
-                    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-                }
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
                 const modal = new ModalBuilder().setCustomId(`loa_denymodal_${loaId}`).setTitle('Deny LOA Request');
                 modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying this LOA...').setRequired(true)));
                 await interaction.showModal(modal);
@@ -712,9 +712,7 @@ client.on('interactionCreate', async interaction => {
             try {
                 const loa = await LOA.findById(loaId);
                 if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) {
-                    return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-                }
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
                 const modal = new ModalBuilder().setCustomId(`loa_moreinfomodal_${loaId}`).setTitle('Request More Info');
                 modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('moreinfo').setLabel('What info is needed?').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter what additional information is needed...').setRequired(true)));
                 await interaction.showModal(modal);
@@ -954,6 +952,7 @@ client.once('ready', async () => {
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
     await restoreLOAs();
+    createServer(client);
 });
 
 client.on('guildCreate', async guild => {
