@@ -77,17 +77,6 @@ function createServer(client) {
         res.status(200).json({ status: 'ok', bot: client.user?.tag || 'not ready' });
     });
 
-    // ========== RANKS DEBUG ==========
-    app.get('/ranks', async (req, res) => {
-        try {
-            const { getGroupRanks } = require('./commands/roblox');
-            const ranks = await getGroupRanks('13827902');
-            res.json(ranks);
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, '0.0.0.0', (err) => {
         if (err) {
@@ -103,8 +92,6 @@ function createServer(client) {
 // ========== RANK BUTTON HANDLER ==========
 async function handleRankButton(interaction, client) {
     if (!interaction.customId.startsWith('rank_interview_')) return false;
-
-    console.log(`🎮 Raw customId: ${interaction.customId}`);
 
     try {
         const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
@@ -123,20 +110,11 @@ async function handleRankButton(interaction, client) {
     const userId = withoutPrefix.substring(0, firstUnderscoreIndex);
     const username = withoutPrefix.substring(firstUnderscoreIndex + 1);
 
-    console.log(`🎮 Parsed userId: ${userId}`);
-    console.log(`🎮 Parsed username: ${username}`);
-
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
         const { setRank } = require('./commands/roblox');
-
-        console.log(`🎮 Attempting setRank — group: ${GROUP_ID}, userId: ${userId}, rank: ${TRAINEE_RANK_ID}`);
-
         const success = await setRank(GROUP_ID, userId, TRAINEE_RANK_ID);
-
-        console.log(`🎮 setRank result: ${success}`);
-
         const oldEmbed = interaction.message.embeds[0];
 
         if (success) {
