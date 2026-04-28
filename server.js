@@ -93,6 +93,8 @@ function createServer(client) {
 async function handleRankButton(interaction, client) {
     if (!interaction.customId.startsWith('rank_interview_')) return false;
 
+    console.log(`🎮 Raw customId: ${interaction.customId}`);
+
     try {
         const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
         const member = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
@@ -105,16 +107,25 @@ async function handleRankButton(interaction, client) {
         return true;
     }
 
-    const parts = interaction.customId.replace('rank_interview_', '').split('_');
-    const userId = parts[0];
-    const username = parts.slice(1).join('_');
+    // Split on first underscore after rank_interview_ to safely separate userId from username
+    const withoutPrefix = interaction.customId.replace('rank_interview_', '');
+    const firstUnderscoreIndex = withoutPrefix.indexOf('_');
+    const userId = withoutPrefix.substring(0, firstUnderscoreIndex);
+    const username = withoutPrefix.substring(firstUnderscoreIndex + 1);
+
+    console.log(`🎮 Parsed userId: ${userId}`);
+    console.log(`🎮 Parsed username: ${username}`);
 
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
         const { setRank } = require('./commands/roblox');
 
+        console.log(`🎮 Attempting setRank — group: ${GROUP_ID}, userId: ${userId}, rank: ${TRAINEE_RANK_ID}`);
+
         const success = await setRank(GROUP_ID, userId, TRAINEE_RANK_ID);
+
+        console.log(`🎮 setRank result: ${success}`);
 
         const oldEmbed = interaction.message.embeds[0];
 
