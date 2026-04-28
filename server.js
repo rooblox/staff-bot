@@ -4,7 +4,7 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('
 const INTERVIEW_LOG_CHANNEL = process.env.INTERVIEW_LOG_CHANNEL || '1422682430099165266';
 const EXPRESS_SECRET = process.env.EXPRESS_SECRET || 'kavia_secret_2026';
 const GROUP_ID = '13827902';
-const TRAINEE_RANK_ID = 4;
+const TRAINEE_RANK_ID = 105241068;
 const REQUIRED_ROLE_ID = process.env.RANKING_REQUIRED_ROLE || '1493354187109433434';
 const MAIN_GUILD_ID = '1370892833182974035';
 
