@@ -12,6 +12,10 @@ function createServer(client) {
     const app = express();
     app.use(express.json());
 
+    process.on('uncaughtException', (err) => {
+        console.error('❌ Uncaught Exception in server:', err);
+    });
+
     // ========== INTERVIEW RESULT ENDPOINT ==========
     app.post('/interview', async (req, res) => {
         try {
@@ -74,8 +78,12 @@ function createServer(client) {
     });
 
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`✅ Express server running on port ${PORT}`);
+    app.listen(PORT, '0.0.0.0', (err) => {
+        if (err) {
+            console.error('❌ Express failed to start:', err);
+        } else {
+            console.log(`✅ Express server running on port ${PORT}`);
+        }
     });
 
     return app;
