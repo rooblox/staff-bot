@@ -2,9 +2,11 @@ const express = require('express');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const INTERVIEW_LOG_CHANNEL = process.env.INTERVIEW_LOG_CHANNEL || '1422682430099165266';
+const TRAINING_LOG_CHANNEL = process.env.TRAINING_LOG_CHANNEL || '';
 const EXPRESS_SECRET = process.env.EXPRESS_SECRET || 'kavia_secret_2026';
 const GROUP_ID = '13827902';
 const TRAINEE_RANK_ID = 105241068;
+const BARISTA_RANK_ID = process.env.BARISTA_RANK_ID || 0; // set this in Railway env
 const REQUIRED_ROLE_ID = process.env.RANKING_REQUIRED_ROLE || '1493354187109433434';
 const MAIN_GUILD_ID = '1370892833182974035';
 
@@ -72,6 +74,66 @@ function createServer(client) {
         }
     });
 
+    // ========== TRAINING RESULT ENDPOINT ==========
+    app.post('/training', async (req, res) => {
+        try {
+            const secret = req.headers['x-secret'];
+            if (secret !== EXPRESS_SECRET) {
+                return res.status(401).json({ success: false, error: 'Unauthorized' });
+            }
+
+            const { userId, username, displayName, passed, score, total } = req.body;
+
+            if (!username || !userId || score === undefined || passed === undefined) {
+                return res.status(400).json({ success: false, error: 'Missing required fields' });
+            }
+
+            const color = passed ? 0x2ECC71 : 0xE74C3C;
+            const statusText = passed ? '✅ PASSED' : '❌ FAILED';
+            const rankingStatus = passed ? '⏳ Awaiting Rank' : '❌ Not Eligible';
+
+            const embed = new EmbedBuilder()
+                .setTitle('☕  Kavià Café Training Log')
+                .setColor(color)
+                .addFields(
+                    { name: '👤 Trainee',  value: `${username} (${displayName}) \`${userId}\``, inline: false },
+                    { name: '📊 Result',   value: statusText, inline: true },
+                    { name: '📝 Score',    value: `${score} / ${total}`, inline: true },
+                    { name: '🏷️ Status',  value: rankingStatus, inline: false }
+                )
+                .setFooter({ text: 'Kavià Café Training Center • Automated Log' })
+                .setTimestamp();
+
+            if (!TRAINING_LOG_CHANNEL) {
+                console.error('[/training] TRAINING_LOG_CHANNEL not set');
+                return res.status(500).json({ success: false, error: 'TRAINING_LOG_CHANNEL not configured' });
+            }
+
+            const logChannel = await client.channels.fetch(TRAINING_LOG_CHANNEL);
+            if (!logChannel?.isTextBased()) {
+                return res.status(500).json({ success: false, error: 'Training log channel not found' });
+            }
+
+            if (passed) {
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`rank_training_${userId}_${username}`)
+                        .setLabel('🎮 Rank to Barista')
+                        .setStyle(ButtonStyle.Success)
+                );
+                await logChannel.send({ embeds: [embed], components: [row] });
+            } else {
+                await logChannel.send({ embeds: [embed] });
+            }
+
+            return res.status(200).json({ success: true });
+
+        } catch (err) {
+            console.error('Error handling training result:', err);
+            return res.status(500).json({ success: false, error: 'Internal server error' });
+        }
+    });
+
     // ========== HEALTH CHECK ==========
     app.get('/health', (req, res) => {
         res.status(200).json({ status: 'ok', bot: client.user?.tag || 'not ready' });
@@ -91,7 +153,10 @@ function createServer(client) {
 
 // ========== RANK BUTTON HANDLER ==========
 async function handleRankButton(interaction, client) {
-    if (!interaction.customId.startsWith('rank_interview_')) return false;
+    // Handle both interview and training rank buttons
+    const isInterview = interaction.customId.startsWith('rank_interview_');
+    const isTraining  = interaction.customId.startsWith('rank_training_');
+    if (!isInterview && !isTraining) return false;
 
     try {
         const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
@@ -105,33 +170,36 @@ async function handleRankButton(interaction, client) {
         return true;
     }
 
-    const withoutPrefix = interaction.customId.replace('rank_interview_', '');
-    const firstUnderscoreIndex = withoutPrefix.indexOf('_');
-    const userId = withoutPrefix.substring(0, firstUnderscoreIndex);
-    const username = withoutPrefix.substring(firstUnderscoreIndex + 1);
+    const prefix       = isInterview ? 'rank_interview_' : 'rank_training_';
+    const rankId       = isInterview ? TRAINEE_RANK_ID : parseInt(BARISTA_RANK_ID);
+    const rankLabel    = isInterview ? 'Trainee (Awaiting Training)' : 'Barista';
+    const withoutPrefix = interaction.customId.replace(prefix, '');
+    const firstUnderscore = withoutPrefix.indexOf('_');
+    const userId   = withoutPrefix.substring(0, firstUnderscore);
+    const username = withoutPrefix.substring(firstUnderscore + 1);
 
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     try {
         const { setRank } = require('./commands/roblox');
-        const success = await setRank(GROUP_ID, userId, TRAINEE_RANK_ID);
+        const success = await setRank(GROUP_ID, userId, rankId);
         const oldEmbed = interaction.message.embeds[0];
 
         if (success) {
             const updatedEmbed = EmbedBuilder.from(oldEmbed)
                 .setColor(0x2ECC71)
-                .spliceFields(4, 1, {
+                .spliceFields(isInterview ? 4 : 3, 1, {
                     name: '🏷️ Ranking Status',
-                    value: `✅ Ranked to **Trainee (Awaiting Training)** by ${interaction.user.tag}`,
+                    value: `✅ Ranked to **${rankLabel}** by ${interaction.user.tag}`,
                     inline: false
                 });
             await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
-            await interaction.editReply({ content: `✅ Successfully ranked **${username}** to Trainee (Awaiting Training)!` });
-            console.log(`✅ Ranked ${username} (${userId}) to rank ${TRAINEE_RANK_ID} in group ${GROUP_ID}`);
+            await interaction.editReply({ content: `✅ Successfully ranked **${username}** to ${rankLabel}!` });
+            console.log(`✅ Ranked ${username} (${userId}) to rank ${rankId}`);
         } else {
             const updatedEmbed = EmbedBuilder.from(oldEmbed)
                 .setColor(0xE74C3C)
-                .spliceFields(4, 1, {
+                .spliceFields(isInterview ? 4 : 3, 1, {
                     name: '🏷️ Ranking Status',
                     value: `❌ Ranking failed — attempted by ${interaction.user.tag}`,
                     inline: false
@@ -141,7 +209,7 @@ async function handleRankButton(interaction, client) {
         }
 
     } catch (err) {
-        console.error('Error ranking interview user:', err);
+        console.error('Error ranking user:', err);
         await interaction.editReply({ content: '❌ Error occurred while ranking.' });
     }
 
