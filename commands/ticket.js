@@ -15,18 +15,18 @@ function generateCaseId() {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ticketsetup')
-        .setDescription('Set up the ticket panel in a channel')
+        .setDescription('Set up or update the ticket panel in a channel')
         .addChannelOption(option =>
             option.setName('channel').setDescription('Channel to post the ticket panel in').setRequired(true)
                 .addChannelTypes(ChannelType.GuildText))
         .addStringOption(option =>
-            option.setName('title').setDescription('Title of the ticket panel').setRequired(true))
+            option.setName('title').setDescription('Title of the ticket panel').setRequired(false))
         .addStringOption(option =>
-            option.setName('description').setDescription('Description of the ticket panel').setRequired(true))
+            option.setName('description').setDescription('Description of the ticket panel').setRequired(false))
         .addStringOption(option =>
-            option.setName('category_1').setDescription('First ticket category name').setRequired(true))
+            option.setName('category_1').setDescription('First ticket category name').setRequired(false))
         .addRoleOption(option =>
-            option.setName('ping_role_1').setDescription('Role to ping for category 1').setRequired(true))
+            option.setName('ping_role_1').setDescription('Role to ping for category 1').setRequired(false))
         .addStringOption(option =>
             option.setName('category_2').setDescription('Second ticket category name').setRequired(false))
         .addRoleOption(option =>
@@ -48,105 +48,165 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
         try {
-            // Check permissions — dept role for this server OR main role
+            // Check permissions
             let hasPerms = false;
             const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-
             for (const dept of Object.values(DEPARTMENTS)) {
                 if (dept.serverId === interaction.guildId && member?.roles.cache.has(dept.roleId)) {
                     hasPerms = true;
                     break;
                 }
             }
-
-            if (!hasPerms) {
-                hasPerms = await hasMainRole(client, interaction.user.id);
-            }
-
+            if (!hasPerms) hasPerms = await hasMainRole(client, interaction.user.id);
             if (!hasPerms) return interaction.editReply({ content: '❌ You do not have permission to set up the ticket system.' });
 
             const channel = interaction.options.getChannel('channel');
-            const title = interaction.options.getString('title');
-            const description = interaction.options.getString('description');
-
-            const categories = [];
-            for (let i = 1; i <= 5; i++) {
-                const name = interaction.options.getString(`category_${i}`);
-                const role = interaction.options.getRole(`ping_role_${i}`);
-                if (name && role) categories.push({ name, pingRoleId: role.id });
-            }
-
-            if (categories.length === 0) return interaction.editReply({ content: '❌ You must provide at least one category.' });
-
-            // Fetch text channel properly
             const textChannel = await interaction.guild.channels.fetch(channel.id);
             if (!textChannel?.isTextBased()) return interaction.editReply({ content: '❌ Please select a text channel.' });
 
-            // Create or find 🎫 Tickets category at top of server
-            let ticketCategory = interaction.guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
-            if (!ticketCategory) {
-                ticketCategory = await interaction.guild.channels.create({
-                    name: '🎫 Tickets',
-                    type: ChannelType.GuildCategory,
-                    position: 0
+            // Check if a panel already exists for this channel
+            const existingPanel = await TicketPanel.findOne({ serverId: interaction.guildId, channelId: textChannel.id });
+
+            if (existingPanel) {
+                // ========== UPDATE EXISTING PANEL ==========
+                const title = interaction.options.getString('title') || existingPanel.title;
+                const description = interaction.options.getString('description') || existingPanel.description;
+
+                // Build new categories — use new ones if provided, fall back to existing
+                let categories = [...existingPanel.categories];
+                const newCategories = [];
+                for (let i = 1; i <= 5; i++) {
+                    const name = interaction.options.getString(`category_${i}`);
+                    const role = interaction.options.getRole(`ping_role_${i}`);
+                    if (name && role) newCategories.push({ name, pingRoleId: role.id });
+                }
+                if (newCategories.length > 0) categories = newCategories;
+
+                if (categories.length === 0) return interaction.editReply({ content: '❌ No categories found. Please provide at least one category.' });
+
+                // Update workload display
+                const workloadData = await Promise.all(categories.map(async (c) => {
+                    const count = await Ticket.countDocuments({ serverId: interaction.guildId, category: c.name, status: { $in: ['open', 'claimed'] } });
+                    const pct = Math.round((count / 5) * 100);
+                    return `• **${c.name}:** Available \`${count}/5\` (${pct}%)`;
+                }));
+
+                const embed = new EmbedBuilder()
+                    .setTitle(title)
+                    .setDescription(description)
+                    .setColor(0x5865F2)
+                    .addFields({ name: '📊 Ticket Utilization', value: `Here you can see the current workload of our tickets.\n\n${workloadData.join('\n')}` })
+                    .setImage(PANEL_IMAGE)
+                    .setTimestamp();
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`ticket_open_${interaction.guildId}`)
+                    .setPlaceholder('Choose a category...')
+                    .addOptions(categories.map(c => ({ label: c.name, value: c.name })));
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+
+                // Try to edit the existing message
+                let updatedMessageId = existingPanel.messageId;
+                try {
+                    const existingMsg = await textChannel.messages.fetch(existingPanel.messageId).catch(() => null);
+                    if (existingMsg) {
+                        await existingMsg.edit({ embeds: [embed], components: [row] });
+                    } else {
+                        const newMsg = await textChannel.send({ embeds: [embed], components: [row] });
+                        updatedMessageId = newMsg.id;
+                    }
+                } catch {
+                    const newMsg = await textChannel.send({ embeds: [embed], components: [row] });
+                    updatedMessageId = newMsg.id;
+                }
+
+                // Update panel in DB
+                await TicketPanel.findByIdAndUpdate(existingPanel._id, {
+                    title,
+                    description,
+                    categories,
+                    messageId: updatedMessageId
                 });
-            }
 
-            // Create log channel
-            const logChannel = await interaction.guild.channels.create({
-                name: 'ticket-logs',
-                type: ChannelType.GuildText,
-                parent: ticketCategory.id,
-                permissionOverwrites: [
-                    { id: interaction.guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }
-                ]
-            });
+                await interaction.editReply({ content: `✅ Ticket panel updated in <#${textChannel.id}>!` });
 
-            // Give each ping role access to log channel
-            for (const cat of categories) {
-                await logChannel.permissionOverwrites.edit(cat.pingRoleId, {
-                    ViewChannel: true,
-                    SendMessages: false,
-                    ReadMessageHistory: true
+            } else {
+                // ========== CREATE NEW PANEL ==========
+                const title = interaction.options.getString('title');
+                const description = interaction.options.getString('description');
+
+                if (!title) return interaction.editReply({ content: '❌ Please provide a title for the new panel.' });
+                if (!description) return interaction.editReply({ content: '❌ Please provide a description for the new panel.' });
+
+                const categories = [];
+                for (let i = 1; i <= 5; i++) {
+                    const name = interaction.options.getString(`category_${i}`);
+                    const role = interaction.options.getRole(`ping_role_${i}`);
+                    if (name && role) categories.push({ name, pingRoleId: role.id });
+                }
+                if (categories.length === 0) return interaction.editReply({ content: '❌ Please provide at least one category and ping role.' });
+
+                // Create or find ticket category at top of server
+                let ticketCategory = interaction.guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
+                if (!ticketCategory) {
+                    ticketCategory = await interaction.guild.channels.create({
+                        name: '🎫 Tickets',
+                        type: ChannelType.GuildCategory,
+                        position: 0
+                    });
+                }
+
+                // Create log channel
+                const logChannel = await interaction.guild.channels.create({
+                    name: 'ticket-logs',
+                    type: ChannelType.GuildText,
+                    parent: ticketCategory.id,
+                    permissionOverwrites: [
+                        { id: interaction.guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }
+                    ]
                 });
+
+                for (const cat of categories) {
+                    await logChannel.permissionOverwrites.edit(cat.pingRoleId, {
+                        ViewChannel: true, SendMessages: false, ReadMessageHistory: true
+                    });
+                }
+
+                const workloadLines = categories.map(c => `• **${c.name}:** Available \`0/5\` (0%)`).join('\n');
+
+                const embed = new EmbedBuilder()
+                    .setTitle(title)
+                    .setDescription(description)
+                    .setColor(0x5865F2)
+                    .addFields({ name: '📊 Ticket Utilization', value: `Here you can see the current workload of our tickets.\n\n${workloadLines}` })
+                    .setImage(PANEL_IMAGE)
+                    .setTimestamp();
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`ticket_open_${interaction.guildId}`)
+                    .setPlaceholder('Choose a category...')
+                    .addOptions(categories.map(c => ({ label: c.name, value: c.name })));
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+
+                const msg = await textChannel.send({ embeds: [embed], components: [row] });
+
+                await TicketPanel.create({
+                    serverId: interaction.guildId,
+                    channelId: textChannel.id,
+                    logChannelId: logChannel.id,
+                    messageId: msg.id,
+                    title,
+                    description,
+                    categories,
+                    ticketCategoryId: ticketCategory.id,
+                    createdAt: new Date()
+                });
+
+                await interaction.editReply({ content: `✅ Ticket panel posted in <#${textChannel.id}>! Logs will go to <#${logChannel.id}>.` });
             }
-
-            // Build workload display
-            const workloadLines = categories.map(c => `• **${c.name}:** Available \`0/5\` (0%)`).join('\n');
-
-            const embed = new EmbedBuilder()
-                .setTitle(title)
-                .setDescription(description)
-                .setColor(0x5865F2)
-                .addFields({ name: '📊 Ticket Utilization', value: `Here you can see the current workload of our tickets.\n\n${workloadLines}` })
-                .setImage(PANEL_IMAGE)
-                .setTimestamp();
-
-            // Build dropdown
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`ticket_open_${interaction.guildId}`)
-                .setPlaceholder('Choose a category...')
-                .addOptions(categories.map(c => ({ label: c.name, value: c.name })));
-
-            const row = new ActionRowBuilder().addComponents(selectMenu);
-
-            const msg = await textChannel.send({ embeds: [embed], components: [row] });
-
-            // Save panel to DB
-            await TicketPanel.create({
-                serverId: interaction.guildId,
-                channelId: textChannel.id,
-                logChannelId: logChannel.id,
-                messageId: msg.id,
-                title,
-                description,
-                categories,
-                ticketCategoryId: ticketCategory.id,
-                createdAt: new Date()
-            });
-
-            await interaction.editReply({ content: `✅ Ticket panel posted in <#${textChannel.id}>! Logs will go to <#${logChannel.id}>.` });
 
         } catch (err) {
             console.error('Error in /ticketsetup:', err);

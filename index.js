@@ -520,7 +520,7 @@ client.on('interactionCreate', async interaction => {
 
             // Show modal IMMEDIATELY before any DB calls to avoid interaction timeout
             const modal = new ModalBuilder()
-                .setCustomId(`ticket_reason_${category}_${guildId}`)
+                .setCustomId(`ticket_reason_${guildId}_${category}`)
                 .setTitle('Open a Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
@@ -1160,10 +1160,10 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('ticket_reason_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
-                const withoutPrefix = interaction.customId.replace('ticket_reason_', '');
-                const lastUnderscoreIndex = withoutPrefix.lastIndexOf('_');
-                const category = withoutPrefix.substring(0, lastUnderscoreIndex);
-                const guildId = withoutPrefix.substring(lastUnderscoreIndex + 1);
+            const withoutPrefix = interaction.customId.replace('ticket_reason_', '');
+const firstUnderscoreIndex = withoutPrefix.indexOf('_');
+const guildId = withoutPrefix.substring(0, firstUnderscoreIndex);
+const category = withoutPrefix.substring(firstUnderscoreIndex + 1);
                 const reason = interaction.fields.getTextInputValue('reason');
 
                 // Check max 2 open tickets
