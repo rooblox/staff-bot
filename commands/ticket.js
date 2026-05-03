@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits } = require('discord.js');
 const { Ticket, TicketPanel } = require('../db');
+const { DEPARTMENTS, hasMainRole } = require('./departments');
 
 const PANEL_IMAGE = 'https://images-ext-1.discordapp.net/external/BRbAFEkp6sgftr5ZZdkP1qB0t_VrQJxkENCKXh76XG4/https/media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg?format=webp';
 const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001854df-a22e-4f51-aa3a-784de10a309f.png';
@@ -7,9 +8,7 @@ const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001
 function generateCaseId() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
-    for (let i = 0; i < 8; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    for (let i = 0; i < 8; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
     return `KC-${result}`;
 }
 
@@ -48,16 +47,21 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
         try {
-            const { DEPARTMENTS } = require('./departments');
-
-            // Check permissions using dept role for this server
+            // Check permissions — dept role for this server OR main role
             let hasPerms = false;
+            const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+
             for (const dept of Object.values(DEPARTMENTS)) {
-                if (dept.serverId === interaction.guildId) {
-                    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-                    if (member && member.roles.cache.has(dept.roleId)) { hasPerms = true; break; }
+                if (dept.serverId === interaction.guildId && member?.roles.cache.has(dept.roleId)) {
+                    hasPerms = true;
+                    break;
                 }
             }
+
+            if (!hasPerms) {
+                hasPerms = await hasMainRole(client, interaction.user.id);
+            }
+
             if (!hasPerms) return interaction.editReply({ content: '❌ You do not have permission to set up the ticket system.' });
 
             const channel = interaction.options.getChannel('channel');
@@ -89,17 +93,19 @@ module.exports = {
                 type: ChannelType.GuildText,
                 parent: ticketCategory.id,
                 permissionOverwrites: [
-                    { id: interaction.guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] }
+                    { id: interaction.guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }
                 ]
             });
 
-            // Build dropdown
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`ticket_open_${interaction.guildId}`)
-                .setPlaceholder('Choose a category...')
-                .addOptions(categories.map(c => ({ label: c.name, value: c.name })));
-
-            const row = new ActionRowBuilder().addComponents(selectMenu);
+            // Give each ping role access to log channel
+            for (const cat of categories) {
+                await logChannel.permissionOverwrites.edit(cat.pingRoleId, {
+                    ViewChannel: true,
+                    SendMessages: false,
+                    ReadMessageHistory: true
+                });
+            }
 
             // Build workload display
             const workloadLines = categories.map(c => `• **${c.name}:** Available \`0/5\` (0%)`).join('\n');
@@ -108,10 +114,17 @@ module.exports = {
                 .setTitle(title)
                 .setDescription(description)
                 .setColor(0x5865F2)
-                .setThumbnail('https://media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg')
                 .addFields({ name: '📊 Ticket Utilization', value: `Here you can see the current workload of our tickets.\n\n${workloadLines}` })
                 .setImage(PANEL_IMAGE)
                 .setTimestamp();
+
+            // Build dropdown
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`ticket_open_${interaction.guildId}`)
+                .setPlaceholder('Choose a category...')
+                .addOptions(categories.map(c => ({ label: c.name, value: c.name })));
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
 
             const msg = await channel.send({ embeds: [embed], components: [row] });
 
