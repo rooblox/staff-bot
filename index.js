@@ -18,6 +18,7 @@ const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOT
 const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
 const LOA_STAFF_ROLE_ID = '1434623628078743584';
 const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001854df-a22e-4f51-aa3a-784de10a309f.png';
+const PANEL_IMAGE = 'https://images-ext-1.discordapp.net/external/BRbAFEkp6sgftr5ZZdkP1qB0t_VrQJxkENCKXh76XG4/https/media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg?format=webp';
 
 const client = new Client({
     intents: [
@@ -537,6 +538,38 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
+        if (interaction.customId.startsWith('ts_selecteditcat_')) {
+            const panelId = interaction.customId.replace('ts_selecteditcat_', '');
+            const panel = await TicketPanel.findById(panelId);
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            const index = parseInt(interaction.values[0]);
+            const cat = panel.categories[index];
+            const modal = new ModalBuilder().setCustomId(`ts_editcatmodal_${panelId}_${index}`).setTitle('Edit Category');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Category Name').setStyle(TextInputStyle.Short).setRequired(true).setValue(cat.name)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emoji').setLabel('Emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setValue(cat.emoji || '')),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('description').setLabel('Description (optional)').setStyle(TextInputStyle.Short).setRequired(false).setValue(cat.description || '')),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('pingrole').setLabel('Ping Role ID').setStyle(TextInputStyle.Short).setRequired(true).setValue(cat.pingRoleId))
+            );
+            await interaction.showModal(modal);
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_selectremovecat_')) {
+            const panelId = interaction.customId.replace('ts_selectremovecat_', '');
+            const panel = await TicketPanel.findById(panelId);
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            const index = parseInt(interaction.values[0]);
+            const removed = panel.categories[index];
+            panel.categories.splice(index, 1);
+            await TicketPanel.findByIdAndUpdate(panelId, { categories: panel.categories });
+            const guild = await client.guilds.fetch(panel.serverId);
+            const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
+            await rebuildAndUpdatePanel(panel, guild, client);
+            await interaction.update({ content: `✅ Removed category **${removed.name}** and updated the panel!`, components: [], embeds: [] });
+            return;
+        }
+
         if (interaction.customId.startsWith('changerank_select_')) {
             const parts = interaction.customId.replace('changerank_select_', '').split('_');
             const robloxId = parts[0];
@@ -584,6 +617,59 @@ client.on('interactionCreate', async interaction => {
 
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
+
+        // ========== TICKET SETUP BUTTONS ==========
+        if (interaction.customId.startsWith('ts_editpanel_')) {
+            const panelId = interaction.customId.replace('ts_editpanel_', '');
+            const panel = await TicketPanel.findById(panelId);
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            const modal = new ModalBuilder().setCustomId(`ts_editpanelmodal_${panelId}`).setTitle('Edit Panel');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('title').setLabel('Panel Title').setStyle(TextInputStyle.Short).setRequired(true).setValue(panel.title)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('description').setLabel('Panel Description').setStyle(TextInputStyle.Paragraph).setRequired(true).setValue(panel.description))
+            );
+            await interaction.showModal(modal);
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_addcat_')) {
+            const panelId = interaction.customId.replace('ts_addcat_', '');
+            const modal = new ModalBuilder().setCustomId(`ts_addcatmodal_${panelId}`).setTitle('Add Category');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Category Name').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. General Support')),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emoji').setLabel('Emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 🎫')),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('description').setLabel('Description (optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. For general questions')),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('pingrole').setLabel('Ping Role ID').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 1234567890123456789'))
+            );
+            await interaction.showModal(modal);
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_editcat_')) {
+            const panelId = interaction.customId.replace('ts_editcat_', '');
+            const panel = await TicketPanel.findById(panelId);
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            if (panel.categories.length === 0) return interaction.reply({ content: '❌ No categories to edit.', ephemeral: true });
+            const select = new StringSelectMenuBuilder()
+                .setCustomId(`ts_selecteditcat_${panelId}`)
+                .setPlaceholder('Select a category to edit...')
+                .addOptions(panel.categories.map((c, i) => ({ label: `${i + 1}. ${c.name}`, value: String(i) })));
+            await interaction.reply({ content: 'Select which category to edit:', components: [new ActionRowBuilder().addComponents(select)], ephemeral: true });
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_removecat_')) {
+            const panelId = interaction.customId.replace('ts_removecat_', '');
+            const panel = await TicketPanel.findById(panelId);
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            if (panel.categories.length === 0) return interaction.reply({ content: '❌ No categories to remove.', ephemeral: true });
+            const select = new StringSelectMenuBuilder()
+                .setCustomId(`ts_selectremovecat_${panelId}`)
+                .setPlaceholder('Select a category to remove...')
+                .addOptions(panel.categories.map((c, i) => ({ label: `${i + 1}. ${c.name}`, value: String(i) })));
+            await interaction.reply({ content: 'Select which category to remove:', components: [new ActionRowBuilder().addComponents(select)], ephemeral: true });
+            return;
+        }
 
         if (interaction.customId.startsWith('ticket_rate_')) {
             const parts = interaction.customId.split('_');
@@ -1040,6 +1126,102 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.isModalSubmit()) {
 
+        if (interaction.customId.startsWith('ts_newpanel_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const channelId = interaction.customId.replace('ts_newpanel_', '');
+                const title = interaction.fields.getTextInputValue('title');
+                const description = interaction.fields.getTextInputValue('description');
+                const guild = interaction.guild;
+                const textChannel = await guild.channels.fetch(channelId);
+
+                let ticketCategory = guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
+                if (!ticketCategory) ticketCategory = await guild.channels.create({ name: '🎫 Tickets', type: ChannelType.GuildCategory, position: 0 });
+
+                const logChannel = await guild.channels.create({
+                    name: 'ticket-logs', type: ChannelType.GuildText, parent: ticketCategory.id,
+                    permissionOverwrites: [
+                        { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }
+                    ]
+                });
+
+                const embed = new EmbedBuilder()
+                    .setTitle(title).setDescription(description).setColor(0x5865F2)
+                    .addFields({ name: '📊 Ticket Utilization', value: 'No categories yet. Use `/ticketsetup` to add categories!' })
+                    .setImage(PANEL_IMAGE)
+                    .setTimestamp();
+
+                const msg = await textChannel.send({ embeds: [embed] });
+
+                await TicketPanel.create({
+                    serverId: guild.id, channelId: textChannel.id, logChannelId: logChannel.id,
+                    messageId: msg.id, title, description, categories: [], ticketCategoryId: ticketCategory.id, createdAt: new Date()
+                });
+
+                await interaction.editReply({ content: `✅ Panel created in <#${textChannel.id}>! Now run \`/ticketsetup\` again in that channel to add categories.` });
+            } catch (err) { console.error('Error creating new panel:', err); try { await interaction.editReply({ content: '❌ Error creating panel.' }); } catch {} }
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_editpanelmodal_')) {
+            await interaction.deferUpdate().catch(() => {});
+            try {
+                const panelId = interaction.customId.replace('ts_editpanelmodal_', '');
+                const title = interaction.fields.getTextInputValue('title');
+                const description = interaction.fields.getTextInputValue('description');
+                const panel = await TicketPanel.findByIdAndUpdate(panelId, { title, description }, { new: true });
+                const guild = await client.guilds.fetch(panel.serverId);
+                const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
+                await rebuildAndUpdatePanel(panel, guild, client);
+                await interaction.editReply({ content: '✅ Panel title and description updated!', components: [], embeds: [] });
+            } catch (err) { console.error('Error editing panel:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_addcatmodal_')) {
+            await interaction.deferUpdate().catch(() => {});
+            try {
+                const panelId = interaction.customId.replace('ts_addcatmodal_', '');
+                const name = interaction.fields.getTextInputValue('name');
+                const emoji = interaction.fields.getTextInputValue('emoji') || null;
+                const description = interaction.fields.getTextInputValue('description') || null;
+                const pingRoleId = interaction.fields.getTextInputValue('pingrole').trim();
+                const panel = await TicketPanel.findById(panelId);
+                if (!panel) return interaction.editReply({ content: '❌ Panel not found.' });
+                if (panel.categories.find(c => c.name === name)) return interaction.editReply({ content: '❌ A category with that name already exists.' });
+                panel.categories.push({ name, pingRoleId, emoji, description });
+                await TicketPanel.findByIdAndUpdate(panelId, { categories: panel.categories });
+                const guild = await client.guilds.fetch(panel.serverId);
+                const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
+                await rebuildAndUpdatePanel(panel, guild, client);
+                await interaction.editReply({ content: `✅ Added category **${name}** and updated the panel!`, components: [], embeds: [] });
+            } catch (err) { console.error('Error adding category:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_editcatmodal_')) {
+            await interaction.deferUpdate().catch(() => {});
+            try {
+                const parts = interaction.customId.replace('ts_editcatmodal_', '').split('_');
+                const index = parseInt(parts[parts.length - 1]);
+                const panelId = parts.slice(0, -1).join('_');
+                const name = interaction.fields.getTextInputValue('name');
+                const emoji = interaction.fields.getTextInputValue('emoji') || null;
+                const description = interaction.fields.getTextInputValue('description') || null;
+                const pingRoleId = interaction.fields.getTextInputValue('pingrole').trim();
+                const panel = await TicketPanel.findById(panelId);
+                if (!panel) return interaction.editReply({ content: '❌ Panel not found.' });
+                panel.categories[index] = { name, pingRoleId, emoji, description };
+                await TicketPanel.findByIdAndUpdate(panelId, { categories: panel.categories });
+                const guild = await client.guilds.fetch(panel.serverId);
+                const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
+                await rebuildAndUpdatePanel(panel, guild, client);
+                await interaction.editReply({ content: `✅ Updated category **${name}** and rebuilt the panel!`, components: [], embeds: [] });
+            } catch (err) { console.error('Error editing category:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
+            return;
+        }
+
         if (interaction.customId.startsWith('ticket_reason_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
@@ -1311,7 +1493,7 @@ client.once('ready', async () => {
     console.log(`✅ Ready event fired!`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-    // Clear global commands once to remove duplicates
+    // Clear global commands to prevent duplicates
     try {
         await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
         console.log('✅ Cleared global commands');
