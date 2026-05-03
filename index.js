@@ -1,8 +1,8 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings } = require('./db');
+const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -17,6 +17,7 @@ const TRAINING_PING_ROLE_ID = '1371568736569659462';
 const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOTeAbfsfAwj9pJF2uXNkQu6A/edit?usp=drivesdk';
 const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
 const LOA_STAFF_ROLE_ID = '1434623628078743584';
+const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001854df-a22e-4f51-aa3a-784de10a309f.png';
 
 const client = new Client({
     intents: [
@@ -31,6 +32,7 @@ const client = new Client({
 
 client.dmLogChannels = new Map();
 client.commands = new Collection();
+client.ticketRepingTimeouts = new Map();
 
 const commandFiles = fs.readdirSync('./commands').filter(f => f.endsWith('.js'));
 const cmds = [];
@@ -85,6 +87,18 @@ async function hasStaffRole(userId, department) {
     } catch { return false; }
 }
 
+async function hasTicketStaffRole(userId, guildId) {
+    try {
+        const guild = await client.guilds.fetch(guildId);
+        const member = await guild.members.fetch(userId).catch(() => null);
+        if (!member) return false;
+        for (const dept of Object.values(DEPARTMENTS)) {
+            if (dept.serverId === guildId && member.roles.cache.has(dept.roleId)) return true;
+        }
+        return false;
+    } catch { return false; }
+}
+
 async function sendLOALog(user, title, color, loaId, extraFields = []) {
     try {
         const loa = await LOA.findById(loaId);
@@ -102,6 +116,138 @@ async function sendLOALog(user, title, color, loaId, extraFields = []) {
             .setTimestamp().setFooter({ text: `LOA ID: ${loaId}` });
         await logChannel.send({ embeds: [embed] });
     } catch (err) { console.error('Error sending LOA log:', err); }
+}
+
+// ========== TICKET HELPERS ==========
+function generateCaseId() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 8; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+    return `KC-${result}`;
+}
+
+async function updatePanelWorkload(panel, guild) {
+    try {
+        const channel = await guild.channels.fetch(panel.channelId).catch(() => null);
+        if (!channel) return;
+        const msg = await channel.messages.fetch(panel.messageId).catch(() => null);
+        if (!msg) return;
+
+        const workloadData = await Promise.all(panel.categories.map(async (c) => {
+            const count = await Ticket.countDocuments({ serverId: guild.id, category: c.name, status: { $in: ['open', 'claimed'] } });
+            const pct = Math.round((count / 5) * 100);
+            return `• **${c.name}:** Available \`${count}/5\` (${pct}%)`;
+        }));
+
+        const oldEmbed = msg.embeds[0];
+        const newEmbed = EmbedBuilder.from(oldEmbed).spliceFields(0, 1, {
+            name: '📊 Ticket Utilization',
+            value: `Here you can see the current workload of our tickets.\n\n${workloadData.join('\n')}`
+        });
+
+        await msg.edit({ embeds: [newEmbed] });
+    } catch (err) { console.error('Error updating panel workload:', err); }
+}
+
+async function saveTranscript(ticket, channel, logChannelId) {
+    try {
+        const messages = await channel.messages.fetch({ limit: 100 });
+        const sorted = [...messages.values()].reverse();
+        const lines = sorted.map(m => `[${new Date(m.createdTimestamp).toISOString()}] ${m.author.tag}: ${m.content || '[embed/attachment]'}`);
+        const transcript = lines.join('\n');
+        const buffer = Buffer.from(transcript, 'utf-8');
+        const { AttachmentBuilder } = require('discord.js');
+        const attachment = new AttachmentBuilder(buffer, { name: `transcript-${ticket.caseId}.txt` });
+
+        const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+        if (logChannel?.isTextBased()) {
+            await logChannel.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('🎫 Ticket Closed')
+                        .setColor(0xE74C3C)
+                        .addFields(
+                            { name: '🔖 Case ID', value: `#${ticket.caseId}` },
+                            { name: '👤 Opened By', value: `<@${ticket.userId}>` },
+                            { name: '📂 Category', value: ticket.category },
+                            { name: '👮 Claimed By', value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Unclaimed' },
+                            { name: '⏱️ Processing Time', value: ticket.createdAt ? `${Math.round((Date.now() - new Date(ticket.createdAt).getTime()) / 1000 / 60)}m` : 'Unknown' },
+                            { name: '📅 Closed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>` }
+                        )
+                        .setFooter({ text: 'Kavià Café • Ticket System' })
+                        .setTimestamp()
+                ],
+                files: [attachment]
+            });
+        }
+    } catch (err) { console.error('Error saving transcript:', err); }
+}
+
+async function closeTicket(ticket, channel, closedBy) {
+    try {
+        if (client.ticketRepingTimeouts.has(ticket.caseId)) {
+            clearTimeout(client.ticketRepingTimeouts.get(ticket.caseId));
+            client.ticketRepingTimeouts.delete(ticket.caseId);
+        }
+
+        await Ticket.findByIdAndUpdate(ticket._id, { status: 'closed', closedAt: new Date() });
+        await saveTranscript(ticket, channel, ticket.logChannelId);
+
+        // DM opener for review if ticket was claimed
+        if (ticket.claimedBy) {
+            try {
+                const opener = await client.users.fetch(ticket.userId);
+                const ratingRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`ticket_rate_1_${ticket.caseId}_${ticket.claimedBy}`).setLabel('⭐').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ticket_rate_2_${ticket.caseId}_${ticket.claimedBy}`).setLabel('⭐⭐').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ticket_rate_3_${ticket.caseId}_${ticket.claimedBy}`).setLabel('⭐⭐⭐').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ticket_rate_4_${ticket.caseId}_${ticket.claimedBy}`).setLabel('⭐⭐⭐⭐').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ticket_rate_5_${ticket.caseId}_${ticket.claimedBy}`).setLabel('⭐⭐⭐⭐⭐').setStyle(ButtonStyle.Success)
+                );
+                await opener.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('⭐ How was your experience?')
+                            .setDescription(`Your ticket **#${ticket.caseId}** has been closed.\n\nPlease rate your experience with <@${ticket.claimedBy}>!`)
+                            .setColor(0xF39C12)
+                            .setTimestamp()
+                    ],
+                    components: [ratingRow]
+                });
+            } catch {}
+        }
+
+        await channel.send({
+            embeds: [new EmbedBuilder().setTitle('🔒 Ticket Closing').setDescription('This ticket is being closed. The channel will be deleted in **10 seconds**.').setColor(0xE74C3C).setTimestamp()]
+        });
+
+        setTimeout(async () => {
+            await channel.delete().catch(() => {});
+        }, 10000);
+
+    } catch (err) { console.error('Error closing ticket:', err); }
+}
+
+function scheduleTicketReping(ticket, panel, guild) {
+    if (client.ticketRepingTimeouts.has(ticket.caseId)) clearTimeout(client.ticketRepingTimeouts.get(ticket.caseId));
+    const timeout = setTimeout(async () => {
+        try {
+            const latestTicket = await Ticket.findById(ticket._id);
+            if (!latestTicket || latestTicket.status !== 'open' || latestTicket.claimedBy) return;
+            const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+            if (channel) {
+                await channel.send({
+                    content: `<@&${ticket.pingRoleId}> ⚠️ This ticket has been open for 12 hours and has not been claimed!`,
+                    embeds: [new EmbedBuilder().setTitle('⏰ Unclaimed Ticket Reminder').setColor(0xF39C12).addFields(
+                        { name: '🔖 Case ID', value: `#${ticket.caseId}` },
+                        { name: '📂 Category', value: ticket.category },
+                        { name: '👤 Opened By', value: `<@${ticket.userId}>` }
+                    ).setTimestamp()]
+                });
+            }
+        } catch (err) { console.error('Error sending ticket reping:', err); }
+    }, 12 * 60 * 60 * 1000);
+    client.ticketRepingTimeouts.set(ticket.caseId, timeout);
 }
 
 // ========== SESSION SCHEDULING ==========
@@ -362,6 +508,39 @@ client.on('interactionCreate', async interaction => {
 
     // ========== SELECT MENU HANDLER ==========
     if (interaction.isStringSelectMenu()) {
+
+        // ========== TICKET OPEN ==========
+        if (interaction.customId.startsWith('ticket_open_')) {
+            const category = interaction.values[0];
+            const guildId = interaction.customId.replace('ticket_open_', '');
+
+            // Check max 2 open tickets
+            const openCount = await Ticket.countDocuments({ userId: interaction.user.id, serverId: guildId, status: { $in: ['open', 'claimed'] } });
+            if (openCount >= 2) {
+                return interaction.reply({ content: '❌ You already have 2 open tickets. Please wait for them to be resolved before opening another.', ephemeral: true });
+            }
+
+            const panel = await TicketPanel.findOne({ serverId: guildId });
+            if (!panel) return interaction.reply({ content: '❌ Ticket panel not found.', ephemeral: true });
+
+            const categoryConfig = panel.categories.find(c => c.name === category);
+            if (!categoryConfig) return interaction.reply({ content: '❌ Category not found.', ephemeral: true });
+
+            const modal = new ModalBuilder()
+                .setCustomId(`ticket_reason_${category}_${guildId}`)
+                .setTitle('Open a Ticket');
+            modal.addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('reason')
+                    .setLabel('What do you need help with?')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('Please describe your issue as accurately as possible...')
+                    .setRequired(true)
+            ));
+            await interaction.showModal(modal);
+            return;
+        }
+
         if (interaction.customId.startsWith('changerank_select_')) {
             const parts = interaction.customId.replace('changerank_select_', '').split('_');
             const robloxId = parts[0];
@@ -410,6 +589,225 @@ client.on('interactionCreate', async interaction => {
         // ========== INTERVIEW RANK BUTTON ==========
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
+
+        // ========== TICKET RATING BUTTONS ==========
+        if (interaction.customId.startsWith('ticket_rate_')) {
+            const parts = interaction.customId.split('_');
+            const rating = parseInt(parts[2]);
+            const caseId = parts[3];
+            const staffId = parts[4];
+
+            await interaction.update({ components: [] });
+
+            try {
+                const staffUser = await client.users.fetch(staffId);
+                await Review.create({
+                    staffId,
+                    staffTag: staffUser.tag,
+                    reviewerId: interaction.user.id,
+                    reviewerTag: interaction.user.tag,
+                    rating,
+                    ticketCaseId: caseId,
+                    serverId: interaction.guildId || 'dm',
+                    createdAt: new Date()
+                });
+
+                const stars = '⭐'.repeat(rating);
+                await interaction.user.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('✅ Review Submitted')
+                        .setDescription(`Thank you for your feedback! You rated **${staffUser.tag}** ${stars}\n\nYour review has been recorded.`)
+                        .setColor(0x2ECC71)
+                        .setTimestamp()]
+                }).catch(() => {});
+            } catch (err) { console.error('Error saving review:', err); }
+            return;
+        }
+
+        // ========== TICKET CLAIM BUTTON ==========
+        if (interaction.customId.startsWith('ticket_claim_')) {
+            const caseId = interaction.customId.replace('ticket_claim_', '');
+            const ticket = await Ticket.findOne({ caseId });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+            if (ticket.claimedBy) return interaction.reply({ content: '❌ This ticket has already been claimed.', ephemeral: true });
+
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId)) {
+                return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
+            }
+
+            await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed' });
+
+            if (client.ticketRepingTimeouts.has(caseId)) {
+                clearTimeout(client.ticketRepingTimeouts.get(caseId));
+                client.ticketRepingTimeouts.delete(caseId);
+            }
+
+            // Remove dept role from channel, add claimer
+            try {
+                await interaction.channel.permissionOverwrites.delete(ticket.pingRoleId);
+                await interaction.channel.permissionOverwrites.edit(interaction.user.id, {
+                    ViewChannel: true, SendMessages: true, ReadMessageHistory: true
+                });
+            } catch {}
+
+            await interaction.update({
+                embeds: [EmbedBuilder.from(interaction.message.embeds[0])
+                    .spliceFields(2, 1, { name: '👮 Claimed By', value: `${interaction.user.tag}` })
+                ],
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId(`ticket_unclaim_${caseId}`).setLabel('↩️ Unclaim').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ticket_adduser_${caseId}`).setLabel('➕ Add User').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
+                )]
+            });
+
+            await interaction.channel.send({
+                embeds: [new EmbedBuilder()
+                    .setDescription(`✅ **${interaction.user.tag}** has claimed this ticket!`)
+                    .setColor(0x2ECC71)
+                    .setTimestamp()]
+            });
+
+            // Log
+            const logChannel = await client.channels.fetch(ticket.logChannelId).catch(() => null);
+            if (logChannel?.isTextBased()) {
+                await logChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Ticket Claimed').setColor(0x2ECC71).addFields(
+                    { name: '🔖 Case ID', value: `#${caseId}` },
+                    { name: '👮 Claimed By', value: `${interaction.user.tag} (${interaction.user.id})` },
+                    { name: '📂 Category', value: ticket.category },
+                    { name: '👤 Opened By', value: `<@${ticket.userId}>` },
+                    { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>` }
+                ).setTimestamp()] });
+            }
+            return;
+        }
+
+        // ========== TICKET UNCLAIM ==========
+        if (interaction.customId.startsWith('ticket_unclaim_')) {
+            const caseId = interaction.customId.replace('ticket_unclaim_', '');
+            const ticket = await Ticket.findOne({ caseId });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+            if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId)) {
+                return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
+            }
+
+            await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: null, claimedByTag: null, status: 'open' });
+
+            // Restore dept role view
+            try {
+                await interaction.channel.permissionOverwrites.edit(ticket.pingRoleId, {
+                    ViewChannel: true, SendMessages: true, ReadMessageHistory: true
+                });
+                await interaction.channel.permissionOverwrites.delete(interaction.user.id);
+            } catch {}
+
+            await interaction.update({
+                embeds: [EmbedBuilder.from(interaction.message.embeds[0])
+                    .spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed' })
+                ],
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`ticket_claim_${caseId}`).setLabel('✋ Claim').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId(`ticket_adduser_${caseId}`).setLabel('➕ Add User').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
+                )]
+            });
+
+            await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩️ **${interaction.user.tag}** has unclaimed this ticket.`).setColor(0xF39C12).setTimestamp()] });
+
+            // Schedule reping
+            const panel = await TicketPanel.findOne({ serverId: ticket.serverId });
+            if (panel) scheduleTicketReping(ticket, panel, interaction.guild);
+            return;
+        }
+
+        // ========== TICKET CLOSE ==========
+        if (interaction.customId.startsWith('ticket_close_') && !interaction.customId.startsWith('ticket_closerequest_') && !interaction.customId.startsWith('ticket_closeconfirm_') && !interaction.customId.startsWith('ticket_closecancel_')) {
+            const caseId = interaction.customId.replace('ticket_close_', '');
+            const ticket = await Ticket.findOne({ caseId });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId) && interaction.user.id !== ticket.userId) {
+                return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
+            }
+
+            // Ask for confirmation
+            const confirmRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`ticket_closeconfirm_${caseId}`).setLabel('✅ Yes, close it').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId(`ticket_closecancel_${caseId}`).setLabel('❌ Cancel').setStyle(ButtonStyle.Secondary)
+            );
+
+            await interaction.reply({
+                embeds: [new EmbedBuilder().setTitle('🔒 Close Ticket?').setDescription('Are you sure you want to close this ticket? This action cannot be undone.').setColor(0xE74C3C).setTimestamp()],
+                components: [confirmRow],
+                ephemeral: true
+            });
+            return;
+        }
+
+        // ========== TICKET CLOSE CONFIRM ==========
+        if (interaction.customId.startsWith('ticket_closeconfirm_')) {
+            const caseId = interaction.customId.replace('ticket_closeconfirm_', '');
+            const ticket = await Ticket.findOne({ caseId });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+            await interaction.update({ components: [] });
+            await closeTicket(ticket, interaction.channel, interaction.user);
+            return;
+        }
+
+        // ========== TICKET CLOSE CANCEL ==========
+        if (interaction.customId.startsWith('ticket_closecancel_')) {
+            await interaction.update({ content: '✅ Close cancelled.', components: [], embeds: [] });
+            return;
+        }
+
+        // ========== TICKET CLOSURE REQUEST ==========
+        if (interaction.customId.startsWith('ticket_closerequest_')) {
+            const caseId = interaction.customId.replace('ticket_closerequest_', '');
+            const ticket = await Ticket.findOne({ caseId });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId)) {
+                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            }
+
+            await interaction.reply({ content: '✅ Closure request sent to the ticket opener.', ephemeral: true });
+
+            const confirmRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`ticket_closeconfirm_${caseId}`).setLabel('✅ Yes, close my ticket').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`ticket_closecancel_${caseId}`).setLabel('❌ No, keep it open').setStyle(ButtonStyle.Danger)
+            );
+
+            await interaction.channel.send({
+                content: `<@${ticket.userId}>`,
+                embeds: [new EmbedBuilder()
+                    .setTitle('❓ Closure Request')
+                    .setDescription(`**${interaction.user.tag}** has requested to close your ticket.\n\nHas your issue been resolved? If so, click **Yes** to close the ticket.`)
+                    .setColor(0xF39C12)
+                    .setTimestamp()],
+                components: [confirmRow]
+            });
+            return;
+        }
+
+        // ========== TICKET ADD USER ==========
+        if (interaction.customId.startsWith('ticket_adduser_')) {
+            const caseId = interaction.customId.replace('ticket_adduser_', '');
+            const ticket = await Ticket.findOne({ caseId });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId)) {
+                return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
+            }
+
+            const modal = new ModalBuilder().setCustomId(`ticket_adduser_modal_${caseId}`).setTitle('Add User to Ticket');
+            modal.addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('userid').setLabel('User ID to add').setStyle(TextInputStyle.Short).setPlaceholder('Enter the Discord user ID...').setRequired(true)
+            ));
+            await interaction.showModal(modal);
+            return;
+        }
 
         // ========== TRAINING BUTTONS (st_) ==========
         if (interaction.customId.startsWith('st_done_')) {
@@ -751,6 +1149,148 @@ client.on('interactionCreate', async interaction => {
     // ========== MODAL SUBMISSIONS ==========
     if (interaction.isModalSubmit()) {
 
+        // ========== TICKET OPEN REASON ==========
+        if (interaction.customId.startsWith('ticket_reason_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const withoutPrefix = interaction.customId.replace('ticket_reason_', '');
+                const lastUnderscoreIndex = withoutPrefix.lastIndexOf('_');
+                const category = withoutPrefix.substring(0, lastUnderscoreIndex);
+                const guildId = withoutPrefix.substring(lastUnderscoreIndex + 1);
+                const reason = interaction.fields.getTextInputValue('reason');
+
+                const panel = await TicketPanel.findOne({ serverId: guildId });
+                if (!panel) return interaction.editReply({ content: '❌ Ticket panel not found.' });
+
+                const categoryConfig = panel.categories.find(c => c.name === category);
+                if (!categoryConfig) return interaction.editReply({ content: '❌ Category not found.' });
+
+                const guild = await client.guilds.fetch(guildId);
+                const caseId = generateCaseId();
+                const channelName = `${category.toLowerCase().replace(/\s+/g, '-')}-${interaction.user.username.toLowerCase().replace(/\s+/g, '-')}`;
+
+                // Get or create ticket category
+                let ticketCategory = guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
+                if (!ticketCategory) {
+                    ticketCategory = await guild.channels.create({ name: '🎫 Tickets', type: ChannelType.GuildCategory, position: 0 });
+                }
+
+                // Create private ticket channel
+                const ticketChannel = await guild.channels.create({
+                    name: channelName,
+                    type: ChannelType.GuildText,
+                    parent: ticketCategory.id,
+                    permissionOverwrites: [
+                        { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+                        { id: categoryConfig.pingRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+                        { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
+                    ]
+                });
+
+                // Save ticket
+                const ticket = await Ticket.create({
+                    caseId,
+                    userId: interaction.user.id,
+                    category,
+                    serverId: guildId,
+                    channelId: ticketChannel.id,
+                    ticketCategoryId: ticketCategory.id,
+                    claimedBy: null,
+                    status: 'open',
+                    openReason: reason,
+                    pingRoleId: categoryConfig.pingRoleId,
+                    logChannelId: panel.logChannelId,
+                    createdAt: new Date()
+                });
+
+                // Post welcome embed in ticket channel
+                const welcomeEmbed = new EmbedBuilder()
+                    .setTitle('🎫 Welcome to your ticket')
+                    .setDescription('A team member will soon be taking care of you. Make sure that you describe your problems as accurately as possible so that you can be helped as best as possible.')
+                    .setColor(0x5865F2)
+                    .addFields(
+                        { name: '🔖 Case ID', value: `#${caseId}` },
+                        { name: '📂 Category', value: category },
+                        { name: '👮 Claimed By', value: 'Unclaimed' },
+                        { name: '👤 Creator', value: `${interaction.user.tag}` }
+                    )
+                    .setImage(TICKET_IMAGE)
+                    .setTimestamp();
+
+                const ticketButtons = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`ticket_claim_${caseId}`).setLabel('✋ Claim').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId(`ticket_adduser_${caseId}`).setLabel('➕ Add User').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
+                );
+
+                const welcomeMsg = await ticketChannel.send({
+                    content: `<@&${categoryConfig.pingRoleId}> <@${interaction.user.id}>`,
+                    embeds: [welcomeEmbed],
+                    components: [ticketButtons]
+                });
+                await welcomeMsg.pin().catch(() => {});
+
+                // Post open reason
+                await ticketChannel.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('📋 Open Reason')
+                        .setDescription(reason)
+                        .setColor(0x5865F2)
+                        .setTimestamp()]
+                });
+
+                // Log new ticket
+                const logChannel = await client.channels.fetch(panel.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) {
+                    await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🎫 New Ticket Created').setColor(0x2ECC71).addFields(
+                        { name: '🔖 Case ID', value: `#${caseId}` },
+                        { name: '👤 Created By', value: `${interaction.user.tag} (${interaction.user.id})` },
+                        { name: '📂 Category', value: category },
+                        { name: '💬 Ticket Channel', value: `<#${ticketChannel.id}>` },
+                        { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>` }
+                    ).setTimestamp()] });
+                }
+
+                // Update panel workload
+                await updatePanelWorkload(panel, guild);
+
+                // Schedule 12hr reping
+                scheduleTicketReping(ticket, panel, guild);
+
+                await interaction.editReply({ content: `✅ Your ticket has been created! <#${ticketChannel.id}>` });
+
+            } catch (err) {
+                console.error('Error creating ticket:', err);
+                try { await interaction.editReply({ content: '❌ Error creating ticket.' }); } catch {}
+            }
+            return;
+        }
+
+        // ========== TICKET ADD USER MODAL ==========
+        if (interaction.customId.startsWith('ticket_adduser_modal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const caseId = interaction.customId.replace('ticket_adduser_modal_', '');
+                const userId = interaction.fields.getTextInputValue('userid').trim().replace(/[<@!>]/g, '');
+                const user = await client.users.fetch(userId).catch(() => null);
+                if (!user) return interaction.editReply({ content: '❌ User not found. Make sure you entered a valid Discord user ID.' });
+
+                await interaction.channel.permissionOverwrites.edit(userId, {
+                    ViewChannel: true, SendMessages: true, ReadMessageHistory: true
+                });
+
+                await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interaction.user.tag}** added **${user.tag}** to the ticket.`).setColor(0x3498DB).setTimestamp()] });
+                await interaction.editReply({ content: `✅ **${user.tag}** has been added to the ticket.` });
+
+            } catch (err) {
+                console.error('Error adding user to ticket:', err);
+                try { await interaction.editReply({ content: '❌ Error adding user.' }); } catch {}
+            }
+            return;
+        }
+
         if (interaction.customId.startsWith('st_ageverif_denymodal_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
@@ -868,12 +1408,10 @@ client.on('messageCreate', async message => {
         const trainingSession = activeSessions.get(message.author.id);
         if (trainingSession && trainingSession.awaitingAgeVerif) {
             trainingSession.lastAgeVerifContent = message.content || '[Attachment]';
-
             if (trainingSession.ageVerifLogMessageId) {
                 try { await message.react('⏳'); } catch {}
                 return;
             }
-
             try {
                 const logChannel = await client.channels.fetch(trainingSession.deptConfig.logChannelId);
                 if (logChannel?.isTextBased()) {

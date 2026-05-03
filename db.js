@@ -100,8 +100,52 @@ const loaSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 const completedTrainingsSchema = new mongoose.Schema({
-    _id: String, // Discord user ID
-    completedTrainings: [String] // e.g. ['Intro to Mentorship — Mod', 'Intro to Mentorship — HR']
+    _id: String,
+    completedTrainings: [String]
+}, { versionKey: false });
+
+const ticketSchema = new mongoose.Schema({
+    caseId: String,
+    userId: String,
+    category: String,
+    serverId: String,
+    channelId: String,
+    ticketCategoryId: String,
+    claimedBy: String,
+    claimedByTag: String,
+    status: String,
+    openReason: String,
+    pingRoleId: String,
+    logChannelId: String,
+    repingTimeout: String,
+    createdAt: Date,
+    closedAt: Date
+}, { versionKey: false });
+
+const reviewSchema = new mongoose.Schema({
+    staffId: String,
+    staffTag: String,
+    reviewerId: String,
+    reviewerTag: String,
+    rating: Number,
+    ticketCaseId: String,
+    serverId: String,
+    createdAt: Date
+}, { versionKey: false });
+
+const ticketPanelSchema = new mongoose.Schema({
+    serverId: String,
+    channelId: String,
+    logChannelId: String,
+    messageId: String,
+    title: String,
+    description: String,
+    categories: [{
+        name: String,
+        pingRoleId: String
+    }],
+    ticketCategoryId: String,
+    createdAt: Date
 }, { versionKey: false });
 
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
@@ -109,5 +153,8 @@ const Reminder = mongoose.model('Reminder', reminderSchema);
 const Session = mongoose.model('Session', sessionSchema);
 const LOA = mongoose.model('LOA', loaSchema);
 const CompletedTrainings = mongoose.model('CompletedTrainings', completedTrainingsSchema);
+const Ticket = mongoose.model('Ticket', ticketSchema);
+const Review = mongoose.model('Review', reviewSchema);
+const TicketPanel = mongoose.model('TicketPanel', ticketPanelSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel };
