@@ -17,7 +17,8 @@ module.exports = {
         .setName('ticketsetup')
         .setDescription('Set up the ticket panel in a channel')
         .addChannelOption(option =>
-            option.setName('channel').setDescription('Channel to post the ticket panel in').setRequired(true))
+            option.setName('channel').setDescription('Channel to post the ticket panel in').setRequired(true)
+                .addChannelTypes(ChannelType.GuildText))
         .addStringOption(option =>
             option.setName('title').setDescription('Title of the ticket panel').setRequired(true))
         .addStringOption(option =>
@@ -77,6 +78,10 @@ module.exports = {
 
             if (categories.length === 0) return interaction.editReply({ content: '❌ You must provide at least one category.' });
 
+            // Fetch text channel properly
+            const textChannel = await interaction.guild.channels.fetch(channel.id);
+            if (!textChannel?.isTextBased()) return interaction.editReply({ content: '❌ Please select a text channel.' });
+
             // Create or find 🎫 Tickets category at top of server
             let ticketCategory = interaction.guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
             if (!ticketCategory) {
@@ -126,12 +131,12 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
-            const msg = await channel.send({ embeds: [embed], components: [row] });
+            const msg = await textChannel.send({ embeds: [embed], components: [row] });
 
             // Save panel to DB
             await TicketPanel.create({
                 serverId: interaction.guildId,
-                channelId: channel.id,
+                channelId: textChannel.id,
                 logChannelId: logChannel.id,
                 messageId: msg.id,
                 title,
@@ -141,7 +146,7 @@ module.exports = {
                 createdAt: new Date()
             });
 
-            await interaction.editReply({ content: `✅ Ticket panel posted in <#${channel.id}>! Logs will go to <#${logChannel.id}>.` });
+            await interaction.editReply({ content: `✅ Ticket panel posted in <#${textChannel.id}>! Logs will go to <#${logChannel.id}>.` });
 
         } catch (err) {
             console.error('Error in /ticketsetup:', err);
