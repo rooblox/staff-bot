@@ -626,6 +626,7 @@ client.on('interactionCreate', async interaction => {
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed' });
             if (client.ticketRepingTimeouts.has(caseId)) { clearTimeout(client.ticketRepingTimeouts.get(caseId)); client.ticketRepingTimeouts.delete(caseId); }
             try { await interaction.channel.permissionOverwrites.delete(ticket.pingRoleId); await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); } catch {}
+            try { await interaction.channel.setName(`claimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
             await interaction.update({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: interaction.user.tag, inline: false })],
                 components: [new ActionRowBuilder().addComponents(
@@ -648,6 +649,7 @@ client.on('interactionCreate', async interaction => {
             if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: null, claimedByTag: null, status: 'open' });
             try { await interaction.channel.permissionOverwrites.edit(ticket.pingRoleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); await interaction.channel.permissionOverwrites.delete(interaction.user.id); } catch {}
+            try { await interaction.channel.setName(`unclaimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
             await interaction.update({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed', inline: false })],
                 components: [new ActionRowBuilder().addComponents(
@@ -1326,14 +1328,14 @@ client.once('ready', async () => {
         }
     }
 
-   console.log(`✅ Guild registration complete`);
+    console.log(`✅ Guild registration complete`);
 
-try {
-    await rest.put(Routes.applicationCommands(client.user.id), { body: cmds });
-    console.log(`✅ Commands registered globally`);
-} catch (err) {
-    console.error('❌ Failed to register global commands:', err.message);
-}
+    try {
+        await rest.put(Routes.applicationCommands(client.user.id), { body: cmds });
+        console.log(`✅ Commands registered globally`);
+    } catch (err) {
+        console.error('❌ Failed to register global commands:', err.message);
+    }
 
     const { scheduleReminder } = require('./commands/remind');
     const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
@@ -1351,7 +1353,7 @@ client.on('guildCreate', async guild => {
     try {
         await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
         console.log(`✅ Commands registered in new guild: ${guild.name}`);
-    } catch (err) { 
+    } catch (err) {
         console.error(`❌ Failed in ${guild.name} (${guild.id}): ${err.message}`);
         console.error(err.rawError || err);
     }
