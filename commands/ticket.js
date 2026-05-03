@@ -19,27 +19,29 @@ async function rebuildAndUpdatePanel(panel, guild, client) {
             .setTitle(panel.title)
             .setDescription(panel.description)
             .setColor(0x5865F2)
-            .addFields({ name: '📊 Ticket Utilization', value: `Here you can see the current workload of our tickets.\n\n${workloadData.join('\n')}` })
+            .addFields({ name: '📊 Ticket Utilization', value: panel.categories.length > 0 ? `Here you can see the current workload of our tickets.\n\n${workloadData.join('\n')}` : 'No categories yet. Use `/ticketsetup` to add categories!' })
             .setImage(PANEL_IMAGE)
             .setTimestamp();
 
-        const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId(`ticket_open_${guild.id}`)
-            .setPlaceholder('Choose a category...')
-            .addOptions(panel.categories.map(c => {
-                const option = { label: c.name, value: c.name };
-                if (c.emoji) option.emoji = c.emoji;
-                if (c.description) option.description = c.description.substring(0, 100);
-                return option;
-            }));
-
-        const row = new ActionRowBuilder().addComponents(selectMenu);
+        const components = [];
+        if (panel.categories.length > 0) {
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`ticket_open_${guild.id}`)
+                .setPlaceholder('Choose a category...')
+                .addOptions(panel.categories.map(c => {
+                    const option = { label: c.name, value: c.name };
+                    if (c.emoji) option.emoji = c.emoji;
+                    if (c.description) option.description = c.description.substring(0, 100);
+                    return option;
+                }));
+            components.push(new ActionRowBuilder().addComponents(selectMenu));
+        }
 
         const existingMsg = await textChannel.messages.fetch(panel.messageId).catch(() => null);
         if (existingMsg) {
-            await existingMsg.edit({ embeds: [embed], components: [row] });
+            await existingMsg.edit({ embeds: [embed], components });
         } else {
-            const newMsg = await textChannel.send({ embeds: [embed], components: [row] });
+            const newMsg = await textChannel.send({ embeds: [embed], components });
             await TicketPanel.findByIdAndUpdate(panel._id, { messageId: newMsg.id });
         }
     } catch (err) {
@@ -56,62 +58,54 @@ module.exports = {
                 .addChannelTypes(ChannelType.GuildText)),
 
     async execute(interaction, client) {
-        await interaction.deferReply({ ephemeral: true }).catch(() => {});
-
         try {
-            let hasPerms = false;
+            // Check permissions BEFORE deferring so we can show modal for new panels
             const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+            let hasPerms = false;
             for (const dept of Object.values(DEPARTMENTS)) {
                 if (dept.serverId === interaction.guildId && member?.roles.cache.has(dept.roleId)) { hasPerms = true; break; }
             }
             if (!hasPerms) hasPerms = await hasMainRole(client, interaction.user.id);
-            if (!hasPerms) return interaction.editReply({ content: '❌ You do not have permission to set up the ticket system.' });
+            if (!hasPerms) {
+                return interaction.reply({ content: '❌ You do not have permission to set up the ticket system.', ephemeral: true });
+            }
 
             const channel = interaction.options.getChannel('channel');
             const textChannel = await interaction.guild.channels.fetch(channel.id);
-            if (!textChannel?.isTextBased()) return interaction.editReply({ content: '❌ Please select a text channel.' });
+            if (!textChannel?.isTextBased()) {
+                return interaction.reply({ content: '❌ Please select a text channel.', ephemeral: true });
+            }
 
             const existingPanel = await TicketPanel.findOne({ serverId: interaction.guildId, channelId: textChannel.id });
 
             if (existingPanel) {
-                // Show management menu for existing panel
-                const categoryList = existingPanel.categories.map((c, i) =>
-                    `**${i + 1}.** ${c.emoji ? c.emoji + ' ' : ''}${c.name}`
-                ).join('\n');
+                // Existing panel — defer and show management menu
+                await interaction.deferReply({ ephemeral: true });
+
+                const categoryList = existingPanel.categories.length > 0
+                    ? existingPanel.categories.map((c, i) => `**${i + 1}.** ${c.emoji ? c.emoji + ' ' : ''}${c.name}`).join('\n')
+                    : '*No categories yet*';
 
                 const row1 = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`ts_editpanel_${existingPanel._id}`)
-                        .setLabel('✏️ Edit Title/Description')
-                        .setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder()
-                        .setCustomId(`ts_addcat_${existingPanel._id}`)
-                        .setLabel('➕ Add Category')
-                        .setStyle(ButtonStyle.Success)
+                    new ButtonBuilder().setCustomId(`ts_editpanel_${existingPanel._id}`).setLabel('✏️ Edit Title/Description').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`ts_addcat_${existingPanel._id}`).setLabel('➕ Add Category').setStyle(ButtonStyle.Success)
                 );
-
                 const row2 = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`ts_editcat_${existingPanel._id}`)
-                        .setLabel('✏️ Edit Category')
-                        .setStyle(ButtonStyle.Secondary),
-                    new ButtonBuilder()
-                        .setCustomId(`ts_removecat_${existingPanel._id}`)
-                        .setLabel('🗑️ Remove Category')
-                        .setStyle(ButtonStyle.Danger)
+                    new ButtonBuilder().setCustomId(`ts_editcat_${existingPanel._id}`).setLabel('✏️ Edit Category').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ts_removecat_${existingPanel._id}`).setLabel('🗑️ Remove Category').setStyle(ButtonStyle.Danger)
                 );
 
                 await interaction.editReply({
                     embeds: [new EmbedBuilder()
                         .setTitle('🎫 Ticket Panel Management')
-                        .setDescription(`Managing panel in <#${textChannel.id}>\n\n**Current Categories:**\n${categoryList || 'None'}`)
+                        .setDescription(`Managing panel in <#${textChannel.id}>\n\n**Current Categories:**\n${categoryList}`)
                         .setColor(0x5865F2)
                     ],
                     components: [row1, row2]
                 });
 
             } else {
-                // New panel — show modal for title/description first
+                // New panel — show modal directly WITHOUT deferring
                 const modal = new ModalBuilder()
                     .setCustomId(`ts_newpanel_${channel.id}`)
                     .setTitle('Create Ticket Panel');
@@ -123,13 +117,18 @@ module.exports = {
                         new TextInputBuilder().setCustomId('description').setLabel('Panel Description').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('e.g. Open a ticket for support...')
                     )
                 );
-                await interaction.deleteReply().catch(() => {});
                 await interaction.showModal(modal);
             }
 
         } catch (err) {
             console.error('Error in /ticketsetup:', err);
-            try { await interaction.editReply({ content: '❌ Error setting up ticket system.' }); } catch {}
+            try {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: '❌ Error setting up ticket system.', ephemeral: true });
+                } else {
+                    await interaction.editReply({ content: '❌ Error setting up ticket system.' });
+                }
+            } catch {}
         }
     },
 
