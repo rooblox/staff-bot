@@ -1470,7 +1470,7 @@ client.on('messageCreate', async message => {
 
 client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+    const rest = new REST({ version: '10', timeout: 10000 }).setToken(process.env.TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
     console.log('✅ Cleared global commands');
 
@@ -1505,7 +1505,7 @@ const guildArray = [...client.guilds.cache.values()];
 
 client.on('guildCreate', async guild => {
     console.log(`✅ Joined new guild: ${guild.name}`);
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+    const rest = new REST({ version: '10', timeout: 10000 }).setToken(process.env.TOKEN);
     try {
         await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
         console.log(`✅ Commands registered in new guild: ${guild.name}`);
