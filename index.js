@@ -222,6 +222,15 @@ async function closeTicket(ticket, channel, closedBy, reason) {
             ]
         });
 
+        // Update panel workload after close
+        try {
+            const panel = await TicketPanel.findOne({ serverId: ticket.serverId });
+            if (panel) {
+                const guild = await client.guilds.fetch(ticket.serverId);
+                await updatePanelWorkload(panel, guild);
+            }
+        } catch {}
+
         setTimeout(async () => { await channel.delete().catch(() => {}); }, 10000);
 
     } catch (err) { console.error('Error closing ticket:', err); }
@@ -518,9 +527,9 @@ client.on('interactionCreate', async interaction => {
             const category = interaction.values[0];
             const guildId = interaction.customId.replace('ticket_open_', '');
 
-            // Show modal IMMEDIATELY before any DB calls to avoid interaction timeout
+            // Show modal IMMEDIATELY — no DB calls before this to avoid 3s timeout
             const modal = new ModalBuilder()
-                .setCustomId(`ticket_reason_${guildId}_${category}`)
+                .setCustomId(`ticket_reason_${category}_${guildId}`)
                 .setTitle('Open a Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(
                 new TextInputBuilder()
@@ -593,7 +602,6 @@ client.on('interactionCreate', async interaction => {
             try {
                 const staffUser = await client.users.fetch(staffId);
                 const ticket = await Ticket.findOne({ caseId });
-
                 await Review.create({
                     staffId,
                     staffTag: staffUser.tag,
@@ -604,7 +612,6 @@ client.on('interactionCreate', async interaction => {
                     serverId: ticket?.serverId || 'dm',
                     createdAt: new Date()
                 });
-
                 const stars = '⭐'.repeat(rating);
                 await interaction.user.send({
                     embeds: [new EmbedBuilder()
@@ -615,8 +622,6 @@ client.on('interactionCreate', async interaction => {
                         .setTimestamp()
                     ]
                 }).catch(() => {});
-
-                // Log rating to ticket log channel
                 if (ticket?.logChannelId) {
                     const logChannel = await client.channels.fetch(ticket.logChannelId).catch(() => null);
                     if (logChannel?.isTextBased()) {
@@ -660,10 +665,8 @@ client.on('interactionCreate', async interaction => {
                     ViewChannel: true, SendMessages: true, ReadMessageHistory: true
                 });
             } catch {}
-
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
                 .spliceFields(2, 1, { name: '👮 Claimed By', value: interaction.user.tag, inline: false });
-
             await interaction.update({
                 embeds: [updatedEmbed],
                 components: [new ActionRowBuilder().addComponents(
@@ -673,7 +676,6 @@ client.on('interactionCreate', async interaction => {
                     new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
                 )]
             });
-
             await interaction.channel.send({
                 embeds: [new EmbedBuilder()
                     .setDescription(`**${interaction.user.tag}** has claimed this ticket.\n\nYour matters will now be taken care of. However, be patient if you do not always receive an answer immediately.`)
@@ -681,7 +683,6 @@ client.on('interactionCreate', async interaction => {
                     .setTimestamp()
                 ]
             });
-
             const logChannel = await client.channels.fetch(ticket.logChannelId).catch(() => null);
             if (logChannel?.isTextBased()) {
                 await logChannel.send({ embeds: [new EmbedBuilder()
@@ -716,10 +717,8 @@ client.on('interactionCreate', async interaction => {
                 });
                 await interaction.channel.permissionOverwrites.delete(interaction.user.id);
             } catch {}
-
             const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
                 .spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed', inline: false });
-
             await interaction.update({
                 embeds: [updatedEmbed],
                 components: [new ActionRowBuilder().addComponents(
@@ -729,14 +728,13 @@ client.on('interactionCreate', async interaction => {
                     new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
                 )]
             });
-
             await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩️ **${interaction.user.tag}** has unclaimed this ticket.`).setColor(0xF39C12).setTimestamp()] });
             const panel = await TicketPanel.findOne({ serverId: ticket.serverId });
             if (panel) scheduleTicketReping(ticket, panel, interaction.guild);
             return;
         }
 
-        // ========== TICKET CLOSE — now shows modal for reason ==========
+        // ========== TICKET CLOSE ==========
         if (interaction.customId.startsWith('ticket_close_') && !interaction.customId.startsWith('ticket_closerequest_') && !interaction.customId.startsWith('ticket_closeconfirm_') && !interaction.customId.startsWith('ticket_closecancel_')) {
             const caseId = interaction.customId.replace('ticket_close_', '');
             const ticket = await Ticket.findOne({ caseId });
@@ -808,7 +806,7 @@ client.on('interactionCreate', async interaction => {
             if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) {
                 return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
             }
-            const modal = new ModalBuilder().setCustomId(`ticket_adduser_modal_${caseId}`).setTitle('Add User to Ticket');
+            const modal = new ModalBuilder().setCustomId(`ticket_adduser_modal_${caseId}`).setLabel('Add User to Ticket').setTitle('Add User to Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(
                 new TextInputBuilder().setCustomId('userid').setLabel('User ID to add').setStyle(TextInputStyle.Short).setPlaceholder('Enter the Discord user ID...').setRequired(true)
             ));
@@ -816,7 +814,7 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // ========== TRAINING BUTTONS (st_) ==========
+        // ========== TRAINING BUTTONS ==========
         if (interaction.customId.startsWith('st_done_')) {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
@@ -866,7 +864,6 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('st_resolve_')) {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
-            const sectionIndex = parseInt(parts[3]);
             if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to resolve training sessions.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
@@ -1160,13 +1157,12 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId.startsWith('ticket_reason_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
-            const withoutPrefix = interaction.customId.replace('ticket_reason_', '');
-const firstUnderscoreIndex = withoutPrefix.indexOf('_');
-const guildId = withoutPrefix.substring(0, firstUnderscoreIndex);
-const category = withoutPrefix.substring(firstUnderscoreIndex + 1);
+                const withoutPrefix = interaction.customId.replace('ticket_reason_', '');
+                const lastUnderscoreIndex = withoutPrefix.lastIndexOf('_');
+                const category = withoutPrefix.substring(0, lastUnderscoreIndex);
+                const guildId = withoutPrefix.substring(lastUnderscoreIndex + 1);
                 const reason = interaction.fields.getTextInputValue('reason');
 
-                // Check max 2 open tickets
                 const openCount = await Ticket.countDocuments({ userId: interaction.user.id, serverId: guildId, status: { $in: ['open', 'claimed'] } });
                 if (openCount >= 2) return interaction.editReply({ content: '❌ You already have 2 open tickets. Please wait for them to be resolved before opening another.' });
 
@@ -1239,7 +1235,6 @@ const category = withoutPrefix.substring(firstUnderscoreIndex + 1);
                 });
                 await welcomeMsg.pin().catch(() => {});
 
-                // Open reason in GalaxyBot style
                 await ticketChannel.send({
                     embeds: [new EmbedBuilder()
                         .setTitle('📋 Creation Form')
