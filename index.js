@@ -1314,12 +1314,8 @@ client.once('ready', async () => {
     console.log(`✅ Guild cache size: ${client.guilds.cache.size}`);
     console.log(`✅ Starting guild registration loop...`);
 
-    for (const guild of client.guilds.cache.values()) {
-        if (guild.id === '1229426371592327250') {
-            console.log(`⏭️ Skipping SHR (will use global commands)`);
-            continue;
-        }
-        console.log(`⏳ Attempting: ${guild.name}`);
+   for (const guild of client.guilds.cache.values()) {
+        if (guild.id === '1229426371592327250') continue;
         try {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
             console.log(`✅ Commands registered in guild: ${guild.name}`);
@@ -1329,13 +1325,6 @@ client.once('ready', async () => {
     }
 
     console.log(`✅ Guild registration complete`);
-
-    try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: cmds });
-        console.log(`✅ Commands registered globally`);
-    } catch (err) {
-        console.error('❌ Failed to register global commands:', err.message);
-    }
 
     const { scheduleReminder } = require('./commands/remind');
     const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
