@@ -1335,12 +1335,15 @@ client.once('ready', async () => {
 });
 
 client.on('guildCreate', async guild => {
-    console.log(`✅ Joined new guild: ${guild.name}`);
+    console.log(`✅ Joined new guild: ${guild.name} (${guild.id})`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
     try {
         await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
         console.log(`✅ Commands registered in new guild: ${guild.name}`);
-    } catch (err) { console.error(`❌ Failed to register commands in new guild ${guild.name}:`, err); }
+    } catch (err) { 
+        console.error(`❌ Failed in ${guild.name} (${guild.id}): ${err.message}`);
+        console.error(err.rawError || err);
+    }
 });
 
 connectDB().then(() => {
