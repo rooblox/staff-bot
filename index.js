@@ -1474,16 +1474,12 @@ client.once('ready', async () => {
     await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
     console.log('✅ Cleared global commands');
 
-    // Fetch all guilds to ensure cache is populated
-    const guilds = await client.guilds.fetch();
-    console.log(`✅ Found ${guilds.size} guilds`);
-
-    for (const [guildId, oauthGuild] of guilds) {
+    for (const guild of client.guilds.cache.values()) {
         try {
-            await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] });
-            await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: cmds });
-            console.log(`✅ Commands registered in guild: ${oauthGuild.name}`);
-        } catch (err) { console.error(`❌ Failed to register commands in guild ${oauthGuild.name}:`, err); }
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
+            console.log(`✅ Commands registered in guild: ${guild.name}`);
+        } catch (err) { console.error(`❌ Failed to register commands in guild ${guild.name}:`, err); }
     }
 
     const { scheduleReminder } = require('./commands/remind');
