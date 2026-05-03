@@ -1311,6 +1311,10 @@ client.once('ready', async () => {
     console.log(`✅ Ready event fired!`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
+    await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
+    console.log('✅ Cleared global commands');
+
+    // ... rest of ready code
     console.log(`✅ Guild cache size: ${client.guilds.cache.size}`);
     console.log(`✅ Starting guild registration loop...`);
 
