@@ -1322,7 +1322,14 @@ client.once('ready', async () => {
         }
     }
 
-    console.log(`✅ Guild registration complete`);
+   console.log(`✅ Guild registration complete`);
+
+try {
+    await rest.put(Routes.applicationCommands(client.user.id), { body: cmds });
+    console.log(`✅ Commands registered globally`);
+} catch (err) {
+    console.error('❌ Failed to register global commands:', err.message);
+}
 
     const { scheduleReminder } = require('./commands/remind');
     const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
