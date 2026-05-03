@@ -142,7 +142,9 @@ const ticketPanelSchema = new mongoose.Schema({
     description: String,
     categories: [{
         name: String,
-        pingRoleId: String
+        pingRoleId: String,
+        emoji: String,
+        description: String
     }],
     ticketCategoryId: String,
     createdAt: Date

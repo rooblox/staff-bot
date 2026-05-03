@@ -137,7 +137,7 @@ async function updatePanelWorkload(panel, guild) {
         const workloadData = await Promise.all(panel.categories.map(async (c) => {
             const count = await Ticket.countDocuments({ serverId: guild.id, category: c.name, status: { $in: ['open', 'claimed'] } });
             const pct = Math.round((count / 5) * 100);
-            return `• **${c.name}:** Available \`${count}/5\` (${pct}%)`;
+            return `• **${c.emoji ? c.emoji + ' ' : ''}${c.name}:** Available \`${count}/5\` (${pct}%)`;
         }));
         const oldEmbed = msg.embeds[0];
         const newEmbed = EmbedBuilder.from(oldEmbed).spliceFields(0, 1, {

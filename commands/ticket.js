@@ -1,9 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
 const { Ticket, TicketPanel } = require('../db');
 const { DEPARTMENTS, hasMainRole } = require('./departments');
 
 const PANEL_IMAGE = 'https://images-ext-1.discordapp.net/external/BRbAFEkp6sgftr5ZZdkP1qB0t_VrQJxkENCKXh76XG4/https/media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg?format=webp';
-const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001854df-a22e-4f51-aa3a-784de10a309f.png';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -83,30 +82,49 @@ module.exports = {
                 const title = interaction.options.getString('title') || existingPanel.title;
                 const description = interaction.options.getString('description') || existingPanel.description;
 
-               let categories = [...existingPanel.categories];
-for (let i = 1; i <= 5; i++) {
-    const name = interaction.options.getString(`category_${i}`);
-    const role = interaction.options.getRole(`ping_role_${i}`);
-    const emoji = interaction.options.getString(`category_${i}_emoji`);
-    const desc = interaction.options.getString(`category_${i}_description`);
-    if (name && role) {
-        // Update existing category at this position or add new one
-        const index = i - 1;
-        categories[index] = { 
-            name, 
-            pingRoleId: role.id, 
-            emoji: emoji || categories[index]?.emoji || null,
-            description: desc || categories[index]?.description || null
-        };
-    } else if (name && !role && categories[i - 1]) {
-        // Update just name/emoji/desc without changing role
-        categories[i - 1].name = name;
-        if (emoji) categories[i - 1].emoji = emoji;
-        if (desc) categories[i - 1].description = desc;
-    }
-}
+                // Start with existing categories and merge updates by position
+                let categories = existingPanel.categories.map(c => ({ ...c.toObject() }));
 
-                if (categories.length === 0) return interaction.editReply({ content: '❌ No categories found. Please provide at least one category.' });
+                for (let i = 1; i <= 5; i++) {
+                    const name = interaction.options.getString(`category_${i}`);
+                    const role = interaction.options.getRole(`ping_role_${i}`);
+                    const emoji = interaction.options.getString(`category_${i}_emoji`);
+                    const desc = interaction.options.getString(`category_${i}_description`);
+                    const index = i - 1;
+
+                    if (name && role) {
+                        // Full update at this position
+                        categories[index] = {
+                            name,
+                            pingRoleId: role.id,
+                            emoji: emoji || categories[index]?.emoji || null,
+                            description: desc || categories[index]?.description || null
+                        };
+                    } else if (name && !role && categories[index]) {
+                        // Partial update — just name/emoji/desc, keep existing role
+                        categories[index] = {
+                            ...categories[index],
+                            name,
+                            emoji: emoji !== null ? emoji : categories[index].emoji,
+                            description: desc !== null ? desc : categories[index].description
+                        };
+                    } else if ((emoji || desc) && categories[index]) {
+                        // Only updating emoji or description
+                        if (emoji) categories[index].emoji = emoji;
+                        if (desc) categories[index].description = desc;
+                    }
+                }
+
+                categories = categories.filter(Boolean);
+                if (categories.length === 0) return interaction.editReply({ content: '❌ No categories found.' });
+
+                // Deduplicate by name to prevent Discord API error
+                const seen = new Set();
+                categories = categories.filter(c => {
+                    if (seen.has(c.name)) return false;
+                    seen.add(c.name);
+                    return true;
+                });
 
                 const workloadData = await Promise.all(categories.map(async (c) => {
                     const count = await Ticket.countDocuments({ serverId: interaction.guildId, category: c.name, status: { $in: ['open', 'claimed'] } });
