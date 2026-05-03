@@ -1483,7 +1483,10 @@ client.once('ready', async () => {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
             console.log(`✅ Commands registered in guild: ${guild.name}`);
-        } catch (err) { console.error(`❌ Failed to register commands in guild ${guild.name}:`, err); }
+        } catch (err) { 
+            console.error(`❌ Failed in guild ${guild.name} (${guild.id}): ${err.message}`);
+            console.error(err.rawError || err);
+        }
     }
 
     const { scheduleReminder } = require('./commands/remind');
