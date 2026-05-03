@@ -222,7 +222,6 @@ async function closeTicket(ticket, channel, closedBy, reason) {
             ]
         });
 
-        // Update panel workload after close
         try {
             const panel = await TicketPanel.findOne({ serverId: ticket.serverId });
             if (panel) {
@@ -527,7 +526,6 @@ client.on('interactionCreate', async interaction => {
             const category = interaction.values[0];
             const guildId = interaction.customId.replace('ticket_open_', '');
 
-            // Show modal IMMEDIATELY — no DB calls before this to avoid 3s timeout
             const modal = new ModalBuilder()
                 .setCustomId(`ticket_reason_${category}_${guildId}`)
                 .setTitle('Open a Ticket');
@@ -588,11 +586,10 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.isButton()) {
 
-        // ========== INTERVIEW RANK BUTTON ==========
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
 
-        // ========== TICKET RATING BUTTONS ==========
+        // ========== TICKET RATING ==========
         if (interaction.customId.startsWith('ticket_rate_')) {
             const parts = interaction.customId.split('_');
             const rating = parseInt(parts[2]);
@@ -679,15 +676,13 @@ client.on('interactionCreate', async interaction => {
             await interaction.channel.send({
                 embeds: [new EmbedBuilder()
                     .setDescription(`**${interaction.user.tag}** has claimed this ticket.\n\nYour matters will now be taken care of. However, be patient if you do not always receive an answer immediately.`)
-                    .setColor(0x5865F2)
-                    .setTimestamp()
+                    .setColor(0x5865F2).setTimestamp()
                 ]
             });
             const logChannel = await client.channels.fetch(ticket.logChannelId).catch(() => null);
             if (logChannel?.isTextBased()) {
                 await logChannel.send({ embeds: [new EmbedBuilder()
-                    .setTitle('✅ Ticket Claimed')
-                    .setColor(0x2ECC71)
+                    .setTitle('✅ Ticket Claimed').setColor(0x2ECC71)
                     .setDescription(`**Case #${caseId}** has been claimed.`)
                     .addFields(
                         { name: '👮 Claimed By', value: `${interaction.user.tag}`, inline: true },
@@ -695,8 +690,7 @@ client.on('interactionCreate', async interaction => {
                         { name: '👤 Opened By', value: `<@${ticket.userId}>`, inline: true },
                         { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
                     )
-                    .setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` })
-                    .setTimestamp()
+                    .setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` }).setTimestamp()
                 ] });
             }
             return;
@@ -744,18 +738,13 @@ client.on('interactionCreate', async interaction => {
             }
             const modal = new ModalBuilder().setCustomId(`ticket_closemodal_${caseId}`).setTitle('Close Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId('closereason')
-                    .setLabel('Reason for closing')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setPlaceholder('Enter the reason for closing this ticket...')
-                    .setRequired(true)
+                new TextInputBuilder().setCustomId('closereason').setLabel('Reason for closing').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for closing this ticket...').setRequired(true)
             ));
             await interaction.showModal(modal);
             return;
         }
 
-        // ========== TICKET CLOSE CONFIRM (from closure request) ==========
+        // ========== TICKET CLOSE CONFIRM ==========
         if (interaction.customId.startsWith('ticket_closeconfirm_')) {
             const caseId = interaction.customId.replace('ticket_closeconfirm_', '');
             const ticket = await Ticket.findOne({ caseId });
@@ -789,9 +778,7 @@ client.on('interactionCreate', async interaction => {
                 embeds: [new EmbedBuilder()
                     .setTitle('❓ Closure Request')
                     .setDescription(`**${interaction.user.tag}** has requested to close your ticket.\n\nHas your issue been resolved? If so, click **Yes** below to close the ticket.`)
-                    .setColor(0xF39C12)
-                    .setFooter({ text: 'Kavià Café • Ticket System' })
-                    .setTimestamp()
+                    .setColor(0xF39C12).setFooter({ text: 'Kavià Café • Ticket System' }).setTimestamp()
                 ],
                 components: [confirmRow]
             });
@@ -806,7 +793,7 @@ client.on('interactionCreate', async interaction => {
             if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) {
                 return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
             }
-            const modal = new ModalBuilder().setCustomId(`ticket_adduser_modal_${caseId}`).setLabel('Add User to Ticket').setTitle('Add User to Ticket');
+            const modal = new ModalBuilder().setCustomId(`ticket_adduser_modal_${caseId}`).setTitle('Add User to Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(
                 new TextInputBuilder().setCustomId('userid').setLabel('User ID to add').setStyle(TextInputStyle.Short).setPlaceholder('Enter the Discord user ID...').setRequired(true)
             ));
@@ -998,7 +985,7 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // ========== SESSION REQUEST BUTTONS ==========
+        // ========== SESSION BUTTONS ==========
         if (interaction.customId.startsWith('sesaccept_')) {
             if (!await hasRequiredRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
             const sessionId = interaction.customId.replace('sesaccept_', '');
@@ -1247,8 +1234,7 @@ client.on('interactionCreate', async interaction => {
                 const logChannel = await client.channels.fetch(panel.logChannelId).catch(() => null);
                 if (logChannel?.isTextBased()) {
                     await logChannel.send({ embeds: [new EmbedBuilder()
-                        .setTitle('🎫 New Ticket Created')
-                        .setColor(0x2ECC71)
+                        .setTitle('🎫 New Ticket Created').setColor(0x2ECC71)
                         .setDescription(`**Case #${caseId}** has been opened.`)
                         .addFields(
                             { name: '👤 Created By', value: `${interaction.user.tag}`, inline: true },
@@ -1256,8 +1242,7 @@ client.on('interactionCreate', async interaction => {
                             { name: '💬 Channel', value: `<#${ticketChannel.id}>`, inline: true },
                             { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
                         )
-                        .setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` })
-                        .setTimestamp()
+                        .setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` }).setTimestamp()
                     ] });
                 }
 
@@ -1488,13 +1473,19 @@ client.once('ready', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
     console.log('✅ Cleared global commands');
-    for (const guild of client.guilds.cache.values()) {
+
+    // Fetch all guilds to ensure cache is populated
+    const guilds = await client.guilds.fetch();
+    console.log(`✅ Found ${guilds.size} guilds`);
+
+    for (const [guildId, oauthGuild] of guilds) {
         try {
-            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
-            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
-            console.log(`✅ Commands registered in guild: ${guild.name}`);
-        } catch (err) { console.error(`❌ Failed to register commands in guild ${guild.name}:`, err); }
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] });
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: cmds });
+            console.log(`✅ Commands registered in guild: ${oauthGuild.name}`);
+        } catch (err) { console.error(`❌ Failed to register commands in guild ${oauthGuild.name}:`, err); }
     }
+
     const { scheduleReminder } = require('./commands/remind');
     const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
     for (const reminder of pendingReminders) scheduleReminder(reminder, client);
