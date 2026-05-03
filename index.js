@@ -1474,6 +1474,10 @@ client.once('ready', async () => {
     await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
     console.log('✅ Cleared global commands');
 
+    // Wait for guild cache to populate
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log(`✅ Guild cache size: ${client.guilds.cache.size}`);
+
     for (const guild of client.guilds.cache.values()) {
         try {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
