@@ -5,13 +5,6 @@ const { DEPARTMENTS, hasMainRole } = require('./departments');
 const PANEL_IMAGE = 'https://images-ext-1.discordapp.net/external/BRbAFEkp6sgftr5ZZdkP1qB0t_VrQJxkENCKXh76XG4/https/media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg?format=webp';
 const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001854df-a22e-4f51-aa3a-784de10a309f.png';
 
-function generateCaseId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 8; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
-    return `KC-${result}`;
-}
-
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ticketsetup')
@@ -25,22 +18,42 @@ module.exports = {
             option.setName('description').setDescription('Description of the ticket panel').setRequired(false))
         .addStringOption(option =>
             option.setName('category_1').setDescription('First ticket category name').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_1_emoji').setDescription('Emoji for category 1 (e.g. 🎫)').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_1_description').setDescription('Description for category 1').setRequired(false))
         .addRoleOption(option =>
             option.setName('ping_role_1').setDescription('Role to ping for category 1').setRequired(false))
         .addStringOption(option =>
             option.setName('category_2').setDescription('Second ticket category name').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_2_emoji').setDescription('Emoji for category 2').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_2_description').setDescription('Description for category 2').setRequired(false))
         .addRoleOption(option =>
             option.setName('ping_role_2').setDescription('Role to ping for category 2').setRequired(false))
         .addStringOption(option =>
             option.setName('category_3').setDescription('Third ticket category name').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_3_emoji').setDescription('Emoji for category 3').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_3_description').setDescription('Description for category 3').setRequired(false))
         .addRoleOption(option =>
             option.setName('ping_role_3').setDescription('Role to ping for category 3').setRequired(false))
         .addStringOption(option =>
             option.setName('category_4').setDescription('Fourth ticket category name').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_4_emoji').setDescription('Emoji for category 4').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_4_description').setDescription('Description for category 4').setRequired(false))
         .addRoleOption(option =>
             option.setName('ping_role_4').setDescription('Role to ping for category 4').setRequired(false))
         .addStringOption(option =>
             option.setName('category_5').setDescription('Fifth ticket category name').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_5_emoji').setDescription('Emoji for category 5').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_5_description').setDescription('Description for category 5').setRequired(false))
         .addRoleOption(option =>
             option.setName('ping_role_5').setDescription('Role to ping for category 5').setRequired(false)),
 
@@ -48,7 +61,6 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
         try {
-            // Check permissions
             let hasPerms = false;
             const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
             for (const dept of Object.values(DEPARTMENTS)) {
@@ -64,7 +76,6 @@ module.exports = {
             const textChannel = await interaction.guild.channels.fetch(channel.id);
             if (!textChannel?.isTextBased()) return interaction.editReply({ content: '❌ Please select a text channel.' });
 
-            // Check if a panel already exists for this channel
             const existingPanel = await TicketPanel.findOne({ serverId: interaction.guildId, channelId: textChannel.id });
 
             if (existingPanel) {
@@ -72,23 +83,23 @@ module.exports = {
                 const title = interaction.options.getString('title') || existingPanel.title;
                 const description = interaction.options.getString('description') || existingPanel.description;
 
-                // Build new categories — use new ones if provided, fall back to existing
                 let categories = [...existingPanel.categories];
                 const newCategories = [];
                 for (let i = 1; i <= 5; i++) {
                     const name = interaction.options.getString(`category_${i}`);
                     const role = interaction.options.getRole(`ping_role_${i}`);
-                    if (name && role) newCategories.push({ name, pingRoleId: role.id });
+                    const emoji = interaction.options.getString(`category_${i}_emoji`) || null;
+                    const desc = interaction.options.getString(`category_${i}_description`) || null;
+                    if (name && role) newCategories.push({ name, pingRoleId: role.id, emoji, description: desc });
                 }
                 if (newCategories.length > 0) categories = newCategories;
 
                 if (categories.length === 0) return interaction.editReply({ content: '❌ No categories found. Please provide at least one category.' });
 
-                // Update workload display
                 const workloadData = await Promise.all(categories.map(async (c) => {
                     const count = await Ticket.countDocuments({ serverId: interaction.guildId, category: c.name, status: { $in: ['open', 'claimed'] } });
                     const pct = Math.round((count / 5) * 100);
-                    return `• **${c.name}:** Available \`${count}/5\` (${pct}%)`;
+                    return `• **${c.emoji ? c.emoji + ' ' : ''}${c.name}:** Available \`${count}/5\` (${pct}%)`;
                 }));
 
                 const embed = new EmbedBuilder()
@@ -102,11 +113,15 @@ module.exports = {
                 const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`ticket_open_${interaction.guildId}`)
                     .setPlaceholder('Choose a category...')
-                    .addOptions(categories.map(c => ({ label: c.name, value: c.name })));
+                    .addOptions(categories.map(c => {
+                        const option = { label: c.name, value: c.name };
+                        if (c.emoji) option.emoji = c.emoji;
+                        if (c.description) option.description = c.description.substring(0, 100);
+                        return option;
+                    }));
 
                 const row = new ActionRowBuilder().addComponents(selectMenu);
 
-                // Try to edit the existing message
                 let updatedMessageId = existingPanel.messageId;
                 try {
                     const existingMsg = await textChannel.messages.fetch(existingPanel.messageId).catch(() => null);
@@ -121,7 +136,6 @@ module.exports = {
                     updatedMessageId = newMsg.id;
                 }
 
-                // Update panel in DB
                 await TicketPanel.findByIdAndUpdate(existingPanel._id, {
                     title,
                     description,
@@ -143,11 +157,12 @@ module.exports = {
                 for (let i = 1; i <= 5; i++) {
                     const name = interaction.options.getString(`category_${i}`);
                     const role = interaction.options.getRole(`ping_role_${i}`);
-                    if (name && role) categories.push({ name, pingRoleId: role.id });
+                    const emoji = interaction.options.getString(`category_${i}_emoji`) || null;
+                    const desc = interaction.options.getString(`category_${i}_description`) || null;
+                    if (name && role) categories.push({ name, pingRoleId: role.id, emoji, description: desc });
                 }
                 if (categories.length === 0) return interaction.editReply({ content: '❌ Please provide at least one category and ping role.' });
 
-                // Create or find ticket category at top of server
                 let ticketCategory = interaction.guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
                 if (!ticketCategory) {
                     ticketCategory = await interaction.guild.channels.create({
@@ -157,7 +172,6 @@ module.exports = {
                     });
                 }
 
-                // Create log channel
                 const logChannel = await interaction.guild.channels.create({
                     name: 'ticket-logs',
                     type: ChannelType.GuildText,
@@ -174,7 +188,7 @@ module.exports = {
                     });
                 }
 
-                const workloadLines = categories.map(c => `• **${c.name}:** Available \`0/5\` (0%)`).join('\n');
+                const workloadLines = categories.map(c => `• **${c.emoji ? c.emoji + ' ' : ''}${c.name}:** Available \`0/5\` (0%)`).join('\n');
 
                 const embed = new EmbedBuilder()
                     .setTitle(title)
@@ -187,7 +201,12 @@ module.exports = {
                 const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`ticket_open_${interaction.guildId}`)
                     .setPlaceholder('Choose a category...')
-                    .addOptions(categories.map(c => ({ label: c.name, value: c.name })));
+                    .addOptions(categories.map(c => {
+                        const option = { label: c.name, value: c.name };
+                        if (c.emoji) option.emoji = c.emoji;
+                        if (c.description) option.description = c.description.substring(0, 100);
+                        return option;
+                    }));
 
                 const row = new ActionRowBuilder().addComponents(selectMenu);
 
