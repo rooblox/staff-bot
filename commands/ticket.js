@@ -83,16 +83,28 @@ module.exports = {
                 const title = interaction.options.getString('title') || existingPanel.title;
                 const description = interaction.options.getString('description') || existingPanel.description;
 
-                let categories = [...existingPanel.categories];
-                const newCategories = [];
-                for (let i = 1; i <= 5; i++) {
-                    const name = interaction.options.getString(`category_${i}`);
-                    const role = interaction.options.getRole(`ping_role_${i}`);
-                    const emoji = interaction.options.getString(`category_${i}_emoji`) || null;
-                    const desc = interaction.options.getString(`category_${i}_description`) || null;
-                    if (name && role) newCategories.push({ name, pingRoleId: role.id, emoji, description: desc });
-                }
-                if (newCategories.length > 0) categories = newCategories;
+               let categories = [...existingPanel.categories];
+for (let i = 1; i <= 5; i++) {
+    const name = interaction.options.getString(`category_${i}`);
+    const role = interaction.options.getRole(`ping_role_${i}`);
+    const emoji = interaction.options.getString(`category_${i}_emoji`);
+    const desc = interaction.options.getString(`category_${i}_description`);
+    if (name && role) {
+        // Update existing category at this position or add new one
+        const index = i - 1;
+        categories[index] = { 
+            name, 
+            pingRoleId: role.id, 
+            emoji: emoji || categories[index]?.emoji || null,
+            description: desc || categories[index]?.description || null
+        };
+    } else if (name && !role && categories[i - 1]) {
+        // Update just name/emoji/desc without changing role
+        categories[i - 1].name = name;
+        if (emoji) categories[i - 1].emoji = emoji;
+        if (desc) categories[i - 1].description = desc;
+    }
+}
 
                 if (categories.length === 0) return interaction.editReply({ content: '❌ No categories found. Please provide at least one category.' });
 
