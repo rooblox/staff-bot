@@ -1478,14 +1478,18 @@ client.once('ready', async () => {
     await new Promise(resolve => setTimeout(resolve, 3000));
     console.log(`✅ Guild cache size: ${client.guilds.cache.size}`);
 
-    for (const guild of client.guilds.cache.values()) {
+const guildArray = [...client.guilds.cache.values()];
+    console.log(`⏳ Registering commands in ${guildArray.length} guilds...`);
+
+    for (let i = 0; i < guildArray.length; i++) {
+        const guild = guildArray[i];
+        console.log(`⏳ Registering in: ${guild.name}`);
         try {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
-            console.log(`✅ Commands registered in guild: ${guild.name}`);
-        } catch (err) { 
-            console.error(`❌ Failed in guild ${guild.name} (${guild.id}): ${err.message}`);
-            console.error(err.rawError || err);
+            console.log(`✅ Done: ${guild.name}`);
+        } catch (err) {
+            console.error(`❌ Error in ${guild.name}: ${err.message}`);
         }
     }
 
