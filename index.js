@@ -1309,24 +1309,15 @@ client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-    // Register globally — instant for bots in under 100 servers, takes ~1hr otherwise
-    try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: cmds });
-        console.log(`✅ Registered ${cmds.length} global commands`);
-    } catch (err) {
-        console.error('❌ Failed to register global commands:', err.message);
-    }
-
-    // Also register per-guild in parallel for instant updates
-    const guildArray = [...client.guilds.cache.values()];
-    await Promise.allSettled(guildArray.map(async (guild) => {
+    for (const guild of client.guilds.cache.values()) {
         try {
+            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
             console.log(`✅ Commands registered in guild: ${guild.name}`);
         } catch (err) {
-            console.error(`❌ Failed in guild ${guild.name}: ${err.message}`);
+            console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
         }
-    }));
+    }
 
     const { scheduleReminder } = require('./commands/remind');
     const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
