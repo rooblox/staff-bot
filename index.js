@@ -518,14 +518,10 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // ========== SELECT MENU HANDLER ==========
     if (interaction.isStringSelectMenu()) {
-
-        // ========== TICKET OPEN ==========
         if (interaction.customId.startsWith('ticket_open_')) {
             const category = interaction.values[0];
             const guildId = interaction.customId.replace('ticket_open_', '');
-
             const modal = new ModalBuilder()
                 .setCustomId(`ticket_reason_${category}_${guildId}`)
                 .setTitle('Open a Ticket');
@@ -589,7 +585,6 @@ client.on('interactionCreate', async interaction => {
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
 
-        // ========== TICKET RATING ==========
         if (interaction.customId.startsWith('ticket_rate_')) {
             const parts = interaction.customId.split('_');
             const rating = parseInt(parts[2]);
@@ -600,72 +595,41 @@ client.on('interactionCreate', async interaction => {
                 const staffUser = await client.users.fetch(staffId);
                 const ticket = await Ticket.findOne({ caseId });
                 await Review.create({
-                    staffId,
-                    staffTag: staffUser.tag,
-                    reviewerId: interaction.user.id,
-                    reviewerTag: interaction.user.tag,
-                    rating,
-                    ticketCaseId: caseId,
-                    serverId: ticket?.serverId || 'dm',
-                    createdAt: new Date()
+                    staffId, staffTag: staffUser.tag, reviewerId: interaction.user.id,
+                    reviewerTag: interaction.user.tag, rating, ticketCaseId: caseId,
+                    serverId: ticket?.serverId || 'dm', createdAt: new Date()
                 });
-                const stars = '⭐'.repeat(rating);
                 await interaction.user.send({
-                    embeds: [new EmbedBuilder()
-                        .setTitle('✅ Review Submitted')
-                        .setDescription(`Thank you for your feedback!\n\nYou rated **${staffUser.tag}** ${stars}\n\nYour review has been recorded.`)
-                        .setColor(0x2ECC71)
-                        .setFooter({ text: 'Kavià Café • Ticket System' })
-                        .setTimestamp()
-                    ]
+                    embeds: [new EmbedBuilder().setTitle('✅ Review Submitted').setDescription(`Thank you! You rated **${staffUser.tag}** ${'⭐'.repeat(rating)}`).setColor(0x2ECC71).setTimestamp()]
                 }).catch(() => {});
                 if (ticket?.logChannelId) {
                     const logChannel = await client.channels.fetch(ticket.logChannelId).catch(() => null);
                     if (logChannel?.isTextBased()) {
-                        await logChannel.send({
-                            embeds: [new EmbedBuilder()
-                                .setTitle('⭐ Ticket Review Received')
-                                .setColor(rating >= 4 ? 0x2ECC71 : rating >= 3 ? 0xF39C12 : 0xE74C3C)
-                                .addFields(
-                                    { name: '🔖 Case ID', value: `#${caseId}`, inline: true },
-                                    { name: '⭐ Rating', value: `${'⭐'.repeat(rating)} (${rating}/5)`, inline: true },
-                                    { name: '👤 Reviewer', value: `${interaction.user.tag}`, inline: true },
-                                    { name: '👮 Staff Rated', value: `${staffUser.tag}`, inline: true }
-                                )
-                                .setFooter({ text: 'Kavià Café • Ticket System' })
-                                .setTimestamp()
-                            ]
-                        });
+                        await logChannel.send({ embeds: [new EmbedBuilder().setTitle('⭐ Ticket Review Received')
+                            .setColor(rating >= 4 ? 0x2ECC71 : rating >= 3 ? 0xF39C12 : 0xE74C3C)
+                            .addFields(
+                                { name: '🔖 Case ID', value: `#${caseId}`, inline: true },
+                                { name: '⭐ Rating', value: `${'⭐'.repeat(rating)} (${rating}/5)`, inline: true },
+                                { name: '👤 Reviewer', value: interaction.user.tag, inline: true },
+                                { name: '👮 Staff Rated', value: staffUser.tag, inline: true }
+                            ).setFooter({ text: 'Kavià Café • Ticket System' }).setTimestamp()] });
                     }
                 }
             } catch (err) { console.error('Error saving review:', err); }
             return;
         }
 
-        // ========== TICKET CLAIM ==========
         if (interaction.customId.startsWith('ticket_claim_')) {
             const caseId = interaction.customId.replace('ticket_claim_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
             if (ticket.claimedBy) return interaction.reply({ content: '❌ This ticket has already been claimed.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) {
-                return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
-            }
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed' });
-            if (client.ticketRepingTimeouts.has(caseId)) {
-                clearTimeout(client.ticketRepingTimeouts.get(caseId));
-                client.ticketRepingTimeouts.delete(caseId);
-            }
-            try {
-                await interaction.channel.permissionOverwrites.delete(ticket.pingRoleId);
-                await interaction.channel.permissionOverwrites.edit(interaction.user.id, {
-                    ViewChannel: true, SendMessages: true, ReadMessageHistory: true
-                });
-            } catch {}
-            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-                .spliceFields(2, 1, { name: '👮 Claimed By', value: interaction.user.tag, inline: false });
+            if (client.ticketRepingTimeouts.has(caseId)) { clearTimeout(client.ticketRepingTimeouts.get(caseId)); client.ticketRepingTimeouts.delete(caseId); }
+            try { await interaction.channel.permissionOverwrites.delete(ticket.pingRoleId); await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); } catch {}
             await interaction.update({
-                embeds: [updatedEmbed],
+                embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: interaction.user.tag, inline: false })],
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
                     new ButtonBuilder().setCustomId(`ticket_unclaim_${caseId}`).setLabel('↩️ Unclaim').setStyle(ButtonStyle.Secondary),
@@ -673,48 +637,21 @@ client.on('interactionCreate', async interaction => {
                     new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
                 )]
             });
-            await interaction.channel.send({
-                embeds: [new EmbedBuilder()
-                    .setDescription(`**${interaction.user.tag}** has claimed this ticket.\n\nYour matters will now be taken care of. However, be patient if you do not always receive an answer immediately.`)
-                    .setColor(0x5865F2).setTimestamp()
-                ]
-            });
+            await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`**${interaction.user.tag}** has claimed this ticket.\n\nYour matters will now be taken care of. However, be patient if you do not always receive an answer immediately.`).setColor(0x5865F2).setTimestamp()] });
             const logChannel = await client.channels.fetch(ticket.logChannelId).catch(() => null);
-            if (logChannel?.isTextBased()) {
-                await logChannel.send({ embeds: [new EmbedBuilder()
-                    .setTitle('✅ Ticket Claimed').setColor(0x2ECC71)
-                    .setDescription(`**Case #${caseId}** has been claimed.`)
-                    .addFields(
-                        { name: '👮 Claimed By', value: `${interaction.user.tag}`, inline: true },
-                        { name: '📂 Category', value: ticket.category, inline: true },
-                        { name: '👤 Opened By', value: `<@${ticket.userId}>`, inline: true },
-                        { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
-                    )
-                    .setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` }).setTimestamp()
-                ] });
-            }
+            if (logChannel?.isTextBased()) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Ticket Claimed').setColor(0x2ECC71).setDescription(`**Case #${caseId}** has been claimed.`).addFields({ name: '👮 Claimed By', value: interaction.user.tag, inline: true }, { name: '📂 Category', value: ticket.category, inline: true }, { name: '👤 Opened By', value: `<@${ticket.userId}>`, inline: true }, { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }).setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` }).setTimestamp()] });
             return;
         }
 
-        // ========== TICKET UNCLAIM ==========
         if (interaction.customId.startsWith('ticket_unclaim_')) {
             const caseId = interaction.customId.replace('ticket_unclaim_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) {
-                return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
-            }
+            if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: null, claimedByTag: null, status: 'open' });
-            try {
-                await interaction.channel.permissionOverwrites.edit(ticket.pingRoleId, {
-                    ViewChannel: true, SendMessages: true, ReadMessageHistory: true
-                });
-                await interaction.channel.permissionOverwrites.delete(interaction.user.id);
-            } catch {}
-            const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-                .spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed', inline: false });
+            try { await interaction.channel.permissionOverwrites.edit(ticket.pingRoleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); await interaction.channel.permissionOverwrites.delete(interaction.user.id); } catch {}
             await interaction.update({
-                embeds: [updatedEmbed],
+                embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed', inline: false })],
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ticket_claim_${caseId}`).setLabel('✋ Claim').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
@@ -728,23 +665,17 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // ========== TICKET CLOSE ==========
         if (interaction.customId.startsWith('ticket_close_') && !interaction.customId.startsWith('ticket_closerequest_') && !interaction.customId.startsWith('ticket_closeconfirm_') && !interaction.customId.startsWith('ticket_closecancel_')) {
             const caseId = interaction.customId.replace('ticket_close_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId) && interaction.user.id !== ticket.userId) {
-                return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
-            }
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId) && interaction.user.id !== ticket.userId) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`ticket_closemodal_${caseId}`).setTitle('Close Ticket');
-            modal.addComponents(new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('closereason').setLabel('Reason for closing').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for closing this ticket...').setRequired(true)
-            ));
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('closereason').setLabel('Reason for closing').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for closing this ticket...').setRequired(true)));
             await interaction.showModal(modal);
             return;
         }
 
-        // ========== TICKET CLOSE CONFIRM ==========
         if (interaction.customId.startsWith('ticket_closeconfirm_')) {
             const caseId = interaction.customId.replace('ticket_closeconfirm_', '');
             const ticket = await Ticket.findOne({ caseId });
@@ -754,54 +685,39 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // ========== TICKET CLOSE CANCEL ==========
         if (interaction.customId.startsWith('ticket_closecancel_')) {
             await interaction.update({ content: '✅ Close cancelled.', components: [], embeds: [] });
             return;
         }
 
-        // ========== TICKET CLOSURE REQUEST ==========
         if (interaction.customId.startsWith('ticket_closerequest_')) {
             const caseId = interaction.customId.replace('ticket_closerequest_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) {
-                return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            }
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             await interaction.reply({ content: '✅ Closure request sent to the ticket opener.', ephemeral: true });
-            const confirmRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`ticket_closeconfirm_${caseId}`).setLabel('✅ Yes, close my ticket').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`ticket_closecancel_${caseId}`).setLabel('❌ No, keep it open').setStyle(ButtonStyle.Danger)
-            );
             await interaction.channel.send({
                 content: `<@${ticket.userId}>`,
-                embeds: [new EmbedBuilder()
-                    .setTitle('❓ Closure Request')
-                    .setDescription(`**${interaction.user.tag}** has requested to close your ticket.\n\nHas your issue been resolved? If so, click **Yes** below to close the ticket.`)
-                    .setColor(0xF39C12).setFooter({ text: 'Kavià Café • Ticket System' }).setTimestamp()
-                ],
-                components: [confirmRow]
+                embeds: [new EmbedBuilder().setTitle('❓ Closure Request').setDescription(`**${interaction.user.tag}** has requested to close your ticket.\n\nHas your issue been resolved?`).setColor(0xF39C12).setFooter({ text: 'Kavià Café • Ticket System' }).setTimestamp()],
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`ticket_closeconfirm_${caseId}`).setLabel('✅ Yes, close my ticket').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`ticket_closecancel_${caseId}`).setLabel('❌ No, keep it open').setStyle(ButtonStyle.Danger)
+                )]
             });
             return;
         }
 
-        // ========== TICKET ADD USER ==========
         if (interaction.customId.startsWith('ticket_adduser_')) {
             const caseId = interaction.customId.replace('ticket_adduser_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) {
-                return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
-            }
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`ticket_adduser_modal_${caseId}`).setTitle('Add User to Ticket');
-            modal.addComponents(new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('userid').setLabel('User ID to add').setStyle(TextInputStyle.Short).setPlaceholder('Enter the Discord user ID...').setRequired(true)
-            ));
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('userid').setLabel('User ID to add').setStyle(TextInputStyle.Short).setPlaceholder('Enter the Discord user ID...').setRequired(true)));
             await interaction.showModal(modal);
             return;
         }
 
-        // ========== TRAINING BUTTONS ==========
         if (interaction.customId.startsWith('st_done_')) {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
@@ -809,15 +725,11 @@ client.on('interactionCreate', async interaction => {
             if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
-            if (session.locked) return interaction.reply({ content: '🔒 Your session is locked. Please wait for a staff member to resolve your help request.', ephemeral: true });
+            if (session.locked) return interaction.reply({ content: '🔒 Your session is locked.', ephemeral: true });
             await interaction.update({ components: [] });
             const nextSection = sectionIndex + 1;
-            if (nextSection < session.trainingConfig.sections.length) {
-                session.section = nextSection;
-                await sendNextSection(userId, session);
-            } else {
-                await startQuiz(userId, session);
-            }
+            if (nextSection < session.trainingConfig.sections.length) { session.section = nextSection; await sendNextSection(userId, session); }
+            else { await startQuiz(userId, session); }
             return;
         }
 
@@ -833,17 +745,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.user.send({ embeds: [new EmbedBuilder().setTitle('🆘 Help Request Sent').setDescription('Your help request has been sent to a staff member. Your session has been paused until the issue is resolved.').setColor(0xE74C3C).setTimestamp()] });
             const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
             if (logChannel?.isTextBased()) {
-                const resolveRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`st_resolve_${userId}_${sectionIndex}`).setLabel('✅ Mark as Resolved').setStyle(ButtonStyle.Success));
-                await logChannel.send({
-                    content: `<@&${session.deptConfig.pingRoleId}>`,
-                    embeds: [new EmbedBuilder().setTitle('🆘 Training Help Request').setColor(0xE74C3C).addFields(
-                        { name: '👤 Trainee', value: `<@${userId}> (${userId})` },
-                        { name: '🏢 Department', value: session.department },
-                        { name: '📖 Training', value: session.training },
-                        { name: '📖 Section', value: `Section ${sectionIndex + 1} — ${session.trainingConfig.sections[sectionIndex].title}` }
-                    ).setTimestamp()],
-                    components: [resolveRow]
-                });
+                await logChannel.send({ content: `<@&${session.deptConfig.pingRoleId}>`, embeds: [new EmbedBuilder().setTitle('🆘 Training Help Request').setColor(0xE74C3C).addFields({ name: '👤 Trainee', value: `<@${userId}> (${userId})` }, { name: '🏢 Department', value: session.department }, { name: '📖 Training', value: session.training }, { name: '📖 Section', value: `Section ${sectionIndex + 1} — ${session.trainingConfig.sections[sectionIndex].title}` }).setTimestamp()], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`st_resolve_${userId}_${sectionIndex}`).setLabel('✅ Mark as Resolved').setStyle(ButtonStyle.Success))] });
             }
             return;
         }
@@ -857,7 +759,7 @@ client.on('interactionCreate', async interaction => {
             session.locked = false;
             await interaction.update({ components: [] });
             const user = await client.users.fetch(userId);
-            await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Help Request Resolved').setDescription('A staff member has resolved your help request. You may now continue your training by clicking **Done** below.').setColor(0x2ECC71).setTimestamp()] });
+            await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Help Request Resolved').setDescription('A staff member has resolved your help request. You may now continue your training.').setColor(0x2ECC71).setTimestamp()] });
             await sendNextSection(userId, session);
             return;
         }
@@ -870,16 +772,8 @@ client.on('interactionCreate', async interaction => {
             if (session.ageVerifRepingTimeout) clearTimeout(session.ageVerifRepingTimeout);
             session.awaitingAgeVerif = false;
             await interaction.update({ components: [] });
-            try {
-                const logChannel = await client.channels.fetch(session.ageVerifLogChannelId);
-                const logMsg = await logChannel.messages.fetch(session.ageVerifLogMessageId).catch(() => null);
-                if (logMsg) {
-                    const acceptedEmbed = EmbedBuilder.from(logMsg.embeds[0]).setTitle('✅ Age Verification Accepted').setColor(0x2ECC71).addFields({ name: '👮 Accepted By', value: interaction.user.tag });
-                    await logMsg.edit({ embeds: [acceptedEmbed], components: [] });
-                }
-            } catch {}
-            session.ageVerifLogMessageId = null;
-            session.ageVerifLogChannelId = null;
+            try { const logChannel = await client.channels.fetch(session.ageVerifLogChannelId); const logMsg = await logChannel.messages.fetch(session.ageVerifLogMessageId).catch(() => null); if (logMsg) { await logMsg.edit({ embeds: [EmbedBuilder.from(logMsg.embeds[0]).setTitle('✅ Age Verification Accepted').setColor(0x2ECC71).addFields({ name: '👮 Accepted By', value: interaction.user.tag })], components: [] }); } } catch {}
+            session.ageVerifLogMessageId = null; session.ageVerifLogChannelId = null;
             const user = await client.users.fetch(userId);
             await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Age Verification Approved').setDescription('Your age has been successfully verified! You may now continue with your training.').setColor(0x2ECC71).setTimestamp()] });
             session.section += 1;
@@ -893,16 +787,14 @@ client.on('interactionCreate', async interaction => {
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`st_ageverif_denymodal_${userId}`).setTitle('Deny Age Verification');
-            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying age verification...').setRequired(true)));
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setRequired(true)));
             await interaction.showModal(modal);
             return;
         }
 
         if (interaction.customId.startsWith('st_quiz_')) {
             const parts = interaction.customId.split('_');
-            const answer = parts[2];
-            const userId = parts[3];
-            const questionIndex = parseInt(parts[4]);
+            const answer = parts[2]; const userId = parts[3]; const questionIndex = parseInt(parts[4]);
             if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
@@ -914,15 +806,8 @@ client.on('interactionCreate', async interaction => {
             const nextQuestion = questionIndex + 1;
             if (nextQuestion < session.trainingConfig.quiz.length) {
                 session.quizIndex = nextQuestion;
-                setTimeout(async () => {
-                    const nextQ = session.trainingConfig.quiz[nextQuestion];
-                    const embed = getQuizEmbed(nextQ, nextQuestion, session.score, session.trainingConfig.quiz.length, session.department, session.training);
-                    const buttons = getQuizButtons(userId, nextQuestion, nextQ);
-                    await interaction.user.send({ embeds: [embed], components: [buttons] });
-                }, 1500);
-            } else {
-                await sendQuizResults(userId, session);
-            }
+                setTimeout(async () => { const nextQ = session.trainingConfig.quiz[nextQuestion]; await interaction.user.send({ embeds: [getQuizEmbed(nextQ, nextQuestion, session.score, session.trainingConfig.quiz.length, session.department, session.training)], components: [getQuizButtons(userId, nextQuestion, nextQ)] }); }, 1500);
+            } else { await sendQuizResults(userId, session); }
             return;
         }
 
@@ -932,25 +817,12 @@ client.on('interactionCreate', async interaction => {
             const session = activeSessions.get(userId);
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
             await interaction.update({ components: [] });
-            try {
-                const trainingKey = `${session.training} — ${session.department}`;
-                await CompletedTrainings.findByIdAndUpdate(userId, { $addToSet: { completedTrainings: trainingKey } }, { upsert: true });
-            } catch (err) { console.error('Error saving completed training:', err); }
+            try { await CompletedTrainings.findByIdAndUpdate(userId, { $addToSet: { completedTrainings: `${session.training} — ${session.department}` } }, { upsert: true }); } catch (err) { console.error('Error saving completed training:', err); }
             const user = await client.users.fetch(userId);
             activeSessions.delete(userId);
-            await user.send({ embeds: [new EmbedBuilder().setTitle('🎉 Congratulations!').setDescription(`Congratulations, ${user}! 🎉\n\nYou have successfully **passed** your **${session.training}** for the **${session.department}** department at **Kavià Café**!\n\nYour hard work and dedication have not gone unnoticed. Your permissions will be updated shortly.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
+            await user.send({ embeds: [new EmbedBuilder().setTitle('🎉 Congratulations!').setDescription(`Congratulations, ${user}! 🎉\n\nYou have successfully **passed** your **${session.training}** for the **${session.department}** department at **Kavià Café**!\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
             const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
-            if (logChannel?.isTextBased()) {
-                await logChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Training Passed').setColor(0x2ECC71).addFields(
-                    { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
-                    { name: '🏢 Department', value: session.department },
-                    { name: '📖 Training', value: session.training },
-                    { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` },
-                    { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` },
-                    { name: '👮 Passed By', value: interaction.user.tag },
-                    { name: '💬 DM Sent', value: '✅ Yes' }
-                ).setTimestamp()] });
-            }
+            if (logChannel?.isTextBased()) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Training Passed').setColor(0x2ECC71).addFields({ name: '👤 Trainee', value: `${user.tag} (${user.id})` }, { name: '🏢 Department', value: session.department }, { name: '📖 Training', value: session.training }, { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` }, { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` }, { name: '👮 Passed By', value: interaction.user.tag }, { name: '💬 DM Sent', value: '✅ Yes' }).setTimestamp()] });
             return;
         }
 
@@ -961,31 +833,14 @@ client.on('interactionCreate', async interaction => {
             if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
             await interaction.update({ components: [] });
             const user = await client.users.fetch(userId);
-            await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Training Result').setDescription(`Hello, ${user}.\n\nUnfortunately, you have **not passed** your **${session.training}** for the **${session.department}** department at this time.\n\nPlease don't be discouraged — this is a learning experience. Your training will now restart from the beginning.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
+            await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Training Result').setDescription(`Hello, ${user}.\n\nUnfortunately, you have **not passed** your **${session.training}** for the **${session.department}** department at this time.\n\nYour training will now restart from the beginning.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
             const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
-            if (logChannel?.isTextBased()) {
-                await logChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Training Failed — Restarting').setColor(0xE74C3C).addFields(
-                    { name: '👤 Trainee', value: `${user.tag} (${user.id})` },
-                    { name: '🏢 Department', value: session.department },
-                    { name: '📖 Training', value: session.training },
-                    { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` },
-                    { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` },
-                    { name: '👮 Failed By', value: interaction.user.tag },
-                    { name: '💬 DM Sent', value: '✅ Yes' },
-                    { name: '🔄 Status', value: 'Training restarted from section 1' }
-                ).setTimestamp()] });
-            }
-            session.section = 0;
-            session.phase = 'sections';
-            session.score = 0;
-            session.quizIndex = 0;
-            session.locked = false;
-            session.awaitingAgeVerif = false;
+            if (logChannel?.isTextBased()) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Training Failed — Restarting').setColor(0xE74C3C).addFields({ name: '👤 Trainee', value: `${user.tag} (${user.id})` }, { name: '🏢 Department', value: session.department }, { name: '📖 Training', value: session.training }, { name: '📊 Final Score', value: `${session.score}/${session.trainingConfig.quiz.length}` }, { name: '👮 Trained By', value: `<@${session.staffId}> (${session.staffTag})` }, { name: '👮 Failed By', value: interaction.user.tag }, { name: '💬 DM Sent', value: '✅ Yes' }, { name: '🔄 Status', value: 'Training restarted from section 1' }).setTimestamp()] });
+            session.section = 0; session.phase = 'sections'; session.score = 0; session.quizIndex = 0; session.locked = false; session.awaitingAgeVerif = false;
             setTimeout(async () => { await sendNextSection(userId, session); }, 2000);
             return;
         }
 
-        // ========== SESSION BUTTONS ==========
         if (interaction.customId.startsWith('sesaccept_')) {
             if (!await hasRequiredRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
             const sessionId = interaction.customId.replace('sesaccept_', '');
@@ -997,10 +852,8 @@ client.on('interactionCreate', async interaction => {
                 let linkText = '';
                 if (session.shiftType === 'Training') linkText = `\n\nPlease review the training guide before your session:\n${TRAINING_LINK}`;
                 else if (session.shiftType === 'Regular Shift') linkText = `\n\nPlease review the shift guide before your session:\n${SHIFT_LINK}`;
-                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Accepted**\nHello, ${user},\nWe are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**!\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Time →** *${session.time}*\n> <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*\nShould you have any questions or concerns prior to your session, please do not hesitate to reach out.${linkText}\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
-                const oldEmbed = interaction.message.embeds[0];
-                const newEmbed = EmbedBuilder.from(oldEmbed).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` });
-                await interaction.update({ embeds: [newEmbed], components: [] });
+                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Accepted**\nHello, ${user},\nWe are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**!\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Time →** *${session.time}*\n> <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*${linkText}\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
+                await interaction.update({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` })], components: [] });
                 session.status = 'approved';
                 await scheduleSession(session);
             } catch (err) { console.error('Error accepting session:', err); await interaction.reply({ content: '❌ Error accepting request.', ephemeral: true }); }
@@ -1013,7 +866,7 @@ client.on('interactionCreate', async interaction => {
             const session = await Session.findById(sessionId);
             if (!session) return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`sesdeclinemodal_${sessionId}`).setTitle('Decline Session Request');
-            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('declinereason').setLabel('Reason for declining').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for declining this request...').setRequired(true)));
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('declinereason').setLabel('Reason for declining').setStyle(TextInputStyle.Paragraph).setRequired(true)));
             await interaction.showModal(modal);
             return;
         }
@@ -1025,7 +878,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { hostConfirmed: true });
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Host Confirmed').setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**. The announcement will be posted at the scheduled time!`).setColor(0x2ECC71).setTimestamp()] });
+            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Host Confirmed').setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**.`).setColor(0x2ECC71).setTimestamp()] });
             return;
         }
 
@@ -1035,7 +888,7 @@ client.on('interactionCreate', async interaction => {
             if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
-            try { const host = await client.users.fetch(session.hostId); await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Cancelled').setDescription('Your session has been cancelled. Please let a staff member know if you need to reschedule.').setColor(0xE74C3C).setTimestamp()] }); } catch {}
+            try { await (await client.users.fetch(session.hostId)).send({ embeds: [new EmbedBuilder().setTitle('❌ Session Cancelled').setDescription('Your session has been cancelled.').setColor(0xE74C3C).setTimestamp()] }); } catch {}
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
             if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Cancelled').setColor(0xE74C3C).setDescription(`<@${session.hostId}> is no longer able to host their **${session.shiftType}** at ${session.time}.`).setTimestamp()] });
             return;
@@ -1047,9 +900,9 @@ client.on('interactionCreate', async interaction => {
             if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'finished' });
-            try { const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID); const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID); const msg = await announcementChannel.messages.fetch(session.announcementMessageId).catch(() => null); if (msg) await msg.delete().catch(() => {}); } catch (err) { console.error('Error deleting announcement:', err); }
+            try { const g = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID); const c = await g.channels.fetch(ANNOUNCEMENT_CHANNEL_ID); const m = await c.messages.fetch(session.announcementMessageId).catch(() => null); if (m) await m.delete().catch(() => {}); } catch (err) { console.error('Error deleting announcement:', err); }
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Session Finished').setDescription(`<@${session.hostId}>'s **${session.shiftType}** has been marked as finished. Great job!`).setColor(0x2ECC71).setTimestamp()] });
+            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Session Finished').setDescription(`<@${session.hostId}>'s **${session.shiftType}** has been marked as finished!`).setColor(0x2ECC71).setTimestamp()] });
             return;
         }
 
@@ -1059,12 +912,11 @@ client.on('interactionCreate', async interaction => {
             if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
             await interaction.update({ components: [] });
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('⏳ Session Still Going').setDescription(`<@${session.hostId}>'s **${session.shiftType}** is still in progress. We'll check back in another 25 minutes.`).setColor(0xF39C12).setTimestamp()] });
+            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('⏳ Session Still Going').setDescription(`<@${session.hostId}>'s **${session.shiftType}** is still in progress. We'll check back in 25 minutes.`).setColor(0xF39C12).setTimestamp()] });
             setTimeout(async () => { await sendFinishCheck(sessionId); }, 25 * 60 * 1000);
             return;
         }
 
-        // ========== LOA BUTTONS ==========
         if (interaction.customId.startsWith('loa_accept_')) {
             const loaId = interaction.customId.replace('loa_accept_', '');
             try {
@@ -1074,9 +926,7 @@ client.on('interactionCreate', async interaction => {
                 await LOA.findByIdAndUpdate(loaId, { status: 'approved', approvedAt: new Date() });
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Leave of Absence Approved').setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
-                const oldEmbed = interaction.message.embeds[0];
-                const newEmbed = EmbedBuilder.from(oldEmbed).setColor(0x2ECC71).setTitle('📋 LOA Request — ✅ Approved').setFooter({ text: `Approved by ${interaction.user.username} • LOA ID: ${loaId}` });
-                await interaction.update({ embeds: [newEmbed], components: [] });
+                await interaction.update({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 LOA Request — ✅ Approved').setFooter({ text: `Approved by ${interaction.user.username} • LOA ID: ${loaId}` })], components: [] });
                 await sendLOALog(user, '✅ LOA Approved', 0x2ECC71, loaId, [{ name: '👮 Approved By', value: interaction.user.tag }, { name: '📅 Return Date', value: loa.returnDate }]);
                 scheduleLOAReturnReminder(loa, client);
             } catch (err) { console.error('Error approving LOA:', err); await interaction.reply({ content: '❌ Error approving LOA.', ephemeral: true }); }
@@ -1090,7 +940,7 @@ client.on('interactionCreate', async interaction => {
                 if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
                 if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
                 const modal = new ModalBuilder().setCustomId(`loa_denymodal_${loaId}`).setTitle('Deny LOA Request');
-                modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying this LOA...').setRequired(true)));
+                modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setRequired(true)));
                 await interaction.showModal(modal);
             } catch (err) { console.error('Error denying LOA:', err); }
             return;
@@ -1103,7 +953,7 @@ client.on('interactionCreate', async interaction => {
                 if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
                 if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
                 const modal = new ModalBuilder().setCustomId(`loa_moreinfomodal_${loaId}`).setTitle('Request More Info');
-                modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('moreinfo').setLabel('What info is needed?').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter what additional information is needed...').setRequired(true)));
+                modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('moreinfo').setLabel('What info is needed?').setStyle(TextInputStyle.Paragraph).setRequired(true)));
                 await interaction.showModal(modal);
             } catch (err) { console.error('Error requesting more info:', err); }
             return;
@@ -1116,7 +966,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.update({ components: [] });
             await LOA.findByIdAndUpdate(loaId, { status: 'returned' });
             try { const deptConfig = DEPARTMENTS[loa.department]; if (deptConfig) { const loaGuild = await client.guilds.fetch(deptConfig.serverId); const loaChannel = await loaGuild.channels.fetch(deptConfig.loaChannelId); const msg = await loaChannel.messages.fetch(loa.messageId).catch(() => null); if (msg) await msg.delete().catch(() => {}); } } catch {}
-            await interaction.user.send({ embeds: [new EmbedBuilder().setTitle('👋 Welcome Back!').setDescription(`Welcome back, <@${loa.userId}>! 🎉\n\nWe're thrilled to have you back at **Kavià Café**. Your LOA has been officially closed.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
+            await interaction.user.send({ embeds: [new EmbedBuilder().setTitle('👋 Welcome Back!').setDescription(`Welcome back, <@${loa.userId}>! 🎉\n\nWe're thrilled to have you back at **Kavià Café**.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
             await sendLOALog(await client.users.fetch(loa.userId), '👋 LOA Returned', 0x2ECC71, loaId, [{ name: '📅 Return Date', value: loa.returnDate }]);
             return;
         }
@@ -1127,8 +977,8 @@ client.on('interactionCreate', async interaction => {
             if (!loa || interaction.user.id !== loa.userId) return interaction.reply({ content: '❌ This is not your LOA.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`loa_extendmodal_${loaId}`).setTitle('Request LOA Extension');
             modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('extendtime').setLabel('How much more time do you need?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 1 week, 2 weeks, 1 month').setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('newreturndate').setLabel('New return date (DD/MM/YY)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 25/04/26').setRequired(true))
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('extendtime').setLabel('How much more time do you need?').setStyle(TextInputStyle.Short).setRequired(true)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('newreturndate').setLabel('New return date (DD/MM/YY)').setStyle(TextInputStyle.Short).setRequired(true))
             );
             await interaction.showModal(modal);
             return;
@@ -1137,10 +987,8 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // ========== MODAL SUBMISSIONS ==========
     if (interaction.isModalSubmit()) {
 
-        // ========== TICKET OPEN REASON ==========
         if (interaction.customId.startsWith('ticket_reason_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
@@ -1151,7 +999,7 @@ client.on('interactionCreate', async interaction => {
                 const reason = interaction.fields.getTextInputValue('reason');
 
                 const openCount = await Ticket.countDocuments({ userId: interaction.user.id, serverId: guildId, status: { $in: ['open', 'claimed'] } });
-                if (openCount >= 2) return interaction.editReply({ content: '❌ You already have 2 open tickets. Please wait for them to be resolved before opening another.' });
+                if (openCount >= 2) return interaction.editReply({ content: '❌ You already have 2 open tickets.' });
 
                 const panel = await TicketPanel.findOne({ serverId: guildId });
                 if (!panel) return interaction.editReply({ content: '❌ Ticket panel not found.' });
@@ -1164,14 +1012,10 @@ client.on('interactionCreate', async interaction => {
                 const channelName = `${category.toLowerCase().replace(/\s+/g, '-').substring(0, 15)}-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15)}`;
 
                 let ticketCategory = guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
-                if (!ticketCategory) {
-                    ticketCategory = await guild.channels.create({ name: '🎫 Tickets', type: ChannelType.GuildCategory, position: 0 });
-                }
+                if (!ticketCategory) ticketCategory = await guild.channels.create({ name: '🎫 Tickets', type: ChannelType.GuildCategory, position: 0 });
 
                 const ticketChannel = await guild.channels.create({
-                    name: channelName,
-                    type: ChannelType.GuildText,
-                    parent: ticketCategory.id,
+                    name: channelName, type: ChannelType.GuildText, parent: ticketCategory.id,
                     permissionOverwrites: [
                         { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
                         { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
@@ -1180,84 +1024,33 @@ client.on('interactionCreate', async interaction => {
                     ]
                 });
 
-                const ticket = await Ticket.create({
-                    caseId,
-                    userId: interaction.user.id,
-                    category,
-                    serverId: guildId,
-                    channelId: ticketChannel.id,
-                    ticketCategoryId: ticketCategory.id,
-                    claimedBy: null,
-                    status: 'open',
-                    openReason: reason,
-                    pingRoleId: categoryConfig.pingRoleId,
-                    logChannelId: panel.logChannelId,
-                    createdAt: new Date()
-                });
-
-                const welcomeEmbed = new EmbedBuilder()
-                    .setTitle('🎫 Welcome to your ticket')
-                    .setDescription('A team member will soon be taking care of you. Make sure that you describe your problems as accurately as possible so that you can be helped as best as possible.')
-                    .setColor(0x5865F2)
-                    .addFields(
-                        { name: '🔖 Case ID', value: `#${caseId}`, inline: false },
-                        { name: '📂 Category', value: category, inline: false },
-                        { name: '👮 Claimed By', value: 'Unclaimed', inline: false },
-                        { name: '👤 Creator', value: `${interaction.user.tag}`, inline: false }
-                    )
-                    .setImage(TICKET_IMAGE)
-                    .setTimestamp();
-
-                const ticketButtons = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`ticket_claim_${caseId}`).setLabel('✋ Claim').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
-                    new ButtonBuilder().setCustomId(`ticket_adduser_${caseId}`).setLabel('➕ Add User').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
-                );
+                const ticket = await Ticket.create({ caseId, userId: interaction.user.id, category, serverId: guildId, channelId: ticketChannel.id, ticketCategoryId: ticketCategory.id, claimedBy: null, status: 'open', openReason: reason, pingRoleId: categoryConfig.pingRoleId, logChannelId: panel.logChannelId, createdAt: new Date() });
 
                 const welcomeMsg = await ticketChannel.send({
                     content: `<@&${categoryConfig.pingRoleId}> <@${interaction.user.id}>`,
-                    embeds: [welcomeEmbed],
-                    components: [ticketButtons]
+                    embeds: [new EmbedBuilder().setTitle('🎫 Welcome to your ticket').setDescription('A team member will soon be taking care of you. Make sure that you describe your problems as accurately as possible so that you can be helped as best as possible.').setColor(0x5865F2).addFields({ name: '🔖 Case ID', value: `#${caseId}`, inline: false }, { name: '📂 Category', value: category, inline: false }, { name: '👮 Claimed By', value: 'Unclaimed', inline: false }, { name: '👤 Creator', value: interaction.user.tag, inline: false }).setImage(TICKET_IMAGE).setTimestamp()],
+                    components: [new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`ticket_claim_${caseId}`).setLabel('✋ Claim').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId(`ticket_adduser_${caseId}`).setLabel('➕ Add User').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
+                    )]
                 });
                 await welcomeMsg.pin().catch(() => {});
 
-                await ticketChannel.send({
-                    embeds: [new EmbedBuilder()
-                        .setTitle('📋 Creation Form')
-                        .addFields({ name: 'Open reason', value: reason })
-                        .setColor(0x5865F2)
-                        .setTimestamp()
-                    ]
-                });
+                await ticketChannel.send({ embeds: [new EmbedBuilder().setTitle('📋 Creation Form').addFields({ name: 'Open reason', value: reason }).setColor(0x5865F2).setTimestamp()] });
 
                 const logChannel = await client.channels.fetch(panel.logChannelId).catch(() => null);
-                if (logChannel?.isTextBased()) {
-                    await logChannel.send({ embeds: [new EmbedBuilder()
-                        .setTitle('🎫 New Ticket Created').setColor(0x2ECC71)
-                        .setDescription(`**Case #${caseId}** has been opened.`)
-                        .addFields(
-                            { name: '👤 Created By', value: `${interaction.user.tag}`, inline: true },
-                            { name: '📂 Category', value: category, inline: true },
-                            { name: '💬 Channel', value: `<#${ticketChannel.id}>`, inline: true },
-                            { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
-                        )
-                        .setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` }).setTimestamp()
-                    ] });
-                }
+                if (logChannel?.isTextBased()) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🎫 New Ticket Created').setColor(0x2ECC71).setDescription(`**Case #${caseId}** has been opened.`).addFields({ name: '👤 Created By', value: interaction.user.tag, inline: true }, { name: '📂 Category', value: category, inline: true }, { name: '💬 Channel', value: `<#${ticketChannel.id}>`, inline: true }, { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }).setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` }).setTimestamp()] });
 
                 await updatePanelWorkload(panel, guild);
                 scheduleTicketReping(ticket, panel, guild);
                 await interaction.editReply({ content: `✅ Your ticket has been created! <#${ticketChannel.id}>` });
 
-            } catch (err) {
-                console.error('Error creating ticket:', err);
-                try { await interaction.editReply({ content: '❌ Error creating ticket.' }); } catch {}
-            }
+            } catch (err) { console.error('Error creating ticket:', err); try { await interaction.editReply({ content: '❌ Error creating ticket.' }); } catch {} }
             return;
         }
 
-        // ========== TICKET CLOSE MODAL ==========
         if (interaction.customId.startsWith('ticket_closemodal_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
@@ -1267,27 +1060,21 @@ client.on('interactionCreate', async interaction => {
                 if (!ticket) return interaction.editReply({ content: '❌ Ticket not found.' });
                 await interaction.editReply({ content: '✅ Closing ticket...' });
                 await closeTicket(ticket, interaction.channel, interaction.user, reason);
-            } catch (err) {
-                console.error('Error closing ticket via modal:', err);
-                try { await interaction.editReply({ content: '❌ Error closing ticket.' }); } catch {}
-            }
+            } catch (err) { console.error('Error closing ticket:', err); try { await interaction.editReply({ content: '❌ Error closing ticket.' }); } catch {} }
             return;
         }
 
-        // ========== TICKET ADD USER MODAL ==========
         if (interaction.customId.startsWith('ticket_adduser_modal_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
                 const caseId = interaction.customId.replace('ticket_adduser_modal_', '');
                 const userId = interaction.fields.getTextInputValue('userid').trim().replace(/[<@!>]/g, '');
                 const user = await client.users.fetch(userId).catch(() => null);
-                if (!user) return interaction.editReply({ content: '❌ User not found. Make sure you entered a valid Discord user ID.' });
-                await interaction.channel.permissionOverwrites.edit(userId, {
-                    ViewChannel: true, SendMessages: true, ReadMessageHistory: true
-                });
+                if (!user) return interaction.editReply({ content: '❌ User not found.' });
+                await interaction.channel.permissionOverwrites.edit(userId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
                 await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interaction.user.tag}** added **${user.tag}** to the ticket.`).setColor(0x5865F2).setTimestamp()] });
                 await interaction.editReply({ content: `✅ **${user.tag}** has been added to the ticket.` });
-            } catch (err) { console.error('Error adding user to ticket:', err); try { await interaction.editReply({ content: '❌ Error adding user.' }); } catch {} }
+            } catch (err) { console.error('Error adding user:', err); try { await interaction.editReply({ content: '❌ Error adding user.' }); } catch {} }
             return;
         }
 
@@ -1299,24 +1086,11 @@ client.on('interactionCreate', async interaction => {
                 const session = activeSessions.get(userId);
                 if (!session) return interaction.editReply({ content: '❌ No active session found.' });
                 const user = await client.users.fetch(userId);
-                await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Age Verification Denied').setDescription(`Hello, <@${userId}>,\n\nUnfortunately your age verification submission has been **denied**.\n\n> **Reason →** *${reason}*\n\nPlease send a new screenshot or image link as a DM reply and a staff member will review it.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
-                try {
-                    if (session.ageVerifLogChannelId && session.ageVerifLogMessageId) {
-                        const logChannel = await client.channels.fetch(session.ageVerifLogChannelId);
-                        const logMsg = await logChannel.messages.fetch(session.ageVerifLogMessageId).catch(() => null);
-                        if (logMsg) {
-                            const deniedEmbed = EmbedBuilder.from(logMsg.embeds[0]).setTitle('❌ Age Verification Denied').setColor(0xE74C3C).addFields(
-                                { name: '👮 Denied By', value: interaction.user.tag },
-                                { name: '📝 Reason', value: reason }
-                            );
-                            await logMsg.edit({ embeds: [deniedEmbed], components: [] });
-                        }
-                    }
-                } catch {}
-                session.ageVerifLogMessageId = null;
-                session.ageVerifLogChannelId = null;
-                await interaction.editReply({ content: '✅ Age verification denied and user notified. Waiting for their next submission.' });
-            } catch (err) { console.error('Error denying age verif:', err); try { await interaction.editReply({ content: '❌ Error denying age verification.' }); } catch {} }
+                await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Age Verification Denied').setDescription(`Hello, <@${userId}>,\n\nUnfortunately your age verification submission has been **denied**.\n\n> **Reason →** *${reason}*\n\nPlease send a new screenshot or image link as a DM reply.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
+                try { if (session.ageVerifLogChannelId && session.ageVerifLogMessageId) { const logChannel = await client.channels.fetch(session.ageVerifLogChannelId); const logMsg = await logChannel.messages.fetch(session.ageVerifLogMessageId).catch(() => null); if (logMsg) await logMsg.edit({ embeds: [EmbedBuilder.from(logMsg.embeds[0]).setTitle('❌ Age Verification Denied').setColor(0xE74C3C).addFields({ name: '👮 Denied By', value: interaction.user.tag }, { name: '📝 Reason', value: reason })], components: [] }); } } catch {}
+                session.ageVerifLogMessageId = null; session.ageVerifLogChannelId = null;
+                await interaction.editReply({ content: '✅ Age verification denied and user notified.' });
+            } catch (err) { console.error('Error denying age verif:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
             return;
         }
 
@@ -1329,12 +1103,10 @@ client.on('interactionCreate', async interaction => {
                 if (!session) return interaction.editReply({ content: '❌ Session not found.' });
                 await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
                 const user = await client.users.fetch(session.hostId);
-                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Declined**\nHello, ${user},\nWe regret to inform you that your **${session.shiftType}** request has been **declined** at **Kavià Café**.\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Status →** *Declined ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
-                const oldEmbed = interaction.message.embeds[0];
-                const newEmbed = EmbedBuilder.from(oldEmbed).setColor(0xE74C3C).setTitle('📋 Session Request — ❌ Declined').setFooter({ text: `Declined by ${interaction.user.username} — Reason: ${reason}` });
-                await interaction.message.edit({ embeds: [newEmbed], components: [] });
+                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Declined**\nHello, ${user},\nWe regret to inform you that your **${session.shiftType}** request has been **declined**.\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
+                await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xE74C3C).setTitle('📋 Session Request — ❌ Declined').setFooter({ text: `Declined by ${interaction.user.username} — Reason: ${reason}` })], components: [] });
                 await interaction.editReply({ content: '✅ Request declined and user notified.' });
-            } catch (err) { console.error('Error declining session:', err); try { await interaction.editReply({ content: '❌ Error declining request.' }); } catch {} }
+            } catch (err) { console.error('Error declining session:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
             return;
         }
 
@@ -1347,13 +1119,11 @@ client.on('interactionCreate', async interaction => {
                 if (!loa) return interaction.editReply({ content: '❌ LOA not found.' });
                 await LOA.findByIdAndUpdate(loaId, { status: 'denied' });
                 const user = await client.users.fetch(loa.userId);
-                await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Leave of Absence Denied').setDescription(`Hello, <@${loa.userId}>,\n\nWe regret to inform you that your **Leave of Absence** request has been **denied** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Status →** *Denied ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
-                const oldEmbed = interaction.message.embeds[0];
-                const newEmbed = EmbedBuilder.from(oldEmbed).setColor(0xE74C3C).setTitle('📋 LOA Request — ❌ Denied').setFooter({ text: `Denied by ${interaction.user.username} — Reason: ${reason}` });
-                await interaction.message.edit({ embeds: [newEmbed], components: [] });
+                await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Leave of Absence Denied').setDescription(`Hello, <@${loa.userId}>,\n\nWe regret to inform you that your **Leave of Absence** request has been **denied**.\n\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
+                await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xE74C3C).setTitle('📋 LOA Request — ❌ Denied').setFooter({ text: `Denied by ${interaction.user.username} — Reason: ${reason}` })], components: [] });
                 await sendLOALog(user, '❌ LOA Denied', 0xE74C3C, loaId, [{ name: '👮 Denied By', value: interaction.user.tag }, { name: '📝 Reason', value: reason }]);
                 await interaction.editReply({ content: '✅ LOA denied and user notified.' });
-            } catch (err) { console.error('Error denying LOA:', err); try { await interaction.editReply({ content: '❌ Error denying LOA.' }); } catch {} }
+            } catch (err) { console.error('Error denying LOA:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
             return;
         }
 
@@ -1366,13 +1136,11 @@ client.on('interactionCreate', async interaction => {
                 if (!loa) return interaction.editReply({ content: '❌ LOA not found.' });
                 await LOA.findByIdAndUpdate(loaId, { status: 'denied' });
                 const user = await client.users.fetch(loa.userId);
-                await user.send({ embeds: [new EmbedBuilder().setTitle('❓ More Information Required').setDescription(`Hello, <@${loa.userId}>,\n\nThank you for submitting your **Leave of Absence** request. Before we can process it, we require some additional information.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Information Needed →** *${moreInfo}*\n\nPlease resubmit your LOA using \`/loa\` with the additional information.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0xF39C12).setTimestamp()] });
-                const oldEmbed = interaction.message.embeds[0];
-                const newEmbed = EmbedBuilder.from(oldEmbed).setColor(0xF39C12).setTitle('📋 LOA Request — ❓ More Info Requested').setFooter({ text: `More info requested by ${interaction.user.username}` });
-                await interaction.message.edit({ embeds: [newEmbed], components: [] });
+                await user.send({ embeds: [new EmbedBuilder().setTitle('❓ More Information Required').setDescription(`Hello, <@${loa.userId}>,\n\nBefore we can process your LOA, we require some additional information.\n\n> <:pink_pin:1166850035611353148> **Information Needed →** *${moreInfo}*\n\nPlease resubmit your LOA using \`/loa\`.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0xF39C12).setTimestamp()] });
+                await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xF39C12).setTitle('📋 LOA Request — ❓ More Info Requested').setFooter({ text: `More info requested by ${interaction.user.username}` })], components: [] });
                 await sendLOALog(user, '❓ LOA More Info Requested', 0xF39C12, loaId, [{ name: '👮 Requested By', value: interaction.user.tag }, { name: '📝 Info Needed', value: moreInfo }]);
                 await interaction.editReply({ content: '✅ More info requested and user notified.' });
-            } catch (err) { console.error('Error requesting more info:', err); try { await interaction.editReply({ content: '❌ Error requesting more info.' }); } catch {} }
+            } catch (err) { console.error('Error requesting more info:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
             return;
         }
 
@@ -1388,12 +1156,11 @@ client.on('interactionCreate', async interaction => {
                 if (isNaN(newDateParsed.getTime())) return interaction.editReply({ content: '❌ Invalid date format. Please use DD/MM/YY.' });
                 await LOA.findByIdAndUpdate(loaId, { status: 'extended', returnDate: newReturnDate, returnDateParsed: newDateParsed, returnReminderSent: false });
                 const user = await client.users.fetch(loa.userId);
-                await user.send({ embeds: [new EmbedBuilder().setTitle('⏳ LOA Extension Requested').setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** request has been noted.\n\n> <:pink_pin:1166850035611353148> **Extra Time Requested →** *${extendTime}*\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\nThank you for keeping us informed!\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xF39C12).setTimestamp()] });
-                const updatedLoa = await LOA.findById(loaId);
-                scheduleLOAReturnReminder(updatedLoa, client);
+                await user.send({ embeds: [new EmbedBuilder().setTitle('⏳ LOA Extension Requested').setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** request has been noted.\n\n> <:pink_pin:1166850035611353148> **Extra Time →** *${extendTime}*\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xF39C12).setTimestamp()] });
+                scheduleLOAReturnReminder(await LOA.findById(loaId), client);
                 await sendLOALog(user, '⏳ LOA Extension Requested', 0xF39C12, loaId, [{ name: '⏳ Extra Time', value: extendTime }, { name: '📅 New Return Date', value: newReturnDate }]);
                 await interaction.editReply({ content: '✅ Extension request submitted!' });
-            } catch (err) { console.error('Error extending LOA:', err); try { await interaction.editReply({ content: '❌ Error submitting extension.' }); } catch {} }
+            } catch (err) { console.error('Error extending LOA:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
             return;
         }
 
@@ -1407,10 +1174,7 @@ client.on('messageCreate', async message => {
         const trainingSession = activeSessions.get(message.author.id);
         if (trainingSession && trainingSession.awaitingAgeVerif) {
             trainingSession.lastAgeVerifContent = message.content || '[Attachment]';
-            if (trainingSession.ageVerifLogMessageId) {
-                try { await message.react('⏳'); } catch {}
-                return;
-            }
+            if (trainingSession.ageVerifLogMessageId) { try { await message.react('⏳'); } catch {} return; }
             try {
                 const logChannel = await client.channels.fetch(trainingSession.deptConfig.logChannelId);
                 if (logChannel?.isTextBased()) {
@@ -1418,27 +1182,9 @@ client.on('messageCreate', async message => {
                         new ButtonBuilder().setCustomId(`st_ageverif_accept_${message.author.id}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId(`st_ageverif_deny_${message.author.id}`).setLabel('❌ Deny').setStyle(ButtonStyle.Danger)
                     );
-                    const logEmbed = new EmbedBuilder()
-                        .setTitle('🪪 Age Verification Submission')
-                        .setColor(0x3498DB)
-                        .addFields(
-                            { name: '👤 Trainee', value: `<@${message.author.id}> (${message.author.id})` },
-                            { name: '🏢 Department', value: trainingSession.department },
-                            { name: '📖 Training', value: trainingSession.training },
-                            { name: '📝 Message', value: message.content || '*No text*' }
-                        )
-                        .setTimestamp();
-                    if (message.attachments.size > 0) {
-                        const attachment = message.attachments.first();
-                        logEmbed.setImage(attachment.url);
-                        logEmbed.addFields({ name: '🖼️ Attachment', value: attachment.url });
-                        trainingSession.lastAgeVerifContent = attachment.url;
-                    }
-                    const logMsg = await logChannel.send({
-                        content: `<@&${trainingSession.deptConfig.pingRoleId}>`,
-                        embeds: [logEmbed],
-                        components: [verifyRow]
-                    });
+                    const logEmbed = new EmbedBuilder().setTitle('🪪 Age Verification Submission').setColor(0x3498DB).addFields({ name: '👤 Trainee', value: `<@${message.author.id}> (${message.author.id})` }, { name: '🏢 Department', value: trainingSession.department }, { name: '📖 Training', value: trainingSession.training }, { name: '📝 Message', value: message.content || '*No text*' }).setTimestamp();
+                    if (message.attachments.size > 0) { const attachment = message.attachments.first(); logEmbed.setImage(attachment.url); logEmbed.addFields({ name: '🖼️ Attachment', value: attachment.url }); trainingSession.lastAgeVerifContent = attachment.url; }
+                    const logMsg = await logChannel.send({ content: `<@&${trainingSession.deptConfig.pingRoleId}>`, embeds: [logEmbed], components: [verifyRow] });
                     trainingSession.ageVerifLogMessageId = logMsg.id;
                     trainingSession.ageVerifLogChannelId = logChannel.id;
                 }
@@ -1446,51 +1192,24 @@ client.on('messageCreate', async message => {
             return;
         }
         const logChannelId = client.dmLogChannels?.get(message.author.id) || '1462580398935642144';
-        console.log(`📨 DM received from: ${message.author.id}`);
-        console.log(`📨 Map size: ${client.dmLogChannels?.size}`);
-        console.log(`📨 Mapped channel: ${client.dmLogChannels?.get(message.author.id)}`);
-        console.log(`📨 Using channel: ${logChannelId}`);
         const timestamp = `<t:${Math.floor(Date.now() / 1000)}:F>`;
-        try { await message.react('✅'); } catch (err) { console.error('Failed to react to user DM:', err); }
-        const userReplyEmbed = new EmbedBuilder()
-            .setColor(0x3498DB).setTitle('💬 **DM Received**')
-            .addFields(
-                { name: '📤 From (User)', value: `${message.author.tag} (${message.author.id})` },
-                { name: '📥 To (Bot)', value: `${client.user.tag}` },
-                { name: '📝 Message', value: message.content || '*No text content*' },
-                { name: '🕒 Date & Time', value: timestamp }
-            )
-            .setFooter({ text: 'Kavia Cafe • DM Logs' });
+        try { await message.react('✅'); } catch {}
         try {
             const logChannel = await client.channels.fetch(logChannelId);
-            if (logChannel) await logChannel.send({ embeds: [userReplyEmbed] });
+            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('💬 **DM Received**').addFields({ name: '📤 From (User)', value: `${message.author.tag} (${message.author.id})` }, { name: '📥 To (Bot)', value: client.user.tag }, { name: '📝 Message', value: message.content || '*No text content*' }, { name: '🕒 Date & Time', value: timestamp }).setFooter({ text: 'Kavia Cafe • DM Logs' })] });
         } catch (err) { console.error('Error logging user DM:', err); }
     }
 });
 
 client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
-    const rest = new REST({ version: '10', timeout: 10000 }).setToken(process.env.TOKEN);
-    await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-    console.log('✅ Cleared global commands');
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-    // Wait for guild cache to populate
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    console.log(`✅ Guild cache size: ${client.guilds.cache.size}`);
-
-const guildArray = [...client.guilds.cache.values()];
-    console.log(`⏳ Registering commands in ${guildArray.length} guilds...`);
-
-    for (let i = 0; i < guildArray.length; i++) {
-        const guild = guildArray[i];
-        console.log(`⏳ Registering in: ${guild.name}`);
-        try {
-            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] });
-            await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
-            console.log(`✅ Done: ${guild.name}`);
-        } catch (err) {
-            console.error(`❌ Error in ${guild.name}: ${err.message}`);
-        }
+    try {
+        await rest.put(Routes.applicationCommands(client.user.id), { body: cmds });
+        console.log(`✅ Commands registered globally (${cmds.length} commands) — may take up to 1 hour to propagate`);
+    } catch (err) {
+        console.error('❌ Failed to register global commands:', err.message);
     }
 
     const { scheduleReminder } = require('./commands/remind');
@@ -1501,15 +1220,6 @@ const guildArray = [...client.guilds.cache.values()];
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
     await restoreLOAs();
-});
-
-client.on('guildCreate', async guild => {
-    console.log(`✅ Joined new guild: ${guild.name}`);
-    const rest = new REST({ version: '10', timeout: 10000 }).setToken(process.env.TOKEN);
-    try {
-        await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
-        console.log(`✅ Commands registered in new guild: ${guild.name}`);
-    } catch (err) { console.error(`❌ Failed to register commands in new guild ${guild.name}:`, err); }
 });
 
 connectDB().then(() => {
