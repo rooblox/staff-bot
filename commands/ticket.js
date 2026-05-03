@@ -18,7 +18,7 @@ module.exports = {
         .addStringOption(option =>
             option.setName('category_1').setDescription('First ticket category name').setRequired(false))
         .addStringOption(option =>
-            option.setName('category_1_emoji').setDescription('Emoji for category 1 (e.g. 🎫)').setRequired(false))
+            option.setName('category_1_emoji').setDescription('Emoji for category 1').setRequired(false))
         .addStringOption(option =>
             option.setName('category_1_description').setDescription('Description for category 1').setRequired(false))
         .addRoleOption(option =>
@@ -54,7 +54,15 @@ module.exports = {
         .addStringOption(option =>
             option.setName('category_5_description').setDescription('Description for category 5').setRequired(false))
         .addRoleOption(option =>
-            option.setName('ping_role_5').setDescription('Role to ping for category 5').setRequired(false)),
+            option.setName('ping_role_5').setDescription('Role to ping for category 5').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_6').setDescription('Sixth ticket category name').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_6_emoji').setDescription('Emoji for category 6').setRequired(false))
+        .addStringOption(option =>
+            option.setName('category_6_description').setDescription('Description for category 6').setRequired(false))
+        .addRoleOption(option =>
+            option.setName('ping_role_6').setDescription('Role to ping for category 6').setRequired(false)),
 
     async execute(interaction, client) {
         await interaction.deferReply({ ephemeral: true }).catch(() => {});
@@ -82,10 +90,9 @@ module.exports = {
                 const title = interaction.options.getString('title') || existingPanel.title;
                 const description = interaction.options.getString('description') || existingPanel.description;
 
-                // Start with existing categories and merge updates by position
                 let categories = existingPanel.categories.map(c => ({ ...c.toObject() }));
 
-                for (let i = 1; i <= 5; i++) {
+                for (let i = 1; i <= 6; i++) {
                     const name = interaction.options.getString(`category_${i}`);
                     const role = interaction.options.getRole(`ping_role_${i}`);
                     const emoji = interaction.options.getString(`category_${i}_emoji`);
@@ -93,7 +100,6 @@ module.exports = {
                     const index = i - 1;
 
                     if (name && role) {
-                        // Full update at this position
                         categories[index] = {
                             name,
                             pingRoleId: role.id,
@@ -101,7 +107,6 @@ module.exports = {
                             description: desc || categories[index]?.description || null
                         };
                     } else if (name && !role && categories[index]) {
-                        // Partial update — just name/emoji/desc, keep existing role
                         categories[index] = {
                             ...categories[index],
                             name,
@@ -109,7 +114,6 @@ module.exports = {
                             description: desc !== null ? desc : categories[index].description
                         };
                     } else if ((emoji || desc) && categories[index]) {
-                        // Only updating emoji or description
                         if (emoji) categories[index].emoji = emoji;
                         if (desc) categories[index].description = desc;
                     }
@@ -118,7 +122,6 @@ module.exports = {
                 categories = categories.filter(Boolean);
                 if (categories.length === 0) return interaction.editReply({ content: '❌ No categories found.' });
 
-                // Deduplicate by name to prevent Discord API error
                 const seen = new Set();
                 categories = categories.filter(c => {
                     if (seen.has(c.name)) return false;
@@ -184,7 +187,7 @@ module.exports = {
                 if (!description) return interaction.editReply({ content: '❌ Please provide a description for the new panel.' });
 
                 const categories = [];
-                for (let i = 1; i <= 5; i++) {
+                for (let i = 1; i <= 6; i++) {
                     const name = interaction.options.getString(`category_${i}`);
                     const role = interaction.options.getRole(`ping_role_${i}`);
                     const emoji = interaction.options.getString(`category_${i}_emoji`) || null;

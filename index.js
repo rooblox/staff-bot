@@ -1311,10 +1311,18 @@ client.once('ready', async () => {
     console.log(`✅ Ready event fired!`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
+    // Clear global commands once to remove duplicates
+    try {
+        await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
+        console.log('✅ Cleared global commands');
+    } catch (err) {
+        console.error('❌ Failed to clear global commands:', err.message);
+    }
+
     console.log(`✅ Guild cache size: ${client.guilds.cache.size}`);
     console.log(`✅ Starting guild registration loop...`);
 
-   for (const guild of client.guilds.cache.values()) {
+    for (const guild of client.guilds.cache.values()) {
         if (guild.id === '1229426371592327250') continue;
         try {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
