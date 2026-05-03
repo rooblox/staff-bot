@@ -1313,6 +1313,10 @@ client.once('ready', async () => {
     console.log(`✅ Starting guild registration loop...`);
 
     for (const guild of client.guilds.cache.values()) {
+        if (guild.id === '1229426371592327250') {
+            console.log(`⏭️ Skipping SHR (will use global commands)`);
+            continue;
+        }
         console.log(`⏳ Attempting: ${guild.name}`);
         try {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
