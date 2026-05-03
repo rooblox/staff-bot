@@ -1306,7 +1306,8 @@ client.on('messageCreate', async message => {
 });
 
 client.once('ready', async () => {
-    console.log(`✅ Logged in as ${client.user.tag}`);
+    console.log(`✅ Ready event fired!`);
+    // ... rest of code
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
     for (const guild of client.guilds.cache.values()) {
