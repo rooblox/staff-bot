@@ -1307,17 +1307,22 @@ client.on('messageCreate', async message => {
 
 client.once('ready', async () => {
     console.log(`✅ Ready event fired!`);
-    // ... rest of code
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
+    console.log(`✅ Guild cache size: ${client.guilds.cache.size}`);
+    console.log(`✅ Starting guild registration loop...`);
+
     for (const guild of client.guilds.cache.values()) {
+        console.log(`⏳ Attempting: ${guild.name}`);
         try {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
             console.log(`✅ Commands registered in guild: ${guild.name}`);
         } catch (err) {
-            console.error(`❌ Failed to register commands in guild ${guild.name}:`, err);
+            console.error(`❌ Failed in guild ${guild.name}:`, err.message);
         }
     }
+
+    console.log(`✅ Guild registration complete`);
 
     const { scheduleReminder } = require('./commands/remind');
     const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
