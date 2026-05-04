@@ -19,7 +19,12 @@ async function rebuildAndUpdatePanel(panel, guild, client) {
             .setTitle(panel.title)
             .setDescription(panel.description)
             .setColor(0x5865F2)
-            .addFields({ name: '📊 Ticket Utilization', value: panel.categories.length > 0 ? `Here you can see the current workload of our tickets.\n\n${workloadData.join('\n')}` : 'No categories yet. Use `/ticketsetup` to add categories!' })
+            .addFields({
+                name: '📊 Ticket Utilization',
+                value: panel.categories.length > 0
+                    ? `Here you can see the current workload of our tickets.\n\n${workloadData.join('\n')}`
+                    : 'No categories yet. Use `/ticketsetup` to add categories!'
+            })
             .setImage(PANEL_IMAGE)
             .setTimestamp();
 
@@ -46,6 +51,7 @@ async function rebuildAndUpdatePanel(panel, guild, client) {
         }
     } catch (err) {
         console.error('Error rebuilding panel:', err);
+        throw err;
     }
 }
 
@@ -65,15 +71,11 @@ module.exports = {
                 if (dept.serverId === interaction.guildId && member?.roles.cache.has(dept.roleId)) { hasPerms = true; break; }
             }
             if (!hasPerms) hasPerms = await hasMainRole(client, interaction.user.id);
-            if (!hasPerms) {
-                return interaction.reply({ content: '❌ You do not have permission to set up the ticket system.', ephemeral: true });
-            }
+            if (!hasPerms) return interaction.reply({ content: '❌ You do not have permission to set up the ticket system.', ephemeral: true });
 
             const channel = interaction.options.getChannel('channel');
             const textChannel = await interaction.guild.channels.fetch(channel.id);
-            if (!textChannel?.isTextBased()) {
-                return interaction.reply({ content: '❌ Please select a text channel.', ephemeral: true });
-            }
+            if (!textChannel?.isTextBased()) return interaction.reply({ content: '❌ Please select a text channel.', ephemeral: true });
 
             const existingPanel = await TicketPanel.findOne({ serverId: interaction.guildId, channelId: textChannel.id });
 

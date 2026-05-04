@@ -88,12 +88,16 @@ async function hasStaffRole(userId, department) {
     } catch { return false; }
 }
 
-async function hasTicketStaffRole(userId, guildId, pingRoleId) {
+async function hasTicketStaffRole(userId, guildId, pingRoleId, pingRoleIds) {
     try {
         const guild = await client.guilds.fetch(guildId);
         const member = await guild.members.fetch(userId).catch(() => null);
         if (!member) return false;
-        if (pingRoleId && member.roles.cache.has(pingRoleId)) return true;
+        // Check multiple ping roles
+        const allRoleIds = pingRoleIds?.length > 0 ? pingRoleIds : (pingRoleId ? [pingRoleId] : []);
+        for (const roleId of allRoleIds) {
+            if (member.roles.cache.has(roleId)) return true;
+        }
         for (const dept of Object.values(DEPARTMENTS)) {
             if (dept.serverId === guildId && member.roles.cache.has(dept.roleId)) return true;
         }
@@ -145,7 +149,23 @@ async function updatePanelWorkload(panel, guild) {
             name: '📊 Ticket Utilization',
             value: `Here you can see the current workload of our tickets.\n\n${workloadData.join('\n')}`
         });
-        await msg.edit({ embeds: [newEmbed] });
+
+        const components = [];
+        if (panel.categories.length > 0) {
+            const { StringSelectMenuBuilder: SSM, ActionRowBuilder: ARB } = require('discord.js');
+            const selectMenu = new SSM()
+                .setCustomId(`ticket_open_${guild.id}`)
+                .setPlaceholder('Choose a category...')
+                .addOptions(panel.categories.map(c => {
+                    const option = { label: c.name, value: c.name };
+                    if (c.emoji) option.emoji = c.emoji;
+                    if (c.description) option.description = c.description.substring(0, 100);
+                    return option;
+                }));
+            components.push(new ARB().addComponents(selectMenu));
+        }
+
+        await msg.edit({ embeds: [newEmbed], components });
     } catch (err) { console.error('Error updating panel workload:', err); }
 }
 
@@ -244,8 +264,10 @@ function scheduleTicketReping(ticket, panel, guild) {
             if (!latestTicket || latestTicket.status !== 'open' || latestTicket.claimedBy) return;
             const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
             if (channel) {
+                const allRoleIds = ticket.pingRoleIds?.length > 0 ? ticket.pingRoleIds : (ticket.pingRoleId ? [ticket.pingRoleId] : []);
+                const pingContent = allRoleIds.map(id => `<@&${id}>`).join(' ');
                 await channel.send({
-                    content: `<@&${ticket.pingRoleId}> ⚠️ This ticket has been open for 12 hours and has not been claimed!`,
+                    content: `${pingContent} ⚠️ This ticket has been open for 12 hours and has not been claimed!`,
                     embeds: [new EmbedBuilder()
                         .setTitle('⏰ Unclaimed Ticket Reminder')
                         .setColor(0xF39C12)
@@ -544,12 +566,13 @@ client.on('interactionCreate', async interaction => {
             if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
             const index = parseInt(interaction.values[0]);
             const cat = panel.categories[index];
+            const currentRoleIds = cat.pingRoleIds?.length > 0 ? cat.pingRoleIds.join(', ') : cat.pingRoleId || '';
             const modal = new ModalBuilder().setCustomId(`ts_editcatmodal_${panelId}_${index}`).setTitle('Edit Category');
             modal.addComponents(
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Category Name').setStyle(TextInputStyle.Short).setRequired(true).setValue(cat.name)),
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emoji').setLabel('Emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setValue(cat.emoji || '')),
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('description').setLabel('Description (optional)').setStyle(TextInputStyle.Short).setRequired(false).setValue(cat.description || '')),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('pingrole').setLabel('Ping Role ID').setStyle(TextInputStyle.Short).setRequired(true).setValue(cat.pingRoleId))
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('pingroles').setLabel('Ping Role IDs (comma separated)').setStyle(TextInputStyle.Short).setRequired(true).setValue(currentRoleIds).setPlaceholder('e.g. 123456789, 987654321'))
             );
             await interaction.showModal(modal);
             return;
@@ -639,7 +662,7 @@ client.on('interactionCreate', async interaction => {
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Category Name').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. General Support')),
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emoji').setLabel('Emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 🎫')),
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('description').setLabel('Description (optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. For general questions')),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('pingrole').setLabel('Ping Role ID').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 1234567890123456789'))
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('pingroles').setLabel('Ping Role IDs (comma separated)').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 123456789, 987654321'))
             );
             await interaction.showModal(modal);
             return;
@@ -708,10 +731,14 @@ client.on('interactionCreate', async interaction => {
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
             if (ticket.claimedBy) return interaction.reply({ content: '❌ This ticket has already been claimed.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed' });
             if (client.ticketRepingTimeouts.has(caseId)) { clearTimeout(client.ticketRepingTimeouts.get(caseId)); client.ticketRepingTimeouts.delete(caseId); }
-            try { await interaction.channel.permissionOverwrites.delete(ticket.pingRoleId); await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); } catch {}
+            const allRoleIds = ticket.pingRoleIds?.length > 0 ? ticket.pingRoleIds : (ticket.pingRoleId ? [ticket.pingRoleId] : []);
+            try {
+                for (const roleId of allRoleIds) { await interaction.channel.permissionOverwrites.delete(roleId).catch(() => {}); }
+                await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+            } catch {}
             try { await interaction.channel.setName(`claimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
             await interaction.update({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: interaction.user.tag, inline: false })],
@@ -732,9 +759,13 @@ client.on('interactionCreate', async interaction => {
             const caseId = interaction.customId.replace('ticket_unclaim_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
+            if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: null, claimedByTag: null, status: 'open' });
-            try { await interaction.channel.permissionOverwrites.edit(ticket.pingRoleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); await interaction.channel.permissionOverwrites.delete(interaction.user.id); } catch {}
+            const allRoleIds = ticket.pingRoleIds?.length > 0 ? ticket.pingRoleIds : (ticket.pingRoleId ? [ticket.pingRoleId] : []);
+            try {
+                for (const roleId of allRoleIds) { await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); }
+                await interaction.channel.permissionOverwrites.delete(interaction.user.id);
+            } catch {}
             try { await interaction.channel.setName(`unclaimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
             await interaction.update({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed', inline: false })],
@@ -755,7 +786,7 @@ client.on('interactionCreate', async interaction => {
             const caseId = interaction.customId.replace('ticket_close_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId) && interaction.user.id !== ticket.userId) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds) && interaction.user.id !== ticket.userId) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`ticket_closemodal_${caseId}`).setTitle('Close Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('closereason').setLabel('Reason for closing').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for closing this ticket...').setRequired(true)));
             await interaction.showModal(modal);
@@ -780,7 +811,7 @@ client.on('interactionCreate', async interaction => {
             const caseId = interaction.customId.replace('ticket_closerequest_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
             await interaction.reply({ content: '✅ Closure request sent to the ticket opener.', ephemeral: true });
             await interaction.channel.send({
                 content: `<@${ticket.userId}>`,
@@ -797,7 +828,7 @@ client.on('interactionCreate', async interaction => {
             const caseId = interaction.customId.replace('ticket_adduser_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId)) return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
             const modal = new ModalBuilder().setCustomId(`ticket_adduser_modal_${caseId}`).setTitle('Add User to Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('userid').setLabel('User ID to add').setStyle(TextInputStyle.Short).setPlaceholder('Enter the Discord user ID...').setRequired(true)));
             await interaction.showModal(modal);
@@ -1186,17 +1217,24 @@ client.on('interactionCreate', async interaction => {
                 const name = interaction.fields.getTextInputValue('name');
                 const emoji = interaction.fields.getTextInputValue('emoji') || null;
                 const description = interaction.fields.getTextInputValue('description') || null;
-                const pingRoleId = interaction.fields.getTextInputValue('pingrole').trim();
+                const pingRolesRaw = interaction.fields.getTextInputValue('pingroles');
+                const pingRoleIds = pingRolesRaw.split(',').map(r => r.trim()).filter(r => r.length > 0);
+                const pingRoleId = pingRoleIds[0] || null;
+
                 const panel = await TicketPanel.findById(panelId);
                 if (!panel) return interaction.editReply({ content: '❌ Panel not found.' });
                 if (panel.categories.find(c => c.name === name)) return interaction.editReply({ content: '❌ A category with that name already exists.' });
-                panel.categories.push({ name, pingRoleId, emoji, description });
+
+                panel.categories.push({ name, pingRoleId, pingRoleIds, emoji, description });
                 await TicketPanel.findByIdAndUpdate(panelId, { categories: panel.categories });
                 const guild = await client.guilds.fetch(panel.serverId);
                 const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
                 await rebuildAndUpdatePanel(panel, guild, client);
                 await interaction.editReply({ content: `✅ Added category **${name}** and updated the panel!` });
-            } catch (err) { console.error('Error adding category:', err); try { await interaction.editReply({ content: '❌ Error adding category.' }); } catch {} }
+            } catch (err) {
+                console.error('Error adding category:', err);
+                try { await interaction.editReply({ content: `❌ Error adding category: ${err.message}` }); } catch {}
+            }
             return;
         }
 
@@ -1209,16 +1247,22 @@ client.on('interactionCreate', async interaction => {
                 const name = interaction.fields.getTextInputValue('name');
                 const emoji = interaction.fields.getTextInputValue('emoji') || null;
                 const description = interaction.fields.getTextInputValue('description') || null;
-                const pingRoleId = interaction.fields.getTextInputValue('pingrole').trim();
+                const pingRolesRaw = interaction.fields.getTextInputValue('pingroles');
+                const pingRoleIds = pingRolesRaw.split(',').map(r => r.trim()).filter(r => r.length > 0);
+                const pingRoleId = pingRoleIds[0] || null;
+
                 const panel = await TicketPanel.findById(panelId);
                 if (!panel) return interaction.editReply({ content: '❌ Panel not found.' });
-                panel.categories[index] = { name, pingRoleId, emoji, description };
+                panel.categories[index] = { name, pingRoleId, pingRoleIds, emoji, description };
                 await TicketPanel.findByIdAndUpdate(panelId, { categories: panel.categories });
                 const guild = await client.guilds.fetch(panel.serverId);
                 const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
                 await rebuildAndUpdatePanel(panel, guild, client);
                 await interaction.editReply({ content: `✅ Updated category **${name}** and rebuilt the panel!` });
-            } catch (err) { console.error('Error editing category:', err); try { await interaction.editReply({ content: '❌ Error editing category.' }); } catch {} }
+            } catch (err) {
+                console.error('Error editing category:', err);
+                try { await interaction.editReply({ content: `❌ Error editing category: ${err.message}` }); } catch {}
+            }
             return;
         }
 
@@ -1247,17 +1291,32 @@ client.on('interactionCreate', async interaction => {
                 let ticketCategory = guild.channels.cache.find(c => c.name === '🎫 Tickets' && c.type === ChannelType.GuildCategory);
                 if (!ticketCategory) ticketCategory = await guild.channels.create({ name: '🎫 Tickets', type: ChannelType.GuildCategory, position: 0 });
 
+                const allRoleIds = categoryConfig.pingRoleIds?.length > 0 ? categoryConfig.pingRoleIds : (categoryConfig.pingRoleId ? [categoryConfig.pingRoleId] : []);
+                const primaryPingRoleId = allRoleIds[0] || null;
+
+                const permissionOverwrites = [
+                    { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+                    { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
+                ];
+                for (const roleId of allRoleIds) {
+                    permissionOverwrites.push({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
+                }
+
                 const ticketChannel = await guild.channels.create({
                     name: channelName, type: ChannelType.GuildText, parent: ticketCategory.id,
-                    permissionOverwrites: [
-                        { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-                        { id: categoryConfig.pingRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-                        { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
-                    ]
+                    permissionOverwrites
                 });
 
-                const ticket = await Ticket.create({ caseId, userId: interaction.user.id, category, serverId: guildId, channelId: ticketChannel.id, ticketCategoryId: ticketCategory.id, claimedBy: null, status: 'open', openReason: reason, pingRoleId: categoryConfig.pingRoleId, logChannelId: panel.logChannelId, createdAt: new Date() });
+                const ticket = await Ticket.create({
+                    caseId, userId: interaction.user.id, category, serverId: guildId,
+                    channelId: ticketChannel.id, ticketCategoryId: ticketCategory.id,
+                    claimedBy: null, status: 'open', openReason: reason,
+                    pingRoleId: primaryPingRoleId, pingRoleIds: allRoleIds,
+                    logChannelId: panel.logChannelId, createdAt: new Date()
+                });
+
+                const pingMentions = allRoleIds.map(id => `<@&${id}>`).join(' ');
 
                 const welcomeEmbed = new EmbedBuilder()
                     .setTitle('🎫 Welcome to your ticket')
@@ -1279,7 +1338,7 @@ client.on('interactionCreate', async interaction => {
                     new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
                 );
 
-                const welcomeMsg = await ticketChannel.send({ content: `<@&${categoryConfig.pingRoleId}> <@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [ticketButtons] });
+                const welcomeMsg = await ticketChannel.send({ content: `${pingMentions} <@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [ticketButtons] });
                 await welcomeMsg.pin().catch(() => {});
 
                 await ticketChannel.send({ embeds: [new EmbedBuilder().setTitle('📋 Creation Form').addFields({ name: 'Open reason', value: reason }).setColor(0x5865F2).setTimestamp()] });

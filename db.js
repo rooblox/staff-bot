@@ -116,6 +116,7 @@ const ticketSchema = new mongoose.Schema({
     status: String,
     openReason: String,
     pingRoleId: String,
+    pingRoleIds: [String],
     logChannelId: String,
     repingTimeout: String,
     createdAt: Date,
@@ -143,6 +144,7 @@ const ticketPanelSchema = new mongoose.Schema({
     categories: [{
         name: String,
         pingRoleId: String,
+        pingRoleIds: [String],
         emoji: String,
         description: String
     }],
