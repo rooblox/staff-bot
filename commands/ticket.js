@@ -59,7 +59,6 @@ module.exports = {
 
     async execute(interaction, client) {
         try {
-            // Check permissions BEFORE deferring so we can show modal for new panels
             const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
             let hasPerms = false;
             for (const dept of Object.values(DEPARTMENTS)) {
@@ -79,7 +78,6 @@ module.exports = {
             const existingPanel = await TicketPanel.findOne({ serverId: interaction.guildId, channelId: textChannel.id });
 
             if (existingPanel) {
-                // Existing panel — defer and show management menu
                 await interaction.deferReply({ ephemeral: true });
 
                 const categoryList = existingPanel.categories.length > 0
@@ -105,7 +103,6 @@ module.exports = {
                 });
 
             } else {
-                // New panel — show modal directly WITHOUT deferring
                 const modal = new ModalBuilder()
                     .setCustomId(`ts_newpanel_${channel.id}`)
                     .setTitle('Create Ticket Panel');

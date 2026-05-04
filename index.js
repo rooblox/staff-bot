@@ -1165,7 +1165,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.customId.startsWith('ts_editpanelmodal_')) {
-            await interaction.deferUpdate().catch(() => {});
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
                 const panelId = interaction.customId.replace('ts_editpanelmodal_', '');
                 const title = interaction.fields.getTextInputValue('title');
@@ -1174,13 +1174,13 @@ client.on('interactionCreate', async interaction => {
                 const guild = await client.guilds.fetch(panel.serverId);
                 const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
                 await rebuildAndUpdatePanel(panel, guild, client);
-                await interaction.editReply({ content: '✅ Panel title and description updated!', components: [], embeds: [] });
-            } catch (err) { console.error('Error editing panel:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
+                await interaction.editReply({ content: '✅ Panel title and description updated!' });
+            } catch (err) { console.error('Error editing panel:', err); try { await interaction.editReply({ content: '❌ Error updating panel.' }); } catch {} }
             return;
         }
 
         if (interaction.customId.startsWith('ts_addcatmodal_')) {
-            await interaction.deferUpdate().catch(() => {});
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
                 const panelId = interaction.customId.replace('ts_addcatmodal_', '');
                 const name = interaction.fields.getTextInputValue('name');
@@ -1195,13 +1195,13 @@ client.on('interactionCreate', async interaction => {
                 const guild = await client.guilds.fetch(panel.serverId);
                 const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
                 await rebuildAndUpdatePanel(panel, guild, client);
-                await interaction.editReply({ content: `✅ Added category **${name}** and updated the panel!`, components: [], embeds: [] });
-            } catch (err) { console.error('Error adding category:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
+                await interaction.editReply({ content: `✅ Added category **${name}** and updated the panel!` });
+            } catch (err) { console.error('Error adding category:', err); try { await interaction.editReply({ content: '❌ Error adding category.' }); } catch {} }
             return;
         }
 
         if (interaction.customId.startsWith('ts_editcatmodal_')) {
-            await interaction.deferUpdate().catch(() => {});
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
                 const parts = interaction.customId.replace('ts_editcatmodal_', '').split('_');
                 const index = parseInt(parts[parts.length - 1]);
@@ -1217,8 +1217,8 @@ client.on('interactionCreate', async interaction => {
                 const guild = await client.guilds.fetch(panel.serverId);
                 const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
                 await rebuildAndUpdatePanel(panel, guild, client);
-                await interaction.editReply({ content: `✅ Updated category **${name}** and rebuilt the panel!`, components: [], embeds: [] });
-            } catch (err) { console.error('Error editing category:', err); try { await interaction.editReply({ content: '❌ Error.' }); } catch {} }
+                await interaction.editReply({ content: `✅ Updated category **${name}** and rebuilt the panel!` });
+            } catch (err) { console.error('Error editing category:', err); try { await interaction.editReply({ content: '❌ Error editing category.' }); } catch {} }
             return;
         }
 
@@ -1350,7 +1350,7 @@ client.on('interactionCreate', async interaction => {
                 } catch {}
                 session.ageVerifLogMessageId = null;
                 session.ageVerifLogChannelId = null;
-                await interaction.editReply({ content: '✅ Age verification denied and user notified. Waiting for their next submission.' });
+                await interaction.editReply({ content: '✅ Age verification denied and user notified.' });
             } catch (err) { console.error('Error denying age verif:', err); try { await interaction.editReply({ content: '❌ Error denying age verification.' }); } catch {} }
             return;
         }
@@ -1493,7 +1493,6 @@ client.once('ready', async () => {
     console.log(`✅ Ready event fired!`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-    // Clear global commands to prevent duplicates
     try {
         await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
         console.log('✅ Cleared global commands');
