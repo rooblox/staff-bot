@@ -93,7 +93,6 @@ async function hasTicketStaffRole(userId, guildId, pingRoleId, pingRoleIds) {
         const guild = await client.guilds.fetch(guildId);
         const member = await guild.members.fetch(userId).catch(() => null);
         if (!member) return false;
-        // Check multiple ping roles
         const allRoleIds = pingRoleIds?.length > 0 ? pingRoleIds : (pingRoleId ? [pingRoleId] : []);
         for (const roleId of allRoleIds) {
             if (member.roles.cache.has(roleId)) return true;
@@ -152,17 +151,20 @@ async function updatePanelWorkload(panel, guild) {
 
         const components = [];
         if (panel.categories.length > 0) {
-            const { StringSelectMenuBuilder: SSM, ActionRowBuilder: ARB } = require('discord.js');
-            const selectMenu = new SSM()
+            const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`ticket_open_${guild.id}`)
                 .setPlaceholder('Choose a category...')
                 .addOptions(panel.categories.map(c => {
                     const option = { label: c.name, value: c.name };
-                    if (c.emoji) option.emoji = c.emoji;
+                    if (c.emoji) {
+                        const customMatch = c.emoji.match(/^<a?:(\w+):(\d+)>$/);
+                        if (customMatch) { option.emoji = { name: customMatch[1], id: customMatch[2] }; }
+                        else { option.emoji = c.emoji; }
+                    }
                     if (c.description) option.description = c.description.substring(0, 100);
                     return option;
                 }));
-            components.push(new ARB().addComponents(selectMenu));
+            components.push(new ActionRowBuilder().addComponents(selectMenu));
         }
 
         await msg.edit({ embeds: [newEmbed], components });
@@ -734,11 +736,8 @@ client.on('interactionCreate', async interaction => {
             if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed' });
             if (client.ticketRepingTimeouts.has(caseId)) { clearTimeout(client.ticketRepingTimeouts.get(caseId)); client.ticketRepingTimeouts.delete(caseId); }
-            const allRoleIds = ticket.pingRoleIds?.length > 0 ? ticket.pingRoleIds : (ticket.pingRoleId ? [ticket.pingRoleId] : []);
-            try {
-                for (const roleId of allRoleIds) { await interaction.channel.permissionOverwrites.delete(roleId).catch(() => {}); }
-                await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
-            } catch {}
+            // Only add claimer's access — keep all ping roles' access intact
+            try { await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); } catch {}
             try { await interaction.channel.setName(`claimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
             await interaction.update({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: interaction.user.tag, inline: false })],
@@ -761,11 +760,8 @@ client.on('interactionCreate', async interaction => {
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
             if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: null, claimedByTag: null, status: 'open' });
-            const allRoleIds = ticket.pingRoleIds?.length > 0 ? ticket.pingRoleIds : (ticket.pingRoleId ? [ticket.pingRoleId] : []);
-            try {
-                for (const roleId of allRoleIds) { await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); }
-                await interaction.channel.permissionOverwrites.delete(interaction.user.id);
-            } catch {}
+            // Just remove the claimer's personal overwrite — ping roles already have access
+            try { await interaction.channel.permissionOverwrites.delete(interaction.user.id); } catch {}
             try { await interaction.channel.setName(`unclaimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
             await interaction.update({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed', inline: false })],
@@ -1294,12 +1290,15 @@ client.on('interactionCreate', async interaction => {
                 const allRoleIds = categoryConfig.pingRoleIds?.length > 0 ? categoryConfig.pingRoleIds : (categoryConfig.pingRoleId ? [categoryConfig.pingRoleId] : []);
                 const primaryPingRoleId = allRoleIds[0] || null;
 
+                await guild.roles.fetch();
+                const validRoleIds = allRoleIds.filter(id => guild.roles.cache.has(id));
+
                 const permissionOverwrites = [
                     { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
                     { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
                     { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
                 ];
-                for (const roleId of allRoleIds) {
+                for (const roleId of validRoleIds) {
                     permissionOverwrites.push({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
                 }
 
@@ -1316,7 +1315,7 @@ client.on('interactionCreate', async interaction => {
                     logChannelId: panel.logChannelId, createdAt: new Date()
                 });
 
-                const pingMentions = allRoleIds.map(id => `<@&${id}>`).join(' ');
+                const pingMentions = validRoleIds.map(id => `<@&${id}>`).join(' ');
 
                 const welcomeEmbed = new EmbedBuilder()
                     .setTitle('🎫 Welcome to your ticket')
