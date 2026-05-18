@@ -1277,8 +1277,12 @@ client.on('interactionCreate', async interaction => {
                 const panel = await TicketPanel.findOne({ serverId: guildId });
                 if (!panel) return interaction.editReply({ content: '❌ Ticket panel not found.' });
 
-                const categoryConfig = panel.categories.find(c => c.name === category);
-                if (!categoryConfig) return interaction.editReply({ content: '❌ Category not found.' });
+               const categoryConfig = panel.categories.find(c => c.name === category);
+if (!categoryConfig) {
+    console.log(`DEBUG: category from customId = "${category}", guildId = "${guildId}"`);
+    console.log(`DEBUG: panel categories = ${JSON.stringify(panel.categories.map(c => c.name))}`);
+    return interaction.editReply({ content: '❌ Category not found.' });
+}
 
                 const guild = await client.guilds.fetch(guildId);
                 const caseId = generateCaseId();
