@@ -6,7 +6,7 @@ const TRAINING_LOG_CHANNEL = process.env.TRAINING_LOG_CHANNEL || '';
 const EXPRESS_SECRET = process.env.EXPRESS_SECRET || 'kavia_secret_2026';
 const GROUP_ID = '13827902';
 const TRAINEE_RANK_ID = 105241068;
-const BARISTA_RANK_ID = process.env.BARISTA_RANK_ID || 0; // set this in Railway env
+const BARISTA_RANK_ID = process.env.BARISTA_RANK_ID || 0;
 const REQUIRED_ROLE_ID = process.env.RANKING_REQUIRED_ROLE || '1493354187109433434';
 const MAIN_GUILD_ID = '1370892833182974035';
 
@@ -21,7 +21,7 @@ function createServer(client) {
     // ========== INTERVIEW RESULT ENDPOINT ==========
     app.post('/interview', async (req, res) => {
         try {
-            const { secret, username, userId, score, totalQuestions, duration, result } = req.body;
+            const { secret, username, userId, score, totalQuestions, duration, result, groupRole } = req.body;
 
             if (secret !== EXPRESS_SECRET) {
                 return res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -44,6 +44,7 @@ function createServer(client) {
                     { name: '📊 Result', value: statusText, inline: true },
                     { name: '📝 Score', value: `${score} / ${totalQuestions || 10}`, inline: true },
                     { name: '⏱️ Duration', value: `${duration} seconds`, inline: true },
+                    { name: '🎮 Group Rank', value: groupRole || 'Not in group / Unknown', inline: true },
                     { name: '🏷️ Ranking Status', value: rankingStatus, inline: false }
                 )
                 .setFooter({ text: 'Kavià Café Interview System • Automated Log' })
@@ -153,7 +154,6 @@ function createServer(client) {
 
 // ========== RANK BUTTON HANDLER ==========
 async function handleRankButton(interaction, client) {
-    // Handle both interview and training rank buttons
     const isInterview = interaction.customId.startsWith('rank_interview_');
     const isTraining  = interaction.customId.startsWith('rank_training_');
     if (!isInterview && !isTraining) return false;
@@ -170,9 +170,9 @@ async function handleRankButton(interaction, client) {
         return true;
     }
 
-    const prefix       = isInterview ? 'rank_interview_' : 'rank_training_';
-    const rankId       = isInterview ? TRAINEE_RANK_ID : parseInt(BARISTA_RANK_ID);
-    const rankLabel    = isInterview ? 'Trainee (Awaiting Training)' : 'Barista';
+    const prefix        = isInterview ? 'rank_interview_' : 'rank_training_';
+    const rankId        = isInterview ? TRAINEE_RANK_ID : parseInt(BARISTA_RANK_ID);
+    const rankLabel     = isInterview ? 'Trainee (Awaiting Training)' : 'Barista';
     const withoutPrefix = interaction.customId.replace(prefix, '');
     const firstUnderscore = withoutPrefix.indexOf('_');
     const userId   = withoutPrefix.substring(0, firstUnderscore);
@@ -188,7 +188,7 @@ async function handleRankButton(interaction, client) {
         if (success) {
             const updatedEmbed = EmbedBuilder.from(oldEmbed)
                 .setColor(0x2ECC71)
-                .spliceFields(isInterview ? 4 : 3, 1, {
+                .spliceFields(isInterview ? 5 : 3, 1, {
                     name: '🏷️ Ranking Status',
                     value: `✅ Ranked to **${rankLabel}** by ${interaction.user.tag}`,
                     inline: false
@@ -199,7 +199,7 @@ async function handleRankButton(interaction, client) {
         } else {
             const updatedEmbed = EmbedBuilder.from(oldEmbed)
                 .setColor(0xE74C3C)
-                .spliceFields(isInterview ? 4 : 3, 1, {
+                .spliceFields(isInterview ? 5 : 3, 1, {
                     name: '🏷️ Ranking Status',
                     value: `❌ Ranking failed — attempted by ${interaction.user.tag}`,
                     inline: false
