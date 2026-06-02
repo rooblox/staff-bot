@@ -4,6 +4,21 @@ const { DEPARTMENTS, hasMainRole } = require('./departments');
 
 const PANEL_IMAGE = 'https://images-ext-1.discordapp.net/external/BRbAFEkp6sgftr5ZZdkP1qB0t_VrQJxkENCKXh76XG4/https/media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg?format=webp';
 
+function parseEmoji(emojiStr) {
+    if (!emojiStr) return null;
+    const customMatch = emojiStr.match(/^<a?:(\w+):(\d+)>$/);
+    if (customMatch) return { name: customMatch[1], id: customMatch[2] };
+    return emojiStr;
+}
+
+function buildSelectOption(c) {
+    const option = { label: c.name, value: c.name };
+    const emoji = parseEmoji(c.emoji);
+    if (emoji) option.emoji = emoji;
+    if (c.description) option.description = c.description.substring(0, 100);
+    return option;
+}
+
 async function rebuildAndUpdatePanel(panel, guild, client) {
     try {
         const textChannel = await guild.channels.fetch(panel.channelId).catch(() => null);
@@ -33,12 +48,7 @@ async function rebuildAndUpdatePanel(panel, guild, client) {
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`ticket_open_${guild.id}`)
                 .setPlaceholder('Choose a category...')
-                .addOptions(panel.categories.map(c => {
-                    const option = { label: c.name, value: c.name };
-                    if (c.emoji) option.emoji = c.emoji;
-                    if (c.description) option.description = c.description.substring(0, 100);
-                    return option;
-                }));
+                .addOptions(panel.categories.map(buildSelectOption));
             components.push(new ActionRowBuilder().addComponents(selectMenu));
         }
 

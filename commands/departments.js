@@ -53,7 +53,8 @@ const DEPARTMENTS = {
         roleId: '1484973859513045224',
         logChannelId: '1462475668506808330',
         loaChannelId: '1493725925819289805',
-        loaLogChannelId: '1464070445698650316'
+        loaLogChannelId: '1464070445698650316',
+        strikeLogChannelId: '1508460972094918832'
     }
 };
 
@@ -103,6 +104,17 @@ async function getDeptLogChannel(client, department) {
     }
 }
 
+async function getDeptStrikeLogChannel(client, department) {
+    try {
+        const dept = DEPARTMENTS[department];
+        if (!dept) return null;
+        const channelId = dept.strikeLogChannelId || dept.logChannelId;
+        return await client.channels.fetch(channelId);
+    } catch {
+        return null;
+    }
+}
+
 module.exports = {
     DEPARTMENTS,
     DEPT_CHOICES,
@@ -110,5 +122,6 @@ module.exports = {
     MAIN_REQUIRED_ROLE_ID,
     checkDeptPermission,
     hasMainRole,
-    getDeptLogChannel
+    getDeptLogChannel,
+    getDeptStrikeLogChannel
 };

@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { StaffRecord } = require('../db');
-const { DEPT_CHOICES, checkDeptPermission, getDeptLogChannel } = require('./departments');
+const { DEPT_CHOICES, checkDeptPermission, getDeptStrikeLogChannel } = require('./departments');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -82,7 +82,7 @@ If you feel like this was false or inaccurate please *open a ticket*.
                 .setFooter({ text: `${department} Department` })
                 .setTimestamp();
 
-            const logChannel = await getDeptLogChannel(client, department);
+            const logChannel = await getDeptStrikeLogChannel(client, department);
             if (logChannel?.isTextBased()) await logChannel.send({ embeds: [embed] });
 
             await interaction.editReply({ content: `✅ ${user.tag} has been issued a strike.` });
