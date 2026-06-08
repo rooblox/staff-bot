@@ -1,9 +1,9 @@
 const DEPARTMENTS = {
-    'SHR': {
+'SHR': {
         serverId: '1229426371592327250',
         roleId: '1493723763064438904',
         logChannelId: '1417829293001805854',
-        loaChannelId: '1453171153127608321',
+        loaChannelId: '1493723954370580561',
         loaLogChannelId: '1493723954370580561'
     },
     'PR Member': {

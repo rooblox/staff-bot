@@ -300,11 +300,9 @@ function scheduleTicketInactivity(ticket, guild) {
             if (!latestTicket || latestTicket.status === 'closed') return;
             const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
             if (!channel) return;
-            // Check last message time
             const messages = await channel.messages.fetch({ limit: 1 });
             const lastMsg = messages.first();
             if (lastMsg && Date.now() - lastMsg.createdTimestamp < 23 * 60 * 60 * 1000) {
-                // Activity detected, reschedule
                 scheduleTicketInactivity(latestTicket, guild);
                 return;
             }
@@ -325,7 +323,6 @@ function scheduleTicketInactivity(ticket, guild) {
                     .setTimestamp()
                 ]
             });
-            // Reschedule for another 24 hours
             scheduleTicketInactivity(latestTicket, guild);
         } catch (err) { console.error('Error sending ticket inactivity warning:', err); }
     }, 24 * 60 * 60 * 1000);
@@ -860,7 +857,7 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        if (interaction.customId.startsWith('ticket_close_') && !interaction.customId.startsWith('ticket_closerequest_') && !interaction.customId.startsWith('ticket_closeconfirm_') && !interaction.customId.startsWith('ticket_closecancel_')) {
+        if (interaction.customId.startsWith('ticket_close_') && !interaction.customId.startsWith('ticket_closerequest_') && !interaction.customId.startsWith('ticket_closeconfirm_') && !interaction.customId.startsWith('ticket_closecancel_') && !interaction.customId.startsWith('ticket_closeleft_')) {
             const caseId = interaction.customId.replace('ticket_close_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
@@ -882,6 +879,17 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.customId.startsWith('ticket_closecancel_')) {
             await interaction.update({ content: '✅ Close cancelled.', components: [], embeds: [] });
+            return;
+        }
+
+        // ========== TICKET CREATOR LEFT - CLOSE BUTTON ==========
+        if (interaction.customId.startsWith('ticket_closeleft_')) {
+            const caseId = interaction.customId.replace('ticket_closeleft_', '');
+            const ticket = await Ticket.findOne({ caseId });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
+            await interaction.update({ components: [] });
+            await closeTicket(ticket, interaction.channel, interaction.user, 'Ticket creator left the server');
             return;
         }
 
@@ -1566,6 +1574,45 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
+// ========== GUILD MEMBER REMOVE - TICKET CREATOR LEFT ==========
+client.on('guildMemberRemove', async member => {
+    try {
+        const openTickets = await Ticket.find({
+            userId: member.id,
+            serverId: member.guild.id,
+            status: { $in: ['open', 'claimed'] }
+        });
+
+        for (const ticket of openTickets) {
+            try {
+                const channel = await member.guild.channels.fetch(ticket.channelId).catch(() => null);
+                if (!channel) continue;
+
+                await channel.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('🚪 Ticket Creator Left the Server')
+                        .setDescription(`**${member.user.tag}** has left the server.\n\nThis ticket was opened by them. A staff member can close it below if it is no longer needed.`)
+                        .setColor(0xE74C3C)
+                        .addFields(
+                            { name: '🔖 Case ID', value: `#${ticket.caseId}`, inline: true },
+                            { name: '📂 Category', value: ticket.category, inline: true },
+                            { name: '👤 Creator', value: `${member.user.tag} (${member.id})`, inline: true }
+                        )
+                        .setFooter({ text: 'Kavià Café • Ticket System' })
+                        .setTimestamp()
+                    ],
+                    components: [new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`ticket_closeleft_${ticket.caseId}`)
+                            .setLabel('🔒 Close Ticket — Creator Left')
+                            .setStyle(ButtonStyle.Danger)
+                    )]
+                });
+            } catch (err) { console.error(`Error notifying ticket ${ticket.caseId} of member leave:`, err); }
+        }
+    } catch (err) { console.error('Error handling guildMemberRemove for tickets:', err); }
+});
+
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
     if (message.channel.type === 1) {
@@ -1589,7 +1636,7 @@ client.on('messageCreate', async message => {
                         .addFields(
                             { name: '👤 Trainee', value: `<@${message.author.id}> (${message.author.id})` },
                             { name: '🏢 Department', value: trainingSession.department },
-                            { name: '📖 Training', value: trainingModule.training },
+                            { name: '📖 Training', value: trainingSession.training || 'Unknown' },
                             { name: '📝 Message', value: message.content || '*No text*' }
                         )
                         .setTimestamp();
