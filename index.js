@@ -57,7 +57,11 @@ async function hasRequiredRole(userId) {
     try {
         const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
         const member = await mainGuild.members.fetch(userId).catch(() => null);
-        return member && member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID);
+        if (member && member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID)) return true;
+        const hrGuild = await client.guilds.fetch('1434556801096876034');
+        const hrMember = await hrGuild.members.fetch(userId).catch(() => null);
+        if (hrMember && hrMember.roles.cache.has('1434563855354167358')) return true;
+        return false;
     } catch { return false; }
 }
 
