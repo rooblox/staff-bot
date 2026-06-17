@@ -1674,6 +1674,13 @@ client.on('messageCreate', async message => {
 
 client.once('ready', async () => {
     console.log(`✅ Ready event fired!`);
+
+    client.user.setPresence({
+        activities: [{ name: 'Watching over the Kavià Café Staff Team', type: 3 }],
+        status: 'online'
+    });
+    console.log('✅ Default status set');
+
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
     try {
