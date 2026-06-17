@@ -1696,7 +1696,15 @@ client.once('ready', async () => {
         }
     }
 
-    console.log(`✅ Guild registration complete`);
+  console.log(`✅ Guild registration complete`);
+
+    // Leave any unauthorized guilds
+    for (const guild of client.guilds.cache.values()) {
+        if (!ALLOWED_GUILD_IDS.has(guild.id)) {
+            console.log(`⚠️ Leaving unauthorized guild: ${guild.name} (${guild.id})`);
+            await guild.leave().catch(() => {});
+        }
+    }
 
     const { scheduleReminder } = require('./commands/remind');
     const pendingReminders = await Reminder.find({ fireAt: { $gt: new Date() } });
@@ -1709,7 +1717,24 @@ client.once('ready', async () => {
     await restoreTicketInactivity();
 });
 
+const ALLOWED_GUILD_IDS = new Set([
+    '1370892833182974035', // Kavià Cafe (main)
+    '1434556801096876034', // Human Resources
+    '1229426371592327250', // SHR
+    '1385081586285940796', // PR
+    '1372680943592280217', // MR
+    '1313780438061420584', // Media Team
+    '1462152073478017243', // Development
+    '1301333604315561994', // Training Center
+    '1417973638346309653', // Kavia Cafe Development (your dev server)
+]);
+
 client.on('guildCreate', async guild => {
+    if (!ALLOWED_GUILD_IDS.has(guild.id)) {
+        console.log(`⚠️ Joined unauthorized guild: ${guild.name} (${guild.id}) — leaving.`);
+        await guild.leave().catch(() => {});
+        return;
+    }
     console.log(`✅ Joined new guild: ${guild.name} (${guild.id})`);
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
     try {
