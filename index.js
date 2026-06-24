@@ -401,7 +401,7 @@ async function postAnnouncement(session) {
         const cohostText = cohost ? `<@${cohost.id}>` : 'None';
         const announcementContent = session.shiftType === 'Training'
             ? `Hello <@&${TRAINING_PING_ROLE_ID}> !\n‼️ Get ready! I'm excited to announce that I'll be hosting a training at ${session.time} alongside my co-host, ${cohostText}!\n📈 If you're an LR aiming for promotion, this is your moment to step up and shine.\nDon't miss your chance!\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`
-            : `## 🚀 | Shift Commencement\n\n<@&${SHIFT_PING_ROLE_ID}>\n\n**‼️ | We are excited to announce that a shift is now being hosted at our lovely café!**\n\n💼 | Hosted by: <@${session.hostId}>\n\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)`;
+           : `## 🚀 | Shift Commencement\n\n<@&${SHIFT_PING_ROLE_ID}>\n\n**‼️ | We are excited to announce that a shift is now being hosted at our lovely café!**\n\n💼 | Hosted by: <@${session.hostId}>\n\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Game Link](https://www.roblox.com/games/109860649571330/Kavi-Cafe)`;
         const msg = await announcementChannel.send({ content: announcementContent });
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, { announcementMessageId: msg.id, announcementChannelId: ANNOUNCEMENT_CHANNEL_ID, sessionStarted: true, status: 'active', autoDeleteAt });
