@@ -909,7 +909,22 @@ client.on('interactionCreate', async interaction => {
             });
             return;
         }
+if (interaction.customId.startsWith('dmreply_')) {
+            const targetUserId = interaction.customId.replace('dmreply_', '');
+            const modal = new ModalBuilder().setCustomId(`dmreplymodal_${targetUserId}`).setTitle('Reply to User');
+            modal.addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('replymessage')
+                    .setLabel('Your reply')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('Type your reply here...')
+                    .setRequired(true)
+            ));
+            await interaction.showModal(modal);
+            return;
+        }
 
+        if (interaction.customId.startsWith('ticket_adduser_')) {
         if (interaction.customId.startsWith('ticket_adduser_')) {
             const caseId = interaction.customId.replace('ticket_adduser_', '');
             const ticket = await Ticket.findOne({ caseId });
@@ -1249,7 +1264,49 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.isModalSubmit()) {
+if (interaction.customId.startsWith('dmreplymodal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const targetUserId = interaction.customId.replace('dmreplymodal_', '');
+                const replyMessage = interaction.fields.getTextInputValue('replymessage');
+                const targetUser = await client.users.fetch(targetUserId).catch(() => null);
+                if (!targetUser) return interaction.editReply({ content: '❌ Could not find that user.' });
 
+                const logChannelId = client.dmLogChannels?.get(targetUserId) || '1462580398935642144';
+                const timestamp = `<t:${Math.floor(Date.now() / 1000)}:F>`;
+
+                const userEmbed = new EmbedBuilder()
+                    .setColor(0x3498DB)
+                    .setTitle('📩 **Staff Direct Message**')
+                    .setDescription(`**${replyMessage}**`)
+                    .addFields({ name: '🕒 Time & Date', value: timestamp })
+                    .setFooter({ text: 'Kavià Café Staff Team' });
+
+                await targetUser.send({ embeds: [userEmbed] });
+                await interaction.editReply({ content: `✅ Reply sent to **${targetUser.tag}**` });
+
+                const logEmbed = new EmbedBuilder()
+                    .setColor(0x3498DB)
+                    .setTitle('💬 **DM Sent (Reply)**')
+                    .addFields(
+                        { name: '📤 From (Staff)', value: `${interaction.user.tag} (${interaction.user.id})` },
+                        { name: '📥 To (User)', value: `${targetUser.tag} (${targetUser.id})` },
+                        { name: '📝 Message', value: replyMessage },
+                        { name: '🕒 Date & Time', value: timestamp }
+                    )
+                    .setFooter({ text: 'Kavià Café • DM Logs' });
+
+                const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+                if (logChannel) await logChannel.send({ embeds: [logEmbed] });
+
+            } catch (err) {
+                console.error('Error sending DM reply:', err);
+                try { await interaction.editReply({ content: '❌ Could not send reply. They may have DMs closed.' }); } catch {}
+            }
+            return;
+        }
+
+        if (interaction.customId.startsWith('ts_newpanel_')) {
         if (interaction.customId.startsWith('ts_newpanel_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
@@ -1653,7 +1710,7 @@ client.on('messageCreate', async message => {
             } catch (err) { console.error('Error logging age verif submission:', err); }
             return;
         }
-        const logChannelId = client.dmLogChannels?.get(message.author.id) || '1462580398935642144';
+     const logChannelId = client.dmLogChannels?.get(message.author.id) || '1462580398935642144';
         const timestamp = `<t:${Math.floor(Date.now() / 1000)}:F>`;
         try { await message.react('✅'); } catch (err) { console.error('Failed to react to user DM:', err); }
         const userReplyEmbed = new EmbedBuilder()
@@ -1665,9 +1722,15 @@ client.on('messageCreate', async message => {
                 { name: '🕒 Date & Time', value: timestamp }
             )
             .setFooter({ text: 'Kavia Cafe • DM Logs' });
+        const replyRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`dmreply_${message.author.id}`)
+                .setLabel('💬 Reply')
+                .setStyle(ButtonStyle.Primary)
+        );
         try {
             const logChannel = await client.channels.fetch(logChannelId);
-            if (logChannel) await logChannel.send({ embeds: [userReplyEmbed] });
+            if (logChannel) await logChannel.send({ embeds: [userReplyEmbed], components: [replyRow] });
         } catch (err) { console.error('Error logging user DM:', err); }
     }
 });
