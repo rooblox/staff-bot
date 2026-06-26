@@ -924,8 +924,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
-        if (interaction.customId.startsWith('ticket_adduser_')) {
-        if (interaction.customId.startsWith('ticket_adduser_')) {
+       if (interaction.customId.startsWith('ticket_adduser_')) {
             const caseId = interaction.customId.replace('ticket_adduser_', '');
             const ticket = await Ticket.findOne({ caseId });
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
@@ -1306,8 +1305,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
-        if (interaction.customId.startsWith('ts_newpanel_')) {
-        if (interaction.customId.startsWith('ts_newpanel_')) {
+       if (interaction.customId.startsWith('ts_newpanel_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
                 const channelId = interaction.customId.replace('ts_newpanel_', '');
