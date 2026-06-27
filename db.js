@@ -152,6 +152,13 @@ const ticketPanelSchema = new mongoose.Schema({
     createdAt: Date
 }, { versionKey: false });
 
+const birthdaySchema = new mongoose.Schema({
+    _id: String,
+    month: Number,
+    day: Number,
+    lastAnnouncedYear: Number
+}, { versionKey: false });
+
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
 const Reminder = mongoose.model('Reminder', reminderSchema);
 const Session = mongoose.model('Session', sessionSchema);
@@ -160,5 +167,6 @@ const CompletedTrainings = mongoose.model('CompletedTrainings', completedTrainin
 const Ticket = mongoose.model('Ticket', ticketSchema);
 const Review = mongoose.model('Review', reviewSchema);
 const TicketPanel = mongoose.model('TicketPanel', ticketPanelSchema);
+const Birthday = mongoose.model('Birthday', birthdaySchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday };

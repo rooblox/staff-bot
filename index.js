@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -502,6 +502,39 @@ async function restoreTicketInactivity() {
         }
         console.log(`✅ Restored inactivity timers for ${activeTickets.length} tickets`);
     } catch (err) { console.error('Error restoring ticket inactivity timers:', err); }
+}
+async function checkBirthdays() {
+    try {
+        const { BIRTHDAY_CHANNEL_ID, BIRTHDAY_GUILD_ID } = require('./commands/birthday');
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1;
+        const currentDay = now.getDate();
+        const currentYear = now.getFullYear();
+
+        const matches = await Birthday.find({ month: currentMonth, day: currentDay });
+        if (matches.length === 0) return;
+
+        const guild = await client.guilds.fetch(BIRTHDAY_GUILD_ID).catch(() => null);
+        if (!guild) return;
+        const channel = await guild.channels.fetch(BIRTHDAY_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased()) return;
+
+        for (const record of matches) {
+            if (record.lastAnnouncedYear === currentYear) continue;
+            try {
+                await channel.send({
+                    content: `🎉 <@${record._id}>`,
+                    embeds: [new EmbedBuilder()
+                        .setTitle('🎂 Happy Birthday!')
+                        .setDescription(`Everyone wish <@${record._id}> a very **Happy Birthday**! 🎉🎈\n\nWe hope you have an amazing day!`)
+                        .setColor(0xF39C12)
+                        .setTimestamp()
+                    ]
+                });
+                await Birthday.findByIdAndUpdate(record._id, { lastAnnouncedYear: currentYear });
+            } catch (err) { console.error(`Error announcing birthday for ${record._id}:`, err); }
+        }
+    } catch (err) { console.error('Error checking birthdays:', err); }
 }
 
 // ========== TRAINING HELPERS ==========
@@ -1781,8 +1814,10 @@ client.once('ready', async () => {
     await restoreSessions();
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
-    await restoreLOAs();
+  await restoreLOAs();
     await restoreTicketInactivity();
+    await checkBirthdays();
+    setInterval(checkBirthdays, 60 * 60 * 1000);
 });
 
 const ALLOWED_GUILD_IDS = new Set([
