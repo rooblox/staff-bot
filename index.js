@@ -172,7 +172,7 @@ async function updatePanelWorkload(panel, guild) {
     } catch (err) { console.error('Error updating panel workload:', err); }
 }
 
-async function saveTranscript(ticket, channel, logChannelId) {
+async function saveTranscript(ticket, channel, logChannelId, closedBy) {
     try {
         const { AttachmentBuilder } = require('discord.js');
         const messages = await channel.messages.fetch({ limit: 100 });
@@ -182,6 +182,22 @@ async function saveTranscript(ticket, channel, logChannelId) {
         const buffer = Buffer.from(transcript, 'utf-8');
         const attachment = new AttachmentBuilder(buffer, { name: `transcript-${ticket.caseId}.txt` });
         const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+
+        const claimTimeText = ticket.claimedAt && ticket.createdAt
+            ? `${Math.round((new Date(ticket.claimedAt).getTime() - new Date(ticket.createdAt).getTime()) / 1000 / 60)}m`
+            : 'N/A';
+        const durationText = ticket.createdAt
+            ? `${Math.round((Date.now() - new Date(ticket.createdAt).getTime()) / 1000 / 60)}m`
+            : 'Unknown';
+
+        let ratingText = 'N/A';
+        if (ticket.claimedBy) {
+            try {
+                const review = await Review.findOne({ ticketCaseId: ticket.caseId }).sort({ createdAt: -1 });
+                if (review) ratingText = `${review.rating}/5`;
+            } catch {}
+        }
+
         if (logChannel?.isTextBased()) {
             await logChannel.send({
                 embeds: [new EmbedBuilder()
@@ -192,7 +208,10 @@ async function saveTranscript(ticket, channel, logChannelId) {
                         { name: '👤 Opened By', value: `<@${ticket.userId}>`, inline: true },
                         { name: '📂 Category', value: ticket.category, inline: true },
                         { name: '👮 Claimed By', value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Unclaimed', inline: true },
-                        { name: '⏱️ Duration', value: ticket.createdAt ? `${Math.round((Date.now() - new Date(ticket.createdAt).getTime()) / 1000 / 60)}m` : 'Unknown', inline: true },
+                        { name: '⏱️ Claim Time', value: claimTimeText, inline: true },
+                        { name: '⏳ Duration', value: durationText, inline: true },
+                        { name: '⭐ Rating', value: ratingText, inline: true },
+                        { name: '🔒 Closed By', value: closedBy ? `${closedBy.tag}` : 'System', inline: true },
                         { name: '📅 Closed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
                     )
                     .setFooter({ text: `Kavià Café • Ticket System • Case #${ticket.caseId}` })
@@ -214,8 +233,8 @@ async function closeTicket(ticket, channel, closedBy, reason) {
             clearTimeout(client.ticketInactivityTimeouts.get(ticket.caseId));
             client.ticketInactivityTimeouts.delete(ticket.caseId);
         }
-        await Ticket.findByIdAndUpdate(ticket._id, { status: 'closed', closedAt: new Date() });
-        await saveTranscript(ticket, channel, ticket.logChannelId);
+       await Ticket.findByIdAndUpdate(ticket._id, { status: 'closed', closedAt: new Date() });
+        await saveTranscript(ticket, channel, ticket.logChannelId, closedBy);
 
         if (ticket.claimedBy) {
             try {
@@ -848,12 +867,12 @@ client.on('interactionCreate', async interaction => {
             if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
             if (ticket.claimedBy) return interaction.reply({ content: '❌ This ticket has already been claimed.', ephemeral: true });
             if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
-            await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed' });
+           await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed', claimedAt: new Date() });
             if (client.ticketRepingTimeouts.has(caseId)) { clearTimeout(client.ticketRepingTimeouts.get(caseId)); client.ticketRepingTimeouts.delete(caseId); }
             try { await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); } catch {}
             try { await interaction.channel.setName(`claimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
-            await interaction.update({
-                embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: interaction.user.tag, inline: false })],
+          await interaction.update({
+                embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xF39C12).spliceFields(2, 1, { name: '👮 Status', value: `✋ Claimed by ${interaction.user.tag}`, inline: true })],
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
                     new ButtonBuilder().setCustomId(`ticket_unclaim_${caseId}`).setLabel('↩️ Unclaim').setStyle(ButtonStyle.Secondary),
@@ -876,7 +895,7 @@ client.on('interactionCreate', async interaction => {
             try { await interaction.channel.permissionOverwrites.delete(interaction.user.id); } catch {}
             try { await interaction.channel.setName(`unclaimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
             await interaction.update({
-                embeds: [EmbedBuilder.from(interaction.message.embeds[0]).spliceFields(2, 1, { name: '👮 Claimed By', value: 'Unclaimed', inline: false })],
+                embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x378ADD).spliceFields(2, 1, { name: '👮 Status', value: '⏳ Unclaimed', inline: true })],
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ticket_claim_${caseId}`).setLabel('✋ Claim').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
@@ -1507,11 +1526,11 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 const welcomeEmbed = new EmbedBuilder()
                     .setTitle('🎫 Welcome to your ticket')
                     .setDescription('A team member will soon be taking care of you. Make sure that you describe your problems as accurately as possible so that you can be helped as best as possible.')
-                    .setColor(0x5865F2)
+                    .setColor(0x378ADD)
                     .addFields(
-                        { name: '🔖 Case ID', value: `#${caseId}`, inline: false },
-                        { name: '📂 Category', value: category, inline: false },
-                        { name: '👮 Claimed By', value: 'Unclaimed', inline: false },
+                        { name: '🔖 Case', value: `\`#${caseId}\``, inline: true },
+                        { name: '📂 Category', value: category, inline: true },
+                        { name: '👮 Status', value: '⏳ Unclaimed', inline: true },
                         { name: '👤 Creator', value: `${interaction.user.tag}`, inline: false }
                     )
                     .setImage(TICKET_IMAGE)
