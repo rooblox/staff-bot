@@ -264,7 +264,7 @@ async function closeTicket(ticket, channel, closedBy, reason) {
                 .setTitle('🔒 Ticket Closing')
                 .setDescription(`This ticket has been closed${reason ? ` — **${reason}**` : ''}.\n\nThis channel will be deleted in **10 seconds**.`)
                 .setColor(0xE74C3C)
-                .setThumbnail('https://cdn.discordapp.com/attachments/620024668673409069/1521630733469225000/9KmYliAAAABklEQVQDABtrtrOVD3Q5AAAAAElFTkSuQmCC.png?ex=6a45888d&is=6a44370d&hm=ca06f3c0597f4b01940fa6fb337d37cc7a4fad61f96fe217ab700f1dde2563ff&')
+.setImage('https://cdn.discordapp.com/attachments/620024668673409069/1521630733469225000/9KmYliAAAABklEQVQDABtrtrOVD3Q5AAAAAElFTkSuQmCC.png?ex=6a45888d&is=6a44370d&hm=ca06f3c0597f4b01940fa6fb337d37cc7a4fad61f96fe217ab700f1dde2563ff&')
                 .setFooter({ text: `Closed by ${closedBy?.tag || 'System'}` })
                 .setTimestamp()
             ]
@@ -666,7 +666,7 @@ client.on('interactionCreate', async interaction => {
                 const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
                 if (!channel) return interaction.editReply({ content: '❌ Ticket channel not found.', components: [] });
                 await channel.permissionOverwrites.edit(userId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
-await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interaction.user.tag}** added **${user.tag}** to the ticket.`).setColor(0x5865F2).setThumbnail('https://cdn.discordapp.com/attachments/620024668673409069/1521631074411741345/1l8kJYAAAAGSURBVAMAhvT074z4gtUAAAAASUVORK5CYII.png?ex=6a4588de&is=6a44375e&hm=787ab7932789b4dd0c002c6764fa5a0f5a11b9fa172472b73ffd3149ae3d5e12&').setTimestamp()] });
+await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interaction.user.tag}** added **${user.tag}** to the ticket.`).setColor(0x5865F2).setImage('https://cdn.discordapp.com/attachments/620024668673409069/1521631074411741345/1l8kJYAAAAGSURBVAMAhvT074z4gtUAAAAASUVORK5CYII.png?ex=6a4588de&is=6a44375e&hm=787ab7932789b4dd0c002c6764fa5a0f5a11b9fa172472b73ffd3149ae3d5e12&').setTimestamp()] });
                 await interaction.editReply({ content: `✅ **${user.tag}** has been added to the ticket!`, components: [] });
             } catch (err) {
                 console.error('Error adding user to ticket:', err);
@@ -881,7 +881,7 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
                     new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
                 )]
             });
-await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`**${interaction.user.tag}** has claimed this ticket.\n\nYour matters will now be taken care of. However, be patient if you do not always receive an answer immediately.`).setColor(0xF39C12).setThumbnail('https://cdn.discordapp.com/attachments/620024668673409069/1521630860535660637/HUFV2gAAAAZJREFUAwCEeRnGZn7XQAAAAABJRU5ErkJggg.png?ex=6a4588ab&is=6a44372b&hm=0579e25fa42b0aea856d6f235fed5c322a8960c3583cf5bf48e307ce86196b6b&').setTimestamp()] });
+await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`**${interaction.user.tag}** has claimed this ticket.\n\nYour matters will now be taken care of. However, be patient if you do not always receive an answer immediately.`).setColor(0xF39C12).setImage('https://cdn.discordapp.com/attachments/620024668673409069/1521630860535660637/HUFV2gAAAAZJREFUAwCEeRnGZn7XQAAAAABJRU5ErkJggg.png?ex=6a4588ab&is=6a44372b&hm=0579e25fa42b0aea856d6f235fed5c322a8960c3583cf5bf48e307ce86196b6b&').setTimestamp()] });
             const logChannel = await client.channels.fetch(ticket.logChannelId).catch(() => null);
             if (logChannel?.isTextBased()) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Ticket Claimed').setColor(0x2ECC71).setDescription(`**Case #${caseId}** has been claimed.`).addFields({ name: '👮 Claimed By', value: interaction.user.tag, inline: true }, { name: '📂 Category', value: ticket.category, inline: true }, { name: '👤 Opened By', value: `<@${ticket.userId}>`, inline: true }, { name: '📅 When', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }).setFooter({ text: `Kavià Café • Ticket System • Case #${caseId}` }).setTimestamp()] });
             return;
@@ -904,7 +904,7 @@ await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`**$
                     new ButtonBuilder().setCustomId(`ticket_closerequest_${caseId}`).setLabel('❓ Closure Request').setStyle(ButtonStyle.Secondary)
                 )]
             });
-await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩️ **${interaction.user.tag}** has unclaimed this ticket.`).setColor(0x378ADD).setThumbnail('https://cdn.discordapp.com/attachments/620024668673409069/1521630968291790949/tdHrBAAAABklEQVQDAFXb9U9ExQfWAAAAAElFTkSuQmCC.png?ex=6a4588c5&is=6a443745&hm=3ca9f06818ecaa7f948a7cd5fa77e33698a41733ac69785fc5dd0818fb6df659&').setTimestamp()] });
+await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩️ **${interaction.user.tag}** has unclaimed this ticket.`).setColor(0x378ADD).setImage('https://cdn.discordapp.com/attachments/620024668673409069/1521630968291790949/tdHrBAAAABklEQVQDAFXb9U9ExQfWAAAAAElFTkSuQmCC.png?ex=6a4588c5&is=6a443745&hm=3ca9f06818ecaa7f948a7cd5fa77e33698a41733ac69785fc5dd0818fb6df659&').setTimestamp()] });
             const panel = await TicketPanel.findOne({ serverId: ticket.serverId });
             if (panel) scheduleTicketReping(ticket, panel, interaction.guild);
             return;
@@ -954,7 +954,7 @@ await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩
             await interaction.reply({ content: '✅ Closure request sent to the ticket opener.', ephemeral: true });
             await interaction.channel.send({
                 content: `<@${ticket.userId}>`,
-                embeds: [new EmbedBuilder().setTitle('❓ Closure Request').setDescription(`**${interaction.user.tag}** has requested to close your ticket.\n\nHas your issue been resolved? If so, click **Yes** below to close the ticket.`).setColor(0xF39C12).setThumbnail('https://cdn.discordapp.com/attachments/620024668673409069/1521630625990312058/avatar-removebg-preview__7_-removebg-preview.png?ex=6a458873&is=6a4436f3&hm=13097ba5884157460dad416471432ea6e311d8b943e0c7bda7b1dac51b517454&').setFooter({ text: 'Kavià Café • Ticket System' }).setTimestamp()],
+embeds: [new EmbedBuilder().setTitle('❓ Closure Request').setDescription(`**${interaction.user.tag}** has requested to close your ticket.\n\nHas your issue been resolved? If so, click **Yes** below to close the ticket.`).setColor(0xF39C12).setImage('https://cdn.discordapp.com/attachments/620024668673409069/1521630625990312058/avatar-removebg-preview__7_-removebg-preview.png?ex=6a458873&is=6a4436f3&hm=13097ba5884157460dad416471432ea6e311d8b943e0c7bda7b1dac51b517454&').setFooter({ text: 'Kavià Café • Ticket System' }).setTimestamp()],
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ticket_closeconfirm_${caseId}`).setLabel('✅ Yes, close my ticket').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId(`ticket_closecancel_${caseId}`).setLabel('❌ No, keep it open').setStyle(ButtonStyle.Danger)
@@ -1701,7 +1701,7 @@ client.on('guildMemberRemove', async member => {
                         .setTitle('🚪 Ticket Creator Left the Server')
                         .setDescription(`**${member.user.tag}** has left the server.\n\nThis ticket was opened by them. A staff member can close it below if it is no longer needed.`)
                         .setColor(0xE74C3C)
-                        .setThumbnail('https://cdn.discordapp.com/attachments/620024668673409069/1521631185749676152/w2jpc0AAAAGSURBVAMAewXVEO1vryYAAAAASUVORK5CYII.png?ex=6a4588f9&is=6a443779&hm=bfb9a11c7f931f578c72ebf81c51e1729549c85803af6ff9e384ea18fc909295&')
+.setImage('https://cdn.discordapp.com/attachments/620024668673409069/1521631185749676152/w2jpc0AAAAGSURBVAMAewXVEO1vryYAAAAASUVORK5CYII.png?ex=6a4588f9&is=6a443779&hm=bfb9a11c7f931f578c72ebf81c51e1729549c85803af6ff9e384ea18fc909295&')
                         .addFields(
                             { name: '🔖 Case ID', value: `#${ticket.caseId}`, inline: true },
                             { name: '📂 Category', value: ticket.category, inline: true },
