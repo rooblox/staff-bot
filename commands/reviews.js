@@ -13,31 +13,43 @@ module.exports = {
 
         try {
             const staff = interaction.options.getUser('staff');
-            const reviews = await Review.find({ staffId: staff.id });
+            const realReviews = await Review.find({ staffId: staff.id });
 
-            if (!reviews || reviews.length === 0) {
+            // Layer troll reviews on top (in memory only, never saved)
+            const trollCount = client.trollReviews?.get(staff.id) || 0;
+
+            const allReviews = [...realReviews];
+            for (let i = 0; i < trollCount; i++) {
+                allReviews.push({ rating: 1, _fake: true });
+            }
+
+            if (allReviews.length === 0) {
                 return interaction.editReply({ content: `❌ **${staff.tag}** has no reviews yet.` });
             }
 
-            const total = reviews.length;
-            const avg = (reviews.reduce((sum, r) => sum + r.rating, 0) / total).toFixed(1);
-            const fiveStars = reviews.filter(r => r.rating === 5).length;
-            const fourStars = reviews.filter(r => r.rating === 4).length;
-            const threeStars = reviews.filter(r => r.rating === 3).length;
-            const twoStars = reviews.filter(r => r.rating === 2).length;
-            const oneStar = reviews.filter(r => r.rating === 1).length;
+            const total = allReviews.length;
+            const avg = (allReviews.reduce((sum, r) => sum + r.rating, 0) / total).toFixed(1);
+            const fiveStars = allReviews.filter(r => r.rating === 5).length;
+            const fourStars = allReviews.filter(r => r.rating === 4).length;
+            const threeStars = allReviews.filter(r => r.rating === 3).length;
+            const twoStars = allReviews.filter(r => r.rating === 2).length;
+            const oneStar = allReviews.filter(r => r.rating === 1).length;
 
             const starsDisplay = (count, total) => {
                 const pct = total > 0 ? Math.round((count / total) * 10) : 0;
                 return '█'.repeat(pct) + '░'.repeat(10 - pct) + ` ${count}`;
             };
 
+            const trollNote = trollCount > 0
+                ? `\n\n🤡 *${trollCount} totally real and definitely not fake 1-star reviews included*`
+                : '';
+
             const embed = new EmbedBuilder()
                 .setTitle(`⭐ Reviews — ${staff.tag}`)
-                .setColor(0xF39C12)
+                .setColor(trollCount > 0 ? 0xE74C3C : 0xF39C12)
                 .setThumbnail(staff.displayAvatarURL({ dynamic: true }))
                 .addFields(
-                    { name: '⭐ Average Rating', value: `**${avg}/5** from **${total}** review${total !== 1 ? 's' : ''}`, inline: false },
+                    { name: '⭐ Average Rating', value: `**${avg}/5** from **${total}** review${total !== 1 ? 's' : ''}${trollNote}`, inline: false },
                     { name: '5 ⭐', value: starsDisplay(fiveStars, total), inline: false },
                     { name: '4 ⭐', value: starsDisplay(fourStars, total), inline: false },
                     { name: '3 ⭐', value: starsDisplay(threeStars, total), inline: false },

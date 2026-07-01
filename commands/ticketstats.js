@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { Ticket } = require('../db');
+const { Ticket, Review } = require('../db');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -45,6 +45,54 @@ module.exports = {
                     avgCloseTime = avgMins < 60 ? `${avgMins}m` : `${Math.round(avgMins / 60)}h ${avgMins % 60}m`;
                 }
 
+                // Staff ratings — real reviews + troll reviews layered on top
+                const realReviews = await Review.find({ serverId: guild.id });
+                const trollReviews = client.trollReviews || new Map();
+
+                const ratingMap = new Map();
+                for (const review of realReviews) {
+                    if (!ratingMap.has(review.staffId)) {
+                        ratingMap.set(review.staffId, { total: 0, count: 0, tag: review.staffTag });
+                    }
+                    const entry = ratingMap.get(review.staffId);
+                    entry.total += review.rating;
+                    entry.count += 1;
+                }
+
+                // Apply troll reviews (1 star each, not saved to DB)
+                for (const [userId, fakeCount] of trollReviews.entries()) {
+                    if (!ratingMap.has(userId)) {
+                        let tag = 'Unknown';
+                        try { const u = await client.users.fetch(userId); tag = u.tag; } catch {}
+                        ratingMap.set(userId, { total: 0, count: 0, tag });
+                    }
+                    const entry = ratingMap.get(userId);
+                    entry.total += fakeCount * 1;
+                    entry.count += fakeCount;
+                    entry.trolled = true;
+                    entry.trollCount = fakeCount;
+                }
+
+                let ratingsText = 'No reviews yet';
+                if (ratingMap.size > 0) {
+                    const sorted = [...ratingMap.entries()]
+                        .map(([id, data]) => ({
+                            id,
+                            avg: data.total / data.count,
+                            count: data.count,
+                            tag: data.tag,
+                            trolled: data.trolled || false,
+                            trollCount: data.trollCount || 0
+                        }))
+                        .sort((a, b) => b.avg - a.avg);
+
+                    ratingsText = sorted.slice(0, 5).map((s, i) => {
+                        const stars = '⭐'.repeat(Math.round(s.avg));
+                        const trollNote = s.trolled ? ` 🤡 (+${s.trollCount} fake)` : '';
+                        return `**${i + 1}.** <@${s.id}> — ${stars} (${s.avg.toFixed(1)}/5, ${s.count} reviews)${trollNote}`;
+                    }).join('\n');
+                }
+
                 const topStaffText = topStaff.length > 0
                     ? topStaff.map((s, i) => `**${i + 1}.** <@${s._id}> — ${s.count} tickets`).join('\n')
                     : 'No data';
@@ -60,6 +108,7 @@ module.exports = {
                         { name: '📊 Overview', value: `Total: **${total}** | Open: **${open}** | Claimed: **${claimed}** | Closed: **${closed}**`, inline: false },
                         { name: '⏱️ Avg Close Time', value: avgCloseTime, inline: true },
                         { name: '🏆 Top Staff by Claims', value: topStaffText, inline: false },
+                        { name: '⭐ Staff Ratings', value: ratingsText, inline: false },
                         { name: '📂 Top Categories', value: topCatText, inline: false }
                     )
                     .setFooter({ text: 'Kavià Café • Ticket Statistics' })
@@ -72,7 +121,6 @@ module.exports = {
                 return interaction.editReply({ content: '❌ No ticket data found across any servers.' });
             }
 
-            // Discord allows max 10 embeds per message
             await interaction.editReply({ embeds: embeds.slice(0, 10) });
 
         } catch (err) {
