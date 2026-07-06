@@ -2486,18 +2486,6 @@ client.once('ready', async () => {
     console.log('✅ Default status set');
 });
 
-const ALLOWED_GUILD_IDS = new Set([
-    '1370892833182974035', // Kavià Cafe (main)
-    '1434556801096876034', // Human Resources
-    '1229426371592327250', // SHR
-    '1385081586285940796', // PR
-    '1372680943592280217', // MR
-    '1313780438061420584', // Media Team
-    '1462152073478017243', // Development
-    '1301333604315561994', // Training Center
-    '1417973638346309653', // Kavia Cafe Development (your dev server)
-]);
-
 client.on('guildCreate', async guild => {
     if (!ALLOWED_GUILD_IDS.has(guild.id)) {
         console.log(`⚠️ Joined unauthorized guild: ${guild.name} (${guild.id}) — leaving.`);
