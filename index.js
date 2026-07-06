@@ -2132,11 +2132,46 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
-        return;
-    }
-});
+if (interaction.customId.startsWith('pay_countermodal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const paymentId = interaction.customId.replace('pay_countermodal_', '');
+                const payment = await Payment.findById(paymentId).catch(() => null);
+                if (!payment) return interaction.editReply({ content: '❌ Payment not found.' });
+                if (payment.targetId !== interaction.user.id) return interaction.editReply({ content: '❌ This offer is not for you.' });
 
-// ========== GUILD MEMBER REMOVE - TICKET CREATOR LEFT ==========
+                const counterAmountRaw = interaction.fields.getTextInputValue('counteramount');
+                const counterNote = interaction.fields.getTextInputValue('counternote') || 'No reason provided';
+                const counterAmount = parseFloat(counterAmountRaw.replace(/[^0-9.]/g, ''));
+
+                if (isNaN(counterAmount) || counterAmount <= 0) {
+                    return interaction.editReply({ content: '❌ Please enter a valid amount.' });
+                }
+
+                await Payment.findByIdAndUpdate(paymentId, {
+                    counterAmount,
+                    status: 'counter_pending',
+                    $push: { history: { action: 'Counter Offer Submitted', by: interaction.user.id, byTag: interaction.user.tag, amount: counterAmount, at: new Date(), note: counterNote } }
+                });
+                const updated = await Payment.findById(paymentId);
+
+                await interaction.editReply({ content: `✅ Counter offer of **${payment.currency === 'robux' ? 'R$' : '$'}${counterAmount}** submitted! Please wait for the team to review.` });
+
+                try {
+                    const { buildReceiptEmbed } = require('./commands/payment');
+                    const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                    if (logChannel?.isTextBased()) {
+                        const currencySymbol = payment.currency === 'robux' ? 'R$' : '$';
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`pay_staffaccept_${paymentId}`)
+                                .setLabel(`✅ Accept ${currencySymbol}${counterAmount}`)
+                                .setStyle(ButtonStyle.Success),
+                            new ButtonBuilder()
+                                .setCustomId(`pay_staffdeclinecounter_${paymentId}`)
+                                .setLabel('❌ Decline Counter')
+                                .setStyle(ButtonStyle.Danger)
+                        );
 client.on('guildMemberRemove', async member => {
     try {
         const openTickets = await Ticket.find({
