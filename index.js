@@ -2511,15 +2511,6 @@ connectDB().then(() => {
     console.error('❌ Failed to connect to MongoDB:', err);
     process.exit(1);
 });
-
-connectDB().then(() => {
-    createServer(client);
-    client.login(process.env.TOKEN);
-    console.log('✅ Bot started successfully!');
-}).catch(err => {
-    console.error('❌ Failed to connect to MongoDB:', err);
-    process.exit(1);
-});
 client.on('guildCreate', async guild => {
     if (!ALLOWED_GUILD_IDS.has(guild.id)) {
         console.log(`⚠️ Joined unauthorized guild: ${guild.name} (${guild.id}) — leaving.`);
