@@ -1696,8 +1696,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
-        if (interaction.customId.startsWith('loa_extend_')) {
-        if (interaction.customId.startsWith('loa_extend_')) {
+       if (interaction.customId.startsWith('loa_extend_')) {
             const loaId = interaction.customId.replace('loa_extend_', '');
             const loa = await LOA.findById(loaId);
             if (!loa || interaction.user.id !== loa.userId) return interaction.reply({ content: '❌ This is not your LOA.', ephemeral: true });
