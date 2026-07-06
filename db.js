@@ -160,6 +160,38 @@ const birthdaySchema = new mongoose.Schema({
     lastAnnouncedYear: Number
 }, { versionKey: false });
 
+const paymentSchema = new mongoose.Schema({
+    offeredBy: String,
+    offeredByTag: String,
+    targetId: String,
+    targetTag: String,
+    targetDiscriminator: String,
+    targetCreatedAt: Date,
+    amount: Number,
+    currency: String,
+    description: String,
+    serverId: String,
+    serverName: String,
+    department: String,
+    logChannelId: String,
+    status: String,
+    counterAmount: Number,
+    agreementSigned: Boolean,
+    agreementSignedAt: Date,
+    paid: Boolean,
+    paidAt: Date,
+    paidBy: String,
+    paidByTag: String,
+    createdAt: Date,
+    history: [{
+        action: String,
+        by: String,
+        byTag: String,
+        amount: Number,
+        at: Date,
+        note: String
+    }]
+}, { versionKey: false });
 const checklistSchema = new mongoose.Schema({
     _id: String,
     scope: String,
@@ -182,5 +214,6 @@ const Review = mongoose.model('Review', reviewSchema);
 const TicketPanel = mongoose.model('TicketPanel', ticketPanelSchema);
 const Birthday = mongoose.model('Birthday', birthdaySchema);
 const Checklist = mongoose.model('Checklist', checklistSchema);
+const Payment = mongoose.model('Payment', paymentSchema);
 
 module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist };

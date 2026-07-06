@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -103,6 +103,19 @@ async function hasTicketStaffRole(userId, guildId, pingRoleId, pingRoleIds) {
         }
         const { hasMainRole } = require('./commands/departments');
         return await hasMainRole(client, userId);
+    } catch { return false; }
+}
+
+async function hasBotPermsRole(guildId, userId) {
+    try {
+        const guild = await client.guilds.fetch(guildId);
+        const member = await guild.members.fetch(userId).catch(() => null);
+        if (!member) return false;
+        for (const dept of Object.values(DEPARTMENTS)) {
+            if (dept.serverId === guildId && member.roles.cache.has(dept.roleId)) return true;
+        }
+        if (guildId === MAIN_GUILD_ID && member.roles.cache.has(REQUIRED_BUTTON_ROLE_ID)) return true;
+        return false;
     } catch { return false; }
 }
 
@@ -1299,6 +1312,391 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        // ========== PAYMENT SYSTEM ==========
+        if (interaction.customId.startsWith('pay_accept_')) {
+            const paymentId = interaction.customId.replace('pay_accept_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'accepted',
+                $push: { history: { action: 'Accepted', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+
+            await interaction.update({ components: [] });
+            await interaction.user.send({
+                embeds: [new EmbedBuilder()
+                    .setTitle('✅ Offer Accepted!')
+                    .setDescription(`You have accepted the payment offer.\n\nBefore payment is sent, you will need to sign a brief usage agreement. Please wait for the agreement to be sent.`)
+                    .setColor(0x2ECC71)
+                    .setTimestamp()
+                ]
+            }).catch(() => {});
+
+            // Post updated receipt to log with agreement button
+            try {
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) {
+                    const { buildReceiptEmbed } = require('./commands/payment');
+                    const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`pay_sendagreement_${paymentId}`)
+                            .setLabel('📝 Send Agreement')
+                            .setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder()
+                            .setCustomId(`pay_staffdecline_${paymentId}`)
+                            .setLabel('❌ Cancel Payment')
+                            .setStyle(ButtonStyle.Danger)
+                    );
+                    await logChannel.send({
+                        embeds: [buildReceiptEmbed(updated, 'accepted')],
+                        components: [row]
+                    });
+                }
+            } catch (err) { console.error('Error posting payment accept log:', err); }
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_decline_')) {
+            const paymentId = interaction.customId.replace('pay_decline_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'declined',
+                $push: { history: { action: 'Declined', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+
+            await interaction.update({ components: [] });
+            await interaction.user.send({
+                embeds: [new EmbedBuilder()
+                    .setTitle('❌ Offer Declined')
+                    .setDescription('You have declined this payment offer. If this was a mistake, please contact the team directly.')
+                    .setColor(0xE74C3C)
+                    .setTimestamp()
+                ]
+            }).catch(() => {});
+
+            try {
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) {
+                    const { buildReceiptEmbed } = require('./commands/payment');
+                    await logChannel.send({ embeds: [buildReceiptEmbed(updated, 'declined')] });
+                }
+            } catch (err) { console.error('Error posting payment decline log:', err); }
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_counter_')) {
+            const paymentId = interaction.customId.replace('pay_counter_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+
+            const modal = new ModalBuilder()
+                .setCustomId(`pay_countermodal_${paymentId}`)
+                .setTitle('Request Different Amount');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('counteramount')
+                        .setLabel('Your requested amount')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('e.g. 500')
+                        .setRequired(true)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('counternote')
+                        .setLabel('Reason (optional)')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setPlaceholder('Why are you requesting a different amount?')
+                        .setRequired(false)
+                )
+            );
+            await interaction.showModal(modal);
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_staffaccept_')) {
+            const paymentId = interaction.customId.replace('pay_staffaccept_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            const hasPerms = await hasBotPermsRole(interaction.guildId || payment.serverId, interaction.user.id);
+            if (!hasPerms) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+            if (payment.status !== 'counter_pending') return interaction.reply({ content: '❌ No counter offer to accept.', ephemeral: true });
+
+            const newAmount = payment.counterAmount;
+            await Payment.findByIdAndUpdate(paymentId, {
+                amount: newAmount,
+                counterAmount: null,
+                status: 'countered',
+                $push: { history: { action: 'Counter Accepted by Staff', by: interaction.user.id, byTag: interaction.user.tag, amount: newAmount, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+
+            await interaction.update({ components: [] });
+
+            // DM the freelancer the updated offer
+            try {
+                const target = await client.users.fetch(payment.targetId);
+                const currencySymbol = payment.currency === 'robux' ? 'R$' : '$';
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`pay_accept_${paymentId}`).setLabel('✅ Yes, I accept').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`pay_decline_${paymentId}`).setLabel('❌ No, decline').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId(`pay_counter_${paymentId}`).setLabel('🔄 Request Different Amount').setStyle(ButtonStyle.Secondary)
+                );
+                await target.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('✅ Counter Offer Accepted!')
+                        .setDescription(`Your counter offer has been accepted!\n\nThe new payment amount is **${currencySymbol}${newAmount} ${payment.currency === 'robux' ? 'Robux' : 'USD'}**.\n\nPlease confirm you accept this updated amount.`)
+                        .setColor(0x2ECC71)
+                        .addFields({ name: '📝 Description', value: payment.description })
+                        .setTimestamp()
+                    ],
+                    components: [row]
+                });
+            } catch {}
+
+            try {
+                const { buildReceiptEmbed } = require('./commands/payment');
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) await logChannel.send({ embeds: [buildReceiptEmbed(updated, 'countered')] });
+            } catch {}
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_staffdeclinecounter_')) {
+            const paymentId = interaction.customId.replace('pay_staffdeclinecounter_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'declined',
+                $push: { history: { action: 'Counter Declined by Staff', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+            await interaction.update({ components: [] });
+
+            try {
+                const target = await client.users.fetch(payment.targetId);
+                await target.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('❌ Counter Offer Declined')
+                        .setDescription('Unfortunately your counter offer was not accepted. The payment offer has been cancelled. Please reach out to the team if you have questions.')
+                        .setColor(0xE74C3C)
+                        .setTimestamp()
+                    ]
+                });
+            } catch {}
+
+            try {
+                const { buildReceiptEmbed } = require('./commands/payment');
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) await logChannel.send({ embeds: [buildReceiptEmbed(updated, 'declined')] });
+            } catch {}
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_staffdecline_')) {
+            const paymentId = interaction.customId.replace('pay_staffdecline_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'declined',
+                $push: { history: { action: 'Cancelled by Staff', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+            await interaction.update({ components: [] });
+
+            try {
+                const target = await client.users.fetch(payment.targetId);
+                await target.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('❌ Payment Cancelled')
+                        .setDescription('This payment offer has been cancelled by the team. Please reach out if you have questions.')
+                        .setColor(0xE74C3C)
+                        .setTimestamp()
+                    ]
+                });
+            } catch {}
+
+            try {
+                const { buildReceiptEmbed } = require('./commands/payment');
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) await logChannel.send({ embeds: [buildReceiptEmbed(updated, 'declined')] });
+            } catch {}
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_sendagreement_')) {
+            const paymentId = interaction.customId.replace('pay_sendagreement_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (payment.status !== 'accepted') return interaction.reply({ content: '❌ Payment must be accepted before sending agreement.', ephemeral: true });
+
+            await interaction.update({ components: [] });
+
+            const currencySymbol = payment.currency === 'robux' ? 'R$' : '$';
+            const currentAmount = payment.counterAmount || payment.amount;
+
+            try {
+                const target = await client.users.fetch(payment.targetId);
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`pay_agree_${paymentId}`).setLabel('✅ I Agree').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`pay_disagree_${paymentId}`).setLabel('❌ I Disagree').setStyle(ButtonStyle.Danger)
+                );
+                await target.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('📝 Payment Agreement — Kavià Café')
+                        .setColor(0x9B59B6)
+                        .setDescription(`Please read and agree to the following terms before your payment of **${currencySymbol}${currentAmount} ${payment.currency === 'robux' ? 'Robux' : 'USD'}** is sent.`)
+                        .addFields(
+                            { name: '📋 Agreement Terms', value: require('./commands/payment').AGREEMENT_TEXT },
+                            { name: '💰 Payment Amount', value: `${currencySymbol}${currentAmount} ${payment.currency === 'robux' ? 'Robux' : 'USD'}`, inline: true },
+                            { name: '📝 For', value: payment.description, inline: true },
+                            { name: '🆔 Your Discord ID', value: `\`${payment.targetId}\``, inline: true },
+                            { name: '📛 Your Username', value: `${payment.targetTag}`, inline: true }
+                        )
+                        .setFooter({ text: `Ref: ${payment._id} • Your Discord account serves as your digital signature` })
+                        .setTimestamp()
+                    ],
+                    components: [row]
+                });
+                await interaction.followUp({ content: `✅ Agreement sent to **${target.tag}**.`, ephemeral: true });
+            } catch {
+                await interaction.followUp({ content: '❌ Could not send agreement — user may have DMs closed.', ephemeral: true });
+            }
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_agree_')) {
+            const paymentId = interaction.customId.replace('pay_agree_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', ephemeral: true });
+
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'agreed',
+                agreementSigned: true,
+                agreementSignedAt: new Date(),
+                $push: { history: { action: 'Agreement Signed', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+
+            await interaction.update({ components: [] });
+            await interaction.user.send({
+                embeds: [new EmbedBuilder()
+                    .setTitle('✅ Agreement Signed!')
+                    .setDescription('Thank you for signing the agreement! Your payment will be sent shortly. Please allow some time for processing.')
+                    .setColor(0x2ECC71)
+                    .addFields({ name: '🆔 Reference', value: `\`${paymentId}\`` })
+                    .setTimestamp()
+                ]
+            }).catch(() => {});
+
+            try {
+                const { buildReceiptEmbed } = require('./commands/payment');
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) {
+                    const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`pay_paid_${paymentId}`)
+                            .setLabel('💸 Mark as Paid')
+                            .setStyle(ButtonStyle.Success)
+                    );
+                    await logChannel.send({
+                        embeds: [buildReceiptEmbed(updated, 'agreed')],
+                        components: [row]
+                    });
+                }
+            } catch (err) { console.error('Error posting agreement log:', err); }
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_disagree_')) {
+            const paymentId = interaction.customId.replace('pay_disagree_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', ephemeral: true });
+
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'declined',
+                $push: { history: { action: 'Agreement Refused', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+            await interaction.update({ components: [] });
+            await interaction.user.send({
+                embeds: [new EmbedBuilder()
+                    .setTitle('❌ Agreement Declined')
+                    .setDescription('You have declined the agreement. The payment has been cancelled. Please contact the team if you have questions.')
+                    .setColor(0xE74C3C)
+                    .setTimestamp()
+                ]
+            }).catch(() => {});
+
+            try {
+                const { buildReceiptEmbed } = require('./commands/payment');
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) await logChannel.send({ embeds: [buildReceiptEmbed(updated, 'declined')] });
+            } catch {}
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_paid_')) {
+            const paymentId = interaction.customId.replace('pay_paid_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (payment.status !== 'agreed') return interaction.reply({ content: '❌ Agreement must be signed before marking as paid.', ephemeral: true });
+
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'paid',
+                paid: true,
+                paidAt: new Date(),
+                paidBy: interaction.user.id,
+                paidByTag: interaction.user.tag,
+                $push: { history: { action: 'Marked as Paid', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            const updated = await Payment.findById(paymentId);
+            await interaction.update({ components: [] });
+
+            const currencySymbol = payment.currency === 'robux' ? 'R$' : '$';
+            const finalAmount = payment.counterAmount || payment.amount;
+
+            try {
+                const target = await client.users.fetch(payment.targetId);
+                await target.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('💸 Payment Sent!')
+                        .setDescription(`Your payment of **${currencySymbol}${finalAmount} ${payment.currency === 'robux' ? 'Robux' : 'USD'}** has been marked as sent by **${interaction.user.tag}**!\n\nThank you for your work with Kavià Café. We appreciate you! 🎉`)
+                        .setColor(0x2ECC71)
+                        .addFields(
+                            { name: '💰 Amount', value: `${currencySymbol}${finalAmount}`, inline: true },
+                            { name: '📝 For', value: payment.description, inline: true },
+                            { name: '🆔 Reference', value: `\`${paymentId}\``, inline: false }
+                        )
+                        .setTimestamp()
+                    ]
+                });
+            } catch {}
+
+            try {
+                const { buildReceiptEmbed } = require('./commands/payment');
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) await logChannel.send({ embeds: [buildReceiptEmbed(updated, 'paid')] });
+            } catch {}
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_extend_')) {
         if (interaction.customId.startsWith('loa_extend_')) {
             const loaId = interaction.customId.replace('loa_extend_', '');
             const loa = await LOA.findById(loaId);
@@ -1358,6 +1756,62 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
+        if (interaction.customId.startsWith('pay_countermodal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const paymentId = interaction.customId.replace('pay_countermodal_', '');
+                const payment = await Payment.findById(paymentId).catch(() => null);
+                if (!payment) return interaction.editReply({ content: '❌ Payment not found.' });
+                if (payment.targetId !== interaction.user.id) return interaction.editReply({ content: '❌ This offer is not for you.' });
+
+                const counterAmountRaw = interaction.fields.getTextInputValue('counteramount');
+                const counterNote = interaction.fields.getTextInputValue('counternote') || 'No reason provided';
+                const counterAmount = parseFloat(counterAmountRaw.replace(/[^0-9.]/g, ''));
+
+                if (isNaN(counterAmount) || counterAmount <= 0) {
+                    return interaction.editReply({ content: '❌ Please enter a valid amount.' });
+                }
+
+                await Payment.findByIdAndUpdate(paymentId, {
+                    counterAmount,
+                    status: 'counter_pending',
+                    $push: { history: { action: 'Counter Offer Submitted', by: interaction.user.id, byTag: interaction.user.tag, amount: counterAmount, at: new Date(), note: counterNote } }
+                });
+                const updated = await Payment.findById(paymentId);
+
+                await interaction.editReply({ content: `✅ Counter offer of **${payment.currency === 'robux' ? 'R$' : '$'}${counterAmount}** submitted! Please wait for the team to review.` });
+
+                // Notify in log channel
+                try {
+                    const { buildReceiptEmbed } = require('./commands/payment');
+                    const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                    if (logChannel?.isTextBased()) {
+                        const currencySymbol = payment.currency === 'robux' ? 'R$' : '$';
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`pay_staffaccept_${paymentId}`)
+                                .setLabel(`✅ Accept ${currencySymbol}${counterAmount}`)
+                                .setStyle(ButtonStyle.Success),
+                            new ButtonBuilder()
+                                .setCustomId(`pay_staffdeclinecounter_${paymentId}`)
+                                .setLabel('❌ Decline Counter')
+                                .setStyle(ButtonStyle.Danger)
+                        );
+                        await logChannel.send({
+                            content: `⚠️ **${interaction.user.tag}** has submitted a counter offer of **${currencySymbol}${counterAmount}**${counterNote !== 'No reason provided' ? ` — *"${counterNote}"*` : ''}`,
+                            embeds: [buildReceiptEmbed(updated, 'counter_pending')],
+                            components: [row]
+                        });
+                    }
+                } catch (err) { console.error('Error posting counter offer log:', err); }
+            } catch (err) {
+                console.error('Error handling counter offer:', err);
+                try { await interaction.editReply({ content: '❌ Error submitting counter offer.' }); } catch {}
+            }
+            return;
+        }
+
+       if (interaction.customId.startsWith('ts_newpanel_')) {
        if (interaction.customId.startsWith('ts_newpanel_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
             try {
