@@ -2510,23 +2510,6 @@ connectDB().then(() => {
     console.error('❌ Failed to connect to MongoDB:', err);
     process.exit(1);
 });
-client.on('guildCreate', async guild => {
-    if (!ALLOWED_GUILD_IDS.has(guild.id)) {
-        console.log(`⚠️ Joined unauthorized guild: ${guild.name} (${guild.id}) — leaving.`);
-        await guild.leave().catch(() => {});
-        return;
-    }
-    console.log(`✅ Joined new guild: ${guild.name} (${guild.id})`);
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-    try {
-        await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
-        console.log(`✅ Commands registered in new guild: ${guild.name}`);
-    } catch (err) {
-        console.error(`❌ Failed in ${guild.name} (${guild.id}): ${err.message}`);
-        console.error(err.rawError || err);
-    }
-});
-
 connectDB().then(() => {
     createServer(client);
     client.login(process.env.TOKEN);
