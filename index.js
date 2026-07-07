@@ -20,6 +20,18 @@ const LOA_STAFF_ROLE_ID = '1434623628078743584';
 const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001854df-a22e-4f51-aa3a-784de10a309f.png';
 const PANEL_IMAGE = 'https://images-ext-1.discordapp.net/external/BRbAFEkp6sgftr5ZZdkP1qB0t_VrQJxkENCKXh76XG4/https/media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg?format=webp';
 
+const ALLOWED_GUILD_IDS = new Set([
+    '1370892833182974035', // Kavià Cafe (main)
+    '1434556801096876034', // Human Resources
+    '1229426371592327250', // SHR
+    '1385081586285940796', // PR
+    '1372680943592280217', // MR
+    '1313780438061420584', // Media Team
+    '1462152073478017243', // Development
+    '1301333604315561994', // Training Center
+    '1417973638346309653', // Kavia Cafe Development
+]);
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
