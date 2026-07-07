@@ -216,4 +216,4 @@ const Birthday = mongoose.model('Birthday', birthdaySchema);
 const Checklist = mongoose.model('Checklist', checklistSchema);
 const Payment = mongoose.model('Payment', paymentSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment };
