@@ -1,6 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { Payment } = require('../db');
-const { DEPARTMENTS, MAIN_GUILD_ID, MAIN_REQUIRED_ROLE_ID } = require('./departments');
+const { DEPARTMENTS } = require('./loa');
+const MAIN_GUILD_ID = '1370892833182974035';
+const MAIN_REQUIRED_ROLE_ID = '1493354187109433434';
 
 const AGREEMENT_TEXT = `By clicking "I Agree", you confirm the following:
 
