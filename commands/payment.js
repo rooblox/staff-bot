@@ -36,6 +36,7 @@ function getDeptLogChannel(guildId) {
     for (const dept of Object.values(DEPARTMENTS)) {
         if (dept.serverId === guildId) return dept.logChannelId;
     }
+    if (guildId === '1370892833182974035') return '1493733252203151390';
     return null;
 }
 
