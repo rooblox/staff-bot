@@ -2345,6 +2345,11 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
+
+        return;
+    }
+});
+
 client.on('guildMemberRemove', async member => {
     try {
         const openTickets = await Ticket.find({
