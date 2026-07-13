@@ -1,8 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { Payment } = require('../db');
-const { DEPARTMENTS } = require('./loa');
-const MAIN_GUILD_ID = '1370892833182974035';
-const MAIN_REQUIRED_ROLE_ID = '1493354187109433434';
+const { DEPARTMENTS, MAIN_GUILD_ID, MAIN_REQUIRED_ROLE_ID } = require('./departments');
 
 const AGREEMENT_TEXT = `By clicking "I Agree", you confirm the following:
 
@@ -48,7 +46,8 @@ function buildReceiptEmbed(payment, status) {
         countered: 0x3498DB,
         agreed: 0x9B59B6,
         paid: 0x2ECC71,
-        counter_pending: 0x3498DB
+        counter_pending: 0x3498DB,
+        group_wait: 0xF39C12
     };
 
     const statusMap = {
@@ -58,11 +57,11 @@ function buildReceiptEmbed(payment, status) {
         countered: '🔄 Counter Offer Sent',
         agreed: '📝 Agreement Signed',
         paid: '💸 Paid',
-        counter_pending: '⏳ Counter Offer — Awaiting Staff Review'
+        counter_pending: '⏳ Counter Offer — Awaiting Staff Review',
+        group_wait: '⏳ Waiting — Not in Group Long Enough'
     };
 
     const currencySymbol = payment.currency === 'robux' ? 'R$' : '$';
-    const currentAmount = payment.counterAmount || payment.amount;
 
     const embed = new EmbedBuilder()
         .setTitle('💸 Payment Receipt')
@@ -82,6 +81,9 @@ function buildReceiptEmbed(payment, status) {
         .setFooter({ text: `Kavià Café • Payment System • ID: ${payment._id}` })
         .setTimestamp();
 
+    if (payment.robloxUsername) {
+        embed.addFields({ name: '🎮 Roblox Username', value: payment.robloxUsername, inline: true });
+    }
     if (payment.agreementSigned && payment.agreementSignedAt) {
         embed.addFields({ name: '📝 Agreement Signed', value: `<t:${Math.floor(new Date(payment.agreementSignedAt).getTime() / 1000)}:F>`, inline: true });
     }
@@ -205,13 +207,10 @@ module.exports = {
                 return interaction.editReply({ content: `❌ Could not DM **${target.tag}**. They may have DMs closed.` });
             }
 
-            // Post to log channel
             if (logChannelId) {
                 const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
                 if (logChannel?.isTextBased()) {
-                    await logChannel.send({
-                        embeds: [buildReceiptEmbed(payment, 'pending')],
-                    });
+                    await logChannel.send({ embeds: [buildReceiptEmbed(payment, 'pending')] });
                 }
             }
 

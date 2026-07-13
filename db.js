@@ -183,6 +183,7 @@ const paymentSchema = new mongoose.Schema({
     paidBy: String,
     paidByTag: String,
     createdAt: Date,
+    robloxUsername: String,
     history: [{
         action: String,
         by: String,

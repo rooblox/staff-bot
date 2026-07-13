@@ -1620,14 +1620,18 @@ if (interaction.customId.startsWith('dmreply_')) {
             const updated = await Payment.findById(paymentId);
 
             await interaction.update({ components: [] });
+            const robloxRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`pay_robloxmodal_${paymentId}`).setLabel('🎮 Enter Roblox Username').setStyle(ButtonStyle.Primary)
+            );
             await interaction.user.send({
                 embeds: [new EmbedBuilder()
                     .setTitle('✅ Agreement Signed!')
-                    .setDescription('Thank you for signing the agreement! Your payment will be sent shortly. Please allow some time for processing.')
-.setColor(0x2ECC71)
-.addFields({ name: '🆔 Reference', value: `\`${paymentId}\`` })
+                    .setDescription('Thank you for signing the agreement! Your payment will be sent shortly.\n\nPlease also provide your **exact Roblox username** so we can send the payment to the correct account.')
+                    .setColor(0x2ECC71)
+                    .addFields({ name: '🆔 Reference', value: `\`${paymentId}\`` })
                     .setTimestamp()
-                ]
+                ],
+                components: [robloxRow]
             }).catch(() => {});
 
             try {
@@ -1635,10 +1639,8 @@ if (interaction.customId.startsWith('dmreply_')) {
                 const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
                 if (logChannel?.isTextBased()) {
                     const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`pay_paid_${paymentId}`)
-                            .setLabel('💸 Mark as Paid')
-                            .setStyle(ButtonStyle.Success)
+                        new ButtonBuilder().setCustomId(`pay_paid_${paymentId}`).setLabel('💸 Mark as Paid').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`pay_groupwait_${paymentId}`).setLabel('⏳ Not in Group Long Enough').setStyle(ButtonStyle.Secondary)
                     );
                     await logChannel.send({
                         embeds: [buildReceiptEmbed(updated, 'agreed')],
@@ -1878,6 +1880,80 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        if (interaction.customId.startsWith('pay_groupwait_')) {
+            const paymentId = interaction.customId.replace('pay_groupwait_', '');
+            const payment = await Payment.findById(paymentId).catch(() => null);
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            await Payment.findByIdAndUpdate(paymentId, {
+                status: 'group_wait',
+                $push: { history: { action: 'Group Wait Applied', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
+            });
+            await interaction.update({ components: [] });
+            const cs = payment.currency === 'robux' ? 'R$' : '$';
+            const finalAmount = payment.counterAmount || payment.amount;
+            try {
+                const target = await client.users.fetch(payment.targetId);
+                await target.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('⏳ Payment On Hold — Group Membership')
+                        .setDescription(`Hello!\n\nThank you for your work with **Kavià Café**! Unfortunately, due to Roblox's rules, you must be a member of the Kavià Café Roblox group for at least **14 days** before we are able to send your payment.\n\nYour payment of **${cs}${finalAmount} ${payment.currency === 'robux' ? 'Robux' : 'USD'}** is confirmed and will be sent automatically once the 14-day period has passed.\n\nWe appreciate your patience! 🎉`)
+                        .setColor(0xF39C12)
+                        .addFields(
+                            { name: '💰 Amount', value: `${cs}${finalAmount}`, inline: true },
+                            { name: '📝 For', value: payment.description, inline: true },
+                            { name: '⏳ Wait Period', value: '14 days from today', inline: true }
+                        )
+                        .setTimestamp()
+                    ]
+                });
+            } catch {}
+            // Schedule reminder in log channel in 15 days
+            const fireAt = Date.now() + 15 * 24 * 60 * 60 * 1000;
+            setTimeout(async () => {
+                try {
+                    const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                    if (logChannel?.isTextBased()) {
+                        const updated = await Payment.findById(paymentId);
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId(`pay_paid_${paymentId}`).setLabel('💸 Mark as Paid').setStyle(ButtonStyle.Success)
+                        );
+                        await logChannel.send({
+                            content: `⏰ **14-day group wait is up!** Time to pay <@${payment.targetId}> their **${cs}${finalAmount}** for *${payment.description}*.`,
+                            embeds: [buildReceiptEmbed(updated, 'group_wait')],
+                            components: [row]
+                        });
+                    }
+                } catch (err) { console.error('Error sending group wait reminder:', err); }
+            }, fireAt - Date.now());
+            try {
+                const { buildReceiptEmbed } = require('./commands/payment');
+                const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                if (logChannel?.isTextBased()) {
+                    await logChannel.send({ embeds: [buildReceiptEmbed(await Payment.findById(paymentId), 'group_wait')] });
+                }
+            } catch {}
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_robloxmodal_')) {
+            const paymentId = interaction.customId.replace('pay_robloxmodal_', '');
+            const modal = new ModalBuilder().setCustomId(`pay_robloxusername_${paymentId}`).setTitle('Your Roblox Username');
+            modal.addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('robloxusername')
+                    .setLabel('Enter your exact Roblox username')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('e.g. Kaviacafe123')
+                    .setRequired(true)
+            ));
+            await interaction.showModal(modal);
+            return;
+        }
+
+       
+        
+     
+        
         if (interaction.customId.startsWith('pay_paid_')) {
             const paymentId = interaction.customId.replace('pay_paid_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
@@ -1948,6 +2024,26 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             } catch (err) {
                 console.error('Error sending DM reply:', err);
                 try { await interaction.editReply({ content: '❌ Could not send reply. They may have DMs closed.' }); } catch {}
+            }
+            return;
+        }
+
+        if (interaction.customId.startsWith('pay_robloxusername_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const paymentId = interaction.customId.replace('pay_robloxusername_', '');
+                const robloxUsername = interaction.fields.getTextInputValue('robloxusername').trim();
+                await Payment.findByIdAndUpdate(paymentId, { robloxUsername });
+                await interaction.editReply({ content: `✅ Roblox username **${robloxUsername}** saved! Thank you.` });
+                const payment = await Payment.findById(paymentId);
+                try {
+                    const { buildReceiptEmbed } = require('./commands/payment');
+                    const logChannel = await client.channels.fetch(payment.logChannelId).catch(() => null);
+                    if (logChannel?.isTextBased()) await logChannel.send({ embeds: [buildReceiptEmbed(payment, payment.status)] });
+                } catch {}
+            } catch (err) {
+                console.error('Error saving roblox username:', err);
+                try { await interaction.editReply({ content: '❌ Error saving username.' }); } catch {}
             }
             return;
         }
