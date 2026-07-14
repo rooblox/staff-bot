@@ -158,18 +158,6 @@ async function handleRankButton(interaction, client) {
     const isTraining  = interaction.customId.startsWith('rank_training_');
     if (!isInterview && !isTraining) return false;
 
-    try {
-        const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
-        const member = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
-        if (!member || !member.roles.cache.has(REQUIRED_ROLE_ID)) {
-            await interaction.reply({ content: '❌ You do not have permission to rank users.', ephemeral: true });
-            return true;
-        }
-    } catch {
-        await interaction.reply({ content: '❌ Permission check failed.', ephemeral: true });
-        return true;
-    }
-
     const prefix        = isInterview ? 'rank_interview_' : 'rank_training_';
     const rankId        = isInterview ? TRAINEE_RANK_ID : parseInt(BARISTA_RANK_ID);
     const rankLabel     = isInterview ? 'Trainee (Awaiting Training)' : 'Barista';
@@ -179,6 +167,18 @@ async function handleRankButton(interaction, client) {
     const username = withoutPrefix.substring(firstUnderscore + 1);
 
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
+
+    try {
+        const mainGuild = await client.guilds.fetch(MAIN_GUILD_ID);
+        const member = await mainGuild.members.fetch(interaction.user.id).catch(() => null);
+        if (!member || !member.roles.cache.has(REQUIRED_ROLE_ID)) {
+            await interaction.editReply({ content: '❌ You do not have permission to rank users.' });
+            return true;
+        }
+    } catch {
+        await interaction.editReply({ content: '❌ Permission check failed.' });
+        return true;
+    }
 
     try {
         const { setRank } = require('./commands/roblox');
