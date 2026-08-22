@@ -205,6 +205,18 @@ const checklistSchema = new mongoose.Schema({
     }]
 }, { versionKey: false });
 
+
+const messageLogSchema = new mongoose.Schema({
+    userId: String,
+    userTag: String,
+    guildId: String,
+    weeklyCount: { type: Number, default: 0 },
+    lastWeekCount: { type: Number, default: 0 },
+    allTimeCount: { type: Number, default: 0 },
+    lastActiveAt: Date,
+    weekStartDate: Date
+}, { versionKey: false });
+
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
 const Reminder = mongoose.model('Reminder', reminderSchema);
 const Session = mongoose.model('Session', sessionSchema);
@@ -216,5 +228,6 @@ const TicketPanel = mongoose.model('TicketPanel', ticketPanelSchema);
 const Birthday = mongoose.model('Birthday', birthdaySchema);
 const Checklist = mongoose.model('Checklist', checklistSchema);
 const Payment = mongoose.model('Payment', paymentSchema);
+const MessageLog = mongoose.model('MessageLog', messageLogSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog };

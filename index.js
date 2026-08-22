@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -65,6 +65,14 @@ const { activeSessions, getSectionEmbed, getSectionButtons, getQuizEmbed, getQui
 
 const loaModule = require('./commands/loa');
 const { scheduleLOAReturnReminder, DEPARTMENTS } = loaModule;
+
+
+// ========== MOD REPORT / ALLIANCE CONSTANTS ==========
+const STAFF_ROLE_ID = '1373551504773877790';
+const MOD_REPORT_GUILD_ID = '1370892833182974035';
+const ALLIANCE_SERVER_ID = process.env.ALLIANCE_SERVER_ID || '1385081586285940796';
+const ALLIANCE_ROLE_ID = process.env.ALLIANCE_ROLE_ID || '1371492999854293024';
+const MOD_REPORT_CHANNEL_ID = process.env.MOD_REPORT_CHANNEL_ID || '';
 
 // ========== HELPERS ==========
 async function hasRequiredRole(userId) {
@@ -597,6 +605,112 @@ async function checkBirthdays() {
     } catch (err) { console.error('Error checking birthdays:', err); }
 }
 
+
+// ========== MOD REPORT ==========
+function getWeekStart() {
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=Sun
+    const diff = now.getUTCDate() - day;
+    const weekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff, 0, 0, 0, 0));
+    return weekStart;
+}
+
+async function postModReport(client) {
+    try {
+        if (!MOD_REPORT_CHANNEL_ID) return console.error('MOD_REPORT_CHANNEL_ID not set');
+        const guild = await client.guilds.fetch(MOD_REPORT_GUILD_ID).catch(() => null);
+        if (!guild) return;
+        await guild.members.fetch();
+        const staffMembers = guild.members.cache.filter(m => m.roles.cache.has(STAFF_ROLE_ID));
+        const channel = await client.channels.fetch(MOD_REPORT_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased()) return;
+
+        const weekStart = getWeekStart();
+        const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        const header = new EmbedBuilder()
+            .setTitle('📊 Weekly Mod Report')
+            .setDescription(`Week of **<t:${Math.floor(lastWeekStart.getTime() / 1000)}:D>** — **<t:${Math.floor(weekStart.getTime() / 1000)}:D>**`)
+            .setColor(0x5865F2)
+            .setTimestamp()
+            .setFooter({ text: 'Kavià Café • Weekly Staff Activity Report' });
+
+        await channel.send({ embeds: [header] });
+
+        const sorted = [...staffMembers.values()].sort((a, b) => a.user.username.localeCompare(b.user.username));
+
+        for (const member of sorted) {
+            const log = await MessageLog.findOne({ userId: member.id, guildId: MOD_REPORT_GUILD_ID });
+            const weekly = log?.weeklyCount || 0;
+            const lastWeek = log?.lastWeekCount || 0;
+            const allTime = log?.allTimeCount || 0;
+            const lastActive = log?.lastActiveAt;
+            const isActive = weekly > 0;
+
+            const embed = new EmbedBuilder()
+                .setAuthor({ name: member.user.tag, iconURL: member.user.displayAvatarURL({ dynamic: true }) })
+                .setColor(isActive ? 0x2ECC71 : 0xE74C3C)
+                .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+                .addFields(
+                    { name: isActive ? '✅ Active this week' : '❌ Inactive this week', value: '\u200B', inline: false },
+                    { name: '💬 Messages', value: `This Week: **${weekly}**\nLast Week: **${lastWeek}**\nAll Time: **${allTime}**`, inline: true },
+                    { name: '🕐 Activity', value: lastActive ? `Last Active: <t:${Math.floor(new Date(lastActive).getTime() / 1000)}:R>` : 'No activity recorded', inline: true }
+                )
+                .setTimestamp();
+
+            await channel.send({ embeds: [embed] });
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        // Reset weekly counts and move to lastWeek after posting
+        await MessageLog.updateMany(
+            { guildId: MOD_REPORT_GUILD_ID },
+            [{ $set: { lastWeekCount: '$weeklyCount', weeklyCount: 0, weekStartDate: weekStart } }]
+        );
+
+        console.log('✅ Mod report posted and counts reset');
+    } catch (err) { console.error('Error posting mod report:', err); }
+}
+
+function scheduleWeeklyReport(client) {
+    const now = new Date();
+    const nextSunday = new Date();
+    nextSunday.setUTCDate(now.getUTCDate() + ((7 - now.getUTCDay()) % 7 || 7));
+    nextSunday.setUTCHours(14, 0, 0, 0); // 9AM EST = 2PM UTC
+    const delay = nextSunday.getTime() - now.getTime();
+    console.log(`✅ Mod report scheduled for ${nextSunday.toISOString()} (in ${Math.round(delay / 1000 / 60)} minutes)`);
+    setTimeout(async () => {
+        await postModReport(client);
+        setInterval(() => postModReport(client), 7 * 24 * 60 * 60 * 1000);
+    }, delay);
+}
+
+// ========== ALLIANCE SYNC ==========
+async function syncAllianceRole(client) {
+    try {
+        const mainGuild = await client.guilds.fetch(MOD_REPORT_GUILD_ID).catch(() => null);
+        const allianceGuild = await client.guilds.fetch(ALLIANCE_SERVER_ID).catch(() => null);
+        if (!mainGuild || !allianceGuild) return;
+
+        await mainGuild.members.fetch();
+        await allianceGuild.members.fetch();
+
+        const allianceMembers = new Set(allianceGuild.members.cache.keys());
+
+        for (const member of mainGuild.members.cache.values()) {
+            if (member.user.bot) continue;
+            const hasRole = member.roles.cache.has(ALLIANCE_ROLE_ID);
+            const inAlliance = allianceMembers.has(member.id);
+            if (inAlliance && !hasRole) {
+                await member.roles.add(ALLIANCE_ROLE_ID).catch(() => {});
+            } else if (!inAlliance && hasRole) {
+                await member.roles.remove(ALLIANCE_ROLE_ID).catch(() => {});
+            }
+        }
+        console.log('✅ Alliance role sync complete');
+    } catch (err) { console.error('Error syncing alliance roles:', err); }
+}
+
 // ========== TRAINING HELPERS ==========
 async function sendNextSection(userId, session) {
     const { trainingConfig, section, department, training } = session;
@@ -816,6 +930,30 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
 
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
+
+        // ========== AUDIT ALTS BUTTONS ==========
+        if (interaction.customId.startsWith('auditalts_kick_')) {
+            const userId = interaction.customId.replace('auditalts_kick_', '');
+            if (!interaction.member.roles.cache.has('1493354187109433434')) {
+                return interaction.reply({ content: '❌ No permission.', ephemeral: true });
+            }
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const member = await interaction.guild.members.fetch(userId).catch(() => null);
+                if (!member) return interaction.editReply({ content: '❌ Member not found or already left.' });
+                await member.kick('Kicked via /auditalts — identified as likely alt');
+                await interaction.editReply({ content: `✅ Kicked **${member.user.tag}**.` });
+            } catch (err) {
+                console.error('Error kicking alt:', err);
+                try { await interaction.editReply({ content: '❌ Failed to kick.' }); } catch {}
+            }
+            return;
+        }
+
+        if (interaction.customId.startsWith('auditalts_dismiss_')) {
+            await interaction.reply({ content: '✅ Dismissed.', ephemeral: true });
+            return;
+        }
 
         // ========== TICKET SETUP BUTTONS ==========
         if (interaction.customId.startsWith('ts_editpanel_')) {
@@ -2495,10 +2633,44 @@ client.on('guildMemberRemove', async member => {
             } catch (err) { console.error(`Error notifying ticket ${ticket.caseId} of member leave:`, err); }
         }
     } catch (err) { console.error('Error handling guildMemberRemove for tickets:', err); }
+
+    // Alliance role sync - if they left the alliance server, remove role from main
+    try {
+        if (member.guild.id === ALLIANCE_SERVER_ID) {
+            const mainGuild = await client.guilds.fetch(MOD_REPORT_GUILD_ID).catch(() => null);
+            if (mainGuild) {
+                const mainMember = await mainGuild.members.fetch(member.id).catch(() => null);
+                if (mainMember && mainMember.roles.cache.has(ALLIANCE_ROLE_ID)) {
+                    await mainMember.roles.remove(ALLIANCE_ROLE_ID).catch(() => {});
+                    console.log(`✅ Removed alliance role from ${member.user.tag} (left alliance server)`);
+                }
+            }
+        }
+    } catch (err) { console.error('Error handling alliance role on member leave:', err); }
 });
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+
+    // ========== STAFF MESSAGE TRACKING ==========
+    if (message.guild && message.guild.id === MOD_REPORT_GUILD_ID) {
+        try {
+            const member = message.guild.members.cache.get(message.author.id) ||
+                           await message.guild.members.fetch(message.author.id).catch(() => null);
+            if (member && member.roles.cache.has(STAFF_ROLE_ID)) {
+                const weekStart = getWeekStart();
+                await MessageLog.findOneAndUpdate(
+                    { userId: message.author.id, guildId: MOD_REPORT_GUILD_ID },
+                    {
+                        $inc: { weeklyCount: 1, allTimeCount: 1 },
+                        $set: { userTag: message.author.tag, lastActiveAt: new Date(), weekStartDate: weekStart }
+                    },
+                    { upsert: true }
+                );
+            }
+        } catch (err) { console.error('Error tracking message:', err); }
+    }
+
     if (message.channel.type === 1) {
         const trainingSession = activeSessions.get(message.author.id);
         if (trainingSession && trainingSession.awaitingAgeVerif) {
@@ -2619,6 +2791,42 @@ client.once('ready', async () => {
     await restoreTicketInactivity();
     await checkBirthdays();
     setInterval(checkBirthdays, 60 * 60 * 1000);
+
+    // ========== MOD REPORT SCHEDULER ==========
+    scheduleWeeklyReport(client);
+
+    // ========== ALLIANCE ROLE SYNC ==========
+    await syncAllianceRole(client);
+    setInterval(() => syncAllianceRole(client), 6 * 60 * 60 * 1000);
+});
+
+
+// ========== GUILD MEMBER ADD (Alliance Role) ==========
+client.on('guildMemberAdd', async member => {
+    try {
+        // If someone joins the main server, check if they're in alliance server
+        if (member.guild.id === MOD_REPORT_GUILD_ID) {
+            const allianceGuild = await client.guilds.fetch(ALLIANCE_SERVER_ID).catch(() => null);
+            if (allianceGuild) {
+                const allianceMember = await allianceGuild.members.fetch(member.id).catch(() => null);
+                if (allianceMember) {
+                    await member.roles.add(ALLIANCE_ROLE_ID).catch(() => {});
+                    console.log(`✅ Gave alliance role to ${member.user.tag} (in alliance server)`);
+                }
+            }
+        }
+        // If someone joins the alliance server, give them the role in main server
+        if (member.guild.id === ALLIANCE_SERVER_ID) {
+            const mainGuild = await client.guilds.fetch(MOD_REPORT_GUILD_ID).catch(() => null);
+            if (mainGuild) {
+                const mainMember = await mainGuild.members.fetch(member.id).catch(() => null);
+                if (mainMember && !mainMember.roles.cache.has(ALLIANCE_ROLE_ID)) {
+                    await mainMember.roles.add(ALLIANCE_ROLE_ID).catch(() => {});
+                    console.log(`✅ Gave alliance role to ${member.user.tag} (joined alliance server)`);
+                }
+            }
+        }
+    } catch (err) { console.error('Error handling guildMemberAdd for alliance:', err); }
 });
 
 client.on('guildCreate', async guild => {
