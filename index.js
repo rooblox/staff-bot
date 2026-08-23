@@ -67,6 +67,13 @@ const loaModule = require('./commands/loa');
 const { scheduleLOAReturnReminder, DEPARTMENTS } = loaModule;
 
 
+
+// ========== WELCOME SYSTEM ==========
+const WELCOME_GUILD_ID = '1370892833182974035';
+const WELCOME_CHANNEL_ID = '1370974444721410129';
+const WELCOME_THUMBNAIL = 'https://media.discordapp.net/attachments/1370974444721410129/1540552765623902228/kaviacafesingle.png?ex=6a8c5951&is=6a8b07d1&hm=5184709fe82614cd0199b24611ecdfacc47748356218f1cc790276c3172ee5d7&=&format=webp&quality=lossless';
+const WELCOME_BANNER = 'https://media.discordapp.net/attachments/1370974444721410129/1540552766236401664/kaviacafewelcome.jpg?ex=6a8c5951&is=6a8b07d1&hm=6e9b2f151d06a789161d011c4be7e166dc948ddc1288f20b6d55b6cc77359871&=&format=webp';
+
 // ========== MOD REPORT / ALLIANCE CONSTANTS ==========
 const STAFF_ROLE_ID = '1373551504773877790';
 const MOD_REPORT_GUILD_ID = '1370892833182974035';
@@ -2800,6 +2807,35 @@ client.once('ready', async () => {
     setInterval(() => syncAllianceRole(client), 6 * 60 * 60 * 1000);
 });
 
+
+
+// ========== WELCOME MESSAGE ==========
+client.on('guildMemberAdd', async member => {
+    if (member.guild.id !== WELCOME_GUILD_ID) return;
+    try {
+        const channel = await client.channels.fetch(WELCOME_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased()) return;
+
+        const embed = new EmbedBuilder()
+            .setColor(0xF4A83A)
+            .setTitle('Welcome to Kavià Cafe!')
+            .setDescription(
+                `🎉 Welcome to Kavià Café, <@${member.id}>! 🎉\n\n` +
+                `We're thrilled to have you join our Roblox community! 🍵\n\n` +
+                `🍵 Be sure to check out:\n` +
+                `📋 <#1370946530894413824> – to stay out of trouble\n` +
+                `👥 <#1370947213689098280> – to view information\n` +
+                `📣 <#1370946554587906189> – for important updates\n\n` +
+                `🧡 Need help? Just ask our friendly staff team!\n\n` +
+                `Enjoy your stay and grab a virtual latte with us!`
+            )
+            .setThumbnail(WELCOME_THUMBNAIL)
+            .setImage(WELCOME_BANNER)
+            .setFooter({ text: `Member joined • ${new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })} ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}` });
+
+        await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
+    } catch (err) { console.error('Error sending welcome message:', err); }
+});
 
 // ========== GUILD MEMBER ADD (Alliance Role) ==========
 client.on('guildMemberAdd', async member => {
