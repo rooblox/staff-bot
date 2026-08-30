@@ -68,6 +68,57 @@ const { scheduleLOAReturnReminder, DEPARTMENTS } = loaModule;
 
 
 
+
+// ========== ROBLOX GROUP TRACKER ==========
+const ROBLOX_GROUP_ID = '13827902';
+const ROBLOX_COUNT_CHANNEL_ID = '1371143149812187177';
+const ROBLOX_COUNT_GUILD_ID = '1370892833182974035';
+let lastRobloxMemberCount = 3947;
+let robloxMemberGoal = 4000;
+
+async function getRobloxGroupCount() {
+    try {
+        const res = await fetch(`https://groups.roblox.com/v1/groups/${ROBLOX_GROUP_ID}`);
+        const data = await res.json();
+        return data.memberCount || null;
+    } catch (err) {
+        console.error('Error fetching Roblox group count:', err);
+        return null;
+    }
+}
+
+async function checkRobloxGroupCount(client) {
+    try {
+        const currentCount = await getRobloxGroupCount();
+        if (!currentCount || currentCount === lastRobloxMemberCount) return;
+
+        const gained = currentCount > lastRobloxMemberCount;
+        const diff = Math.abs(currentCount - lastRobloxMemberCount);
+        const awayFromGoal = Math.abs(robloxMemberGoal - currentCount);
+
+        const channel = await client.channels.fetch(ROBLOX_COUNT_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased()) return;
+
+        // Check if goal was hit or passed
+        if (currentCount >= robloxMemberGoal) {
+            await channel.send({
+                content: `🎉 **We hit ${robloxMemberGoal.toLocaleString()} members in the Roblox group!** Thank you all so much — the new goal is **${(robloxMemberGoal + 1000).toLocaleString()}**! 🎊`
+            });
+            robloxMemberGoal += 1000;
+        } else {
+            const emoji = gained ? '🌟' : '😢';
+            const action = gained
+                ? `Kavià Cafe has gained **${diff} new member${diff !== 1 ? 's' : ''}**!`
+                : `Kavià Cafe has lost **${diff} member${diff !== 1 ? 's' : ''}**!`;
+            const goalText = `We are now at **${currentCount.toLocaleString()} members**, only **${awayFromGoal.toLocaleString()}** away from our goal of **${robloxMemberGoal.toLocaleString()} members**.`;
+
+            await channel.send({ content: `${emoji} ${action} ${goalText}` });
+        }
+
+        lastRobloxMemberCount = currentCount;
+    } catch (err) { console.error('Error checking Roblox group count:', err); }
+}
+
 // ========== WELCOME SYSTEM ==========
 const WELCOME_GUILD_ID = '1370892833182974035';
 const WELCOME_CHANNEL_ID = '1370974444721410129';
@@ -2798,6 +2849,9 @@ client.once('ready', async () => {
     await restoreTicketInactivity();
     await checkBirthdays();
     setInterval(checkBirthdays, 60 * 60 * 1000);
+
+    // ========== ROBLOX GROUP TRACKER ==========
+    setInterval(() => checkRobloxGroupCount(client), 5 * 60 * 1000); // check every 5 minutes
 
     // ========== MOD REPORT SCHEDULER ==========
     scheduleWeeklyReport(client);
