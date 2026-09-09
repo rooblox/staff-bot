@@ -17,7 +17,7 @@ const TRAINING_DEPTS = {
     },
     'SHR': {
         serverId: '1372680943592280217',
-        logChannelId: '1417829293001805854',
+        logChannelId: '1493725407332139179',
         roleId: '1493725057254428753',
         pingRoleId: '1493725057254428753'
     }
