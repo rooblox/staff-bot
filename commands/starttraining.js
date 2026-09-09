@@ -211,6 +211,73 @@ const HR_BASIC_QUIZ = [
     }
 ];
 
+
+const SHR_TRAINING_SECTIONS = [
+    {
+        title: '📢 Welcome to Intro to Mentorship',
+        content: `Hello! Congratulations on joining the mentorship program at Kavià Café! This training will walk you through everything you need to know about handling tickets, your added responsibilities as a Senior High Rank and how to best work your way up.\n\nPlease read each section carefully and click **Done** when you are ready to move on.`
+    },
+    {
+        title: '📋 SHR Responsibilities',
+        content: `Now that you are a Senior High Rank, your expectations are different from when you were a High Rank (if you were one). As you work your way through all 3 of our SHR ranks we expect you to uphold our standards and expectations.\n\n• **Professionalism** → Punctuation is not required, but you must use common sense and know the appropriate time and place for jokes.\n• **Department Leadership** → As an SHR you are eligible to lead a department, it is not a requirement but if you do we expect you to keep up with your tasks.\n• **Providing basic leadership and advice to HRs** → If you see an issue arise, try to help to the best of your abilities.\n• **Tickets** → You will be expected to deal with all SHR tickets, unless they need presidential intervention.`
+    },
+    {
+        title: '📩 Tickets',
+        content: `Below will be a short explanation of different ticket situations and how to handle them. If you are not sure on how to properly handle something please reach out for help.\n\n• **HR resignation** → First you must confirm that the user is absolutely sure of this decision. They will not be able to re-apply for two weeks after. Secondly, you will change their rank to **customer** using the /changerank command. You then need to run /update with Bloxlink, if /update fails try putting in their user ID. Afterwards please ping the Vice Chairperson or anyone above them to remove departmental roles and kick the ticket opener from all Kavià servers except the main one. Lastly, please thank them for being a part of Kavià and close the ticket.\n\n• **HR application** → Once someone applies their application will be sent to our application logs channel in the main server. Before reviewing please ask the user what department they want to join. You are allowed to review this independently but it's recommended to get a second opinion from someone else. Once you've decided to hire them, send the format and please use /changerank to rank them properly and invite them to the Staff Server and any other servers they need to be apart of depending on their chosen department.`
+    },
+    {
+        title: '📩 Tickets — Part 2',
+        content: `• **Reports** → Reports are handled per rank. You may handle reports up to HR. Any SHR or Presidential reports must be handled by the Presidential and/or Ownership Team. (In a presidential ticket type)\n\n• **Payment not received** → Any tickets regarding payment must be handled by a member of PRD leadership.`
+    },
+    {
+        title: '📌 Policies and Additional Information',
+        content: `• All staff are expected to be 13+. If you are caught under the age of 13 you will be immediately blacklisted and globally banned from both our Discord servers & games.\n• Your DMs with any staff member are confidential. The Presidential team may share your DMs with the rest of the team if absolutely necessary but other than that leaking DMs or anything else official will result in consequences.\n• Kavià runs on a three strike system, meaning that after three strikes you will receive a demotion or termination based on the severity of your actions. All strike types are forgiven 2 months after the distribution date.\n• Kavià Cafe can offer staff a one strike policy under presidential approval. Kavià Cafe is also permitted to terminate staff members for any reason under a presidential member's discretion.\n• Kavià holds the right to strike, terminate or blacklist you at any point with notice.\n• If you attempt to role someone manually there's a possibility you will be quarantined. If you are quarantined you must immediately reach out to the VC, chairperson or ownership team.`
+    }
+];
+
+const SHR_TRAINING_QUIZ = [
+    {
+        question: 'What ticket types can a Senior High Rank see?',
+        options: { A: 'Moderation + SHR Support', B: 'Public Relations + Moderation Support', C: 'Human Resources + Moderation Support', D: 'All of the above' },
+        answer: 'D'
+    },
+    {
+        question: 'Which of these ticket types is a Senior High Rank NOT allowed to handle?',
+        options: { A: 'SHR and Presidential reports', B: 'SHR applications', C: 'Resignation tickets', D: 'HR applications' },
+        answer: 'A'
+    },
+    {
+        question: 'Which of these ranks is allowed to speak in already claimed tickets if needed?',
+        options: { A: 'HR Team', B: 'SHR Team', C: 'I don\'t know, this wasn\'t in the training', D: 'Presidential Team' },
+        answer: 'D'
+    },
+    {
+        question: 'What should you do if you don\'t know how to do something in a ticket?',
+        options: { A: 'Mess around and see what happens', B: 'Spam ping someone to do it for me', C: 'Ghost the ticket', D: 'Ask for help from a fellow SHR or Presidential member' },
+        answer: 'D'
+    },
+    {
+        question: 'It is revealed that an HR was under 13 all along! What should you do?',
+        options: { A: 'Collect evidence and ban them yourself', B: 'Collect evidence, request for a HR blacklist and ask the Chairteam to gban them', C: 'Ask the Chairteam to gban them', D: 'Collect evidence and request for a HR blacklist' },
+        answer: 'B'
+    },
+    {
+        question: 'How many strikes do we give?',
+        options: { A: '8', B: '2', C: '3', D: '5' },
+        answer: 'C'
+    },
+    {
+        question: 'You strike an HR but then realize they are on a one strike policy due to previous issues. Do you?',
+        options: { A: 'Terminate them', B: 'Pretend it didn\'t happen and remove the strike', C: 'Do nothing', D: 'Ban them' },
+        answer: 'A'
+    },
+    {
+        question: 'How many SHR ranks are there?',
+        options: { A: '3', B: '5', C: 'I don\'t know', D: '34' },
+        answer: 'A'
+    }
+];
+
 const activeSessions = new Map();
 
 function getTrainingConfig(department, training) {
