@@ -14,11 +14,17 @@ const TRAINING_DEPTS = {
         logChannelId: '1496259091935399956',
         roleId: '1484973859513045224',
         pingRoleId: '1484973859513045224'
+    },
+    'SHR': {
+        serverId: '1229426371592327250',
+        logChannelId: '1417829293001805854',
+        roleId: '1493723763064438904',
+        pingRoleId: '1493723763064438904'
     }
 };
 
 const OTHER_DEPTS = [
-    'SHR', 'PR Member', 'MR Member', 'HR Member',
+    'PR Member', 'MR Member', 'HR Member',
     'Media Team', 'Development Member', 'Development Tester'
 ];
 
@@ -36,7 +42,8 @@ const ALL_DEPT_CHOICES = [
 
 const TRAINING_CHOICES = [
     { name: 'Basic Training', value: 'Basic Training' },
-    { name: 'Intro to Mentorship', value: 'Intro to Mentorship' }
+    { name: 'Intro to Mentorship', value: 'Intro to Mentorship' },
+    { name: 'SHR Training', value: 'SHR Training' }
 ];
 
 // ========== TRAINING CONTENT ==========
@@ -291,6 +298,11 @@ function getTrainingConfig(department, training) {
 
     if (training === 'Intro to Mentorship') {
         return { sections: INTRO_TO_MENTORSHIP_SECTIONS, quiz: INTRO_TO_MENTORSHIP_QUIZ, passScore: 3, notSetup: false };
+    }
+
+    if (training === 'SHR Training') {
+        if (department === 'SHR') return { sections: SHR_TRAINING_SECTIONS, quiz: SHR_TRAINING_QUIZ, passScore: 6, notSetup: false };
+        return { sections: null, quiz: null, notSetup: true };
     }
 
     return { sections: null, quiz: null, notSetup: true };
