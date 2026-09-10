@@ -1355,8 +1355,65 @@ if (interaction.customId.startsWith('dmreply_')) {
                 await LOA.findByIdAndUpdate(loaId, { status: 'approved', approvedAt: new Date() });
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Leave of Absence Approved').setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
-                await interaction.update({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 LOA Request — ✅ Approved').setFooter({ text: `Approved by ${interaction.user.username} • LOA ID: ${loaId}` })], components: [] });
-                await sendLOALog(user, '✅ LOA Approved', 0x2ECC71, loaId, [{ name: '👮 Approved By', value: interaction.user.tag }, { name: '📅 Return Date', value: loa.returnDate }]);
+                // Create LOA roles in dept server and main server
+                try {
+                    const { DEPARTMENTS } = require('./commands/departments');
+                    const deptCfg = DEPARTMENTS[loa.department];
+                    const roleName = `LOA - ${loa.timeGone}`;
+                    const roleColor = 0xF39C12;
+
+                    let loaRoleIdDept = null;
+                    let loaRoleIdMain = null;
+
+                    // Create role in dept server and assign to user
+                    if (deptCfg) {
+                        const deptGuild = await client.guilds.fetch(deptCfg.serverId).catch(() => null);
+                        if (deptGuild) {
+                            const deptRole = await deptGuild.roles.create({ name: roleName, color: roleColor, reason: 'LOA approved' }).catch(() => null);
+                            if (deptRole) {
+                                loaRoleIdDept = deptRole.id;
+                                const deptMember = await deptGuild.members.fetch(loa.userId).catch(() => null);
+                                if (deptMember) await deptMember.roles.add(deptRole).catch(() => {});
+                            }
+                        }
+                    }
+
+                    // Create role in main server and assign to user
+                    const mainGuild = await client.guilds.fetch('1370892833182974035').catch(() => null);
+                    if (mainGuild) {
+                        const mainRole = await mainGuild.roles.create({ name: roleName, color: roleColor, reason: 'LOA approved' }).catch(() => null);
+                        if (mainRole) {
+                            loaRoleIdMain = mainRole.id;
+                            const mainMember = await mainGuild.members.fetch(loa.userId).catch(() => null);
+                            if (mainMember) await mainMember.roles.add(mainRole).catch(() => {});
+                        }
+                    }
+
+                    if (loaRoleIdDept || loaRoleIdMain) {
+                        await LOA.findByIdAndUpdate(loaId, { loaRoleIdDept, loaRoleIdMain });
+                    }
+                } catch (err) { console.error('Error creating LOA roles:', err); }
+
+                // Delete the request message and post clean approval log
+                try { await interaction.message.delete(); } catch {}
+                try {
+                    const logChannel = await client.channels.fetch(loa.logChannelId || interaction.channel.id).catch(() => null);
+                    if (logChannel?.isTextBased()) {
+                        await logChannel.send({ embeds: [new EmbedBuilder()
+                            .setTitle('✅ LOA Approved')
+                            .setColor(0x2ECC71)
+                            .addFields(
+                                { name: '👤 User', value: `${user.tag} (${user.id})`, inline: true },
+                                { name: '🏢 Department', value: loa.department || 'Unknown', inline: true },
+                                { name: '👮 Approved By', value: interaction.user.tag, inline: true },
+                                { name: '⏳ Time Gone', value: loa.timeGone, inline: true },
+                                { name: '📅 Return Date', value: loa.returnDate, inline: true }
+                            )
+                            .setFooter({ text: `LOA ID: ${loaId}` })
+                            .setTimestamp()
+                        ]});
+                    }
+                } catch (err) { console.error('Error posting LOA approval log:', err); }
                 scheduleLOAReturnReminder(loa, client);
             } catch (err) { console.error('Error approving LOA:', err); await interaction.reply({ content: '❌ Error approving LOA.', ephemeral: true }); }
             return;
@@ -1397,6 +1454,20 @@ if (interaction.customId.startsWith('dmreply_')) {
             try { const deptConfig = DEPARTMENTS[loa.department]; if (deptConfig) { const loaGuild = await client.guilds.fetch(deptConfig.serverId); const loaChannel = await loaGuild.channels.fetch(deptConfig.loaChannelId); const msg = await loaChannel.messages.fetch(loa.messageId).catch(() => null); if (msg) await msg.delete().catch(() => {}); } } catch {}
             await interaction.user.send({ embeds: [new EmbedBuilder().setTitle('👋 Welcome Back!').setDescription(`Welcome back, <@${loa.userId}>! 🎉\n\nWe're thrilled to have you back at **Kavià Café**. Your LOA has been officially closed.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
             await sendLOALog(await client.users.fetch(loa.userId), '👋 LOA Returned', 0x2ECC71, loaId, [{ name: '📅 Return Date', value: loa.returnDate }]);
+
+            // Delete LOA roles from both servers
+            try {
+                const { DEPARTMENTS } = require('./commands/departments');
+                const deptCfg = DEPARTMENTS[loa.department];
+                if (loa.loaRoleIdDept && deptCfg) {
+                    const deptGuild = await client.guilds.fetch(deptCfg.serverId).catch(() => null);
+                    if (deptGuild) await deptGuild.roles.delete(loa.loaRoleIdDept, 'LOA ended').catch(() => {});
+                }
+                if (loa.loaRoleIdMain) {
+                    const mainGuild = await client.guilds.fetch('1370892833182974035').catch(() => null);
+                    if (mainGuild) await mainGuild.roles.delete(loa.loaRoleIdMain, 'LOA ended').catch(() => {});
+                }
+            } catch (err) { console.error('Error deleting LOA roles on return:', err); }
             return;
         }
 
@@ -2533,38 +2604,18 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                     new ButtonBuilder().setCustomId(`loa_moreinfo_${loa._id}`).setLabel('❓ Request More Info').setStyle(ButtonStyle.Secondary)
                 );
 
-                try {
-                    const loaGuild = await client.guilds.fetch(deptConfig.serverId);
-                    const loaChannel = await loaGuild.channels.fetch(deptConfig.loaChannelId);
-                    const msg = await loaChannel.send({
-                        content: `<@&${deptConfig.roleId}>`,
-                        embeds: [embed],
-                        components: [row]
-                    });
-                    await LOA.findByIdAndUpdate(loa._id, { messageId: msg.id });
-                } catch (err) { console.error('Error posting LOA to dept channel:', err); }
-
+                // Post request to log channel for approval
                 try {
                     const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
                     if (logChannel?.isTextBased()) {
-                        await logChannel.send({
-                            embeds: [new EmbedBuilder()
-                                .setTitle('📋 LOA Submitted')
-                                .setColor(0x3498DB)
-                                .addFields(
-                                    { name: '👤 User', value: `${interaction.user.tag} (${interaction.user.id})` },
-                                    { name: '🏢 Department', value: department },
-                                    { name: '📝 Reason', value: reason },
-                                    { name: '⏳ Time Gone', value: timeGone },
-                                    { name: '📅 Start Date', value: startDateStr, inline: true },
-                                    { name: '📅 End / Return Date', value: returnDateStr, inline: true }
-                                )
-                                .setFooter({ text: `LOA ID: ${loa._id}` })
-                                .setTimestamp()
-                            ]
+                        const msg = await logChannel.send({
+                            content: `<@&${deptConfig.roleId}>`,
+                            embeds: [embed],
+                            components: [row]
                         });
+                        await LOA.findByIdAndUpdate(loa._id, { messageId: msg.id, channelId: logChannelId });
                     }
-                } catch (err) { console.error('Error sending LOA log:', err); }
+                } catch (err) { console.error('Error posting LOA request to log channel:', err); }
 
                 scheduleLOAReturnReminder(loa, client);
                 await interaction.editReply({ content: "✅ Your LOA request has been submitted! You will be DM'd when it has been reviewed." });
@@ -2586,8 +2637,25 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 await LOA.findByIdAndUpdate(loaId, { status: 'denied' });
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Leave of Absence Denied').setDescription(`Hello, <@${loa.userId}>,\n\nWe regret to inform you that your **Leave of Absence** request has been **denied** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Status →** *Denied ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
-                await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xE74C3C).setTitle('📋 LOA Request — ❌ Denied').setFooter({ text: `Denied by ${interaction.user.username} — Reason: ${reason}` })], components: [] });
-                await sendLOALog(user, '❌ LOA Denied', 0xE74C3C, loaId, [{ name: '👮 Denied By', value: interaction.user.tag }, { name: '📝 Reason', value: reason }]);
+                try { await interaction.message.delete(); } catch {}
+                try {
+                    const loa2 = await LOA.findById(loaId);
+                    const logChannel = await client.channels.fetch(loa2?.logChannelId || interaction.channel.id).catch(() => null);
+                    if (logChannel?.isTextBased()) {
+                        await logChannel.send({ embeds: [new EmbedBuilder()
+                            .setTitle('❌ LOA Denied')
+                            .setColor(0xE74C3C)
+                            .addFields(
+                                { name: '👤 User', value: `${user.tag} (${user.id})`, inline: true },
+                                { name: '🏢 Department', value: loa.department || 'Unknown', inline: true },
+                                { name: '👮 Denied By', value: interaction.user.tag, inline: true },
+                                { name: '📝 Reason', value: reason }
+                            )
+                            .setFooter({ text: `LOA ID: ${loaId}` })
+                            .setTimestamp()
+                        ]});
+                    }
+                } catch (err) { console.error('Error posting LOA denial log:', err); }
                 await interaction.editReply({ content: '✅ LOA denied and user notified.' });
             } catch (err) { console.error('Error denying LOA:', err); try { await interaction.editReply({ content: '❌ Error denying LOA.' }); } catch {} }
             return;
@@ -2603,8 +2671,25 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 await LOA.findByIdAndUpdate(loaId, { status: 'denied' });
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder().setTitle('❓ More Information Required').setDescription(`Hello, <@${loa.userId}>,\n\nThank you for submitting your **Leave of Absence** request. Before we can process it, we require some additional information.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Information Needed →** *${moreInfo}*\n\nPlease resubmit your LOA using \`/loa\` with the additional information.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0xF39C12).setTimestamp()] });
-                await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xF39C12).setTitle('📋 LOA Request — ❓ More Info Requested').setFooter({ text: `More info requested by ${interaction.user.username}` })], components: [] });
-                await sendLOALog(user, '❓ LOA More Info Requested', 0xF39C12, loaId, [{ name: '👮 Requested By', value: interaction.user.tag }, { name: '📝 Info Needed', value: moreInfo }]);
+                try { await interaction.message.delete(); } catch {}
+                try {
+                    const loa3 = await LOA.findById(loaId);
+                    const logChannel = await client.channels.fetch(loa3?.logChannelId || interaction.channel.id).catch(() => null);
+                    if (logChannel?.isTextBased()) {
+                        await logChannel.send({ embeds: [new EmbedBuilder()
+                            .setTitle('❓ LOA More Info Requested')
+                            .setColor(0xF39C12)
+                            .addFields(
+                                { name: '👤 User', value: `${user.tag} (${user.id})`, inline: true },
+                                { name: '🏢 Department', value: loa.department || 'Unknown', inline: true },
+                                { name: '👮 Requested By', value: interaction.user.tag, inline: true },
+                                { name: '📝 Info Needed', value: moreInfo }
+                            )
+                            .setFooter({ text: `LOA ID: ${loaId}` })
+                            .setTimestamp()
+                        ]});
+                    }
+                } catch (err) { console.error('Error posting LOA more info log:', err); }
                 await interaction.editReply({ content: '✅ More info requested and user notified.' });
             } catch (err) { console.error('Error requesting more info:', err); try { await interaction.editReply({ content: '❌ Error requesting more info.' }); } catch {} }
             return;

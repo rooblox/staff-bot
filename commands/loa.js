@@ -195,6 +195,18 @@ async function scheduleLoaAutoDelete(loaId, client, deptConfig, delay) {
                 if (msg) await msg.delete().catch(() => {});
             } catch {}
             await LOA.findByIdAndUpdate(loaId, { status: 'returned' });
+
+            // Delete LOA roles
+            try {
+                if (loa.loaRoleIdDept && config) {
+                    const deptGuild = await client.guilds.fetch(config.serverId).catch(() => null);
+                    if (deptGuild) await deptGuild.roles.delete(loa.loaRoleIdDept, 'LOA auto-ended').catch(() => {});
+                }
+                if (loa.loaRoleIdMain) {
+                    const mainGuild = await client.guilds.fetch('1370892833182974035').catch(() => null);
+                    if (mainGuild) await mainGuild.roles.delete(loa.loaRoleIdMain, 'LOA auto-ended').catch(() => {});
+                }
+            } catch (err) { console.error('Error deleting LOA roles on auto-end:', err); }
         } catch (err) {
             console.error('Error auto deleting LOA:', err);
         }
