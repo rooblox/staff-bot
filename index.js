@@ -1359,7 +1359,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                 try {
                     const { DEPARTMENTS } = require('./commands/departments');
                     const deptCfg = DEPARTMENTS[loa.department];
-                    const roleName = `LOA - ${loa.timeGone}`;
+                    const roleName = `LOA - ${loa.startDate || loa.timeGone} → ${loa.returnDate}`;
                     const roleColor = 0xF39C12;
 
                     let loaRoleIdDept = null;
@@ -2571,6 +2571,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                     department,
                     reason,
                     timeGone,
+                    startDate: startDateStr,
                     returnDate: returnDateStr,
                     returnDateParsed,
                     status: 'pending',
