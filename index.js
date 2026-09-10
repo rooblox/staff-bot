@@ -744,8 +744,16 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
                 ),
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
+                        .setCustomId('startdate')
+                        .setLabel('Start date (DD/MM/YY)')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('e.g. 20/04/26')
+                        .setRequired(true)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
                         .setCustomId('returndate')
-                        .setLabel('Return date (DD/MM/YY)')
+                        .setLabel('End / Return date (DD/MM/YY)')
                         .setStyle(TextInputStyle.Short)
                         .setPlaceholder('e.g. 25/04/26')
                         .setRequired(true)
@@ -2460,6 +2468,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
 
                 const reason = interaction.fields.getTextInputValue('reason');
                 const timeGone = interaction.fields.getTextInputValue('timegone');
+                const startDateStr = interaction.fields.getTextInputValue('startdate');
                 const returnDateStr = interaction.fields.getTextInputValue('returndate');
 
                 function parseReturnDate(dateStr) {
@@ -2512,7 +2521,8 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                         { name: '🏢 Department', value: department },
                         { name: '📝 Reason', value: reason },
                         { name: '⏳ Time Gone', value: timeGone },
-                        { name: '📅 Return Date', value: returnDateStr }
+                        { name: '📅 Start Date', value: startDateStr, inline: true },
+                        { name: '📅 End / Return Date', value: returnDateStr, inline: true }
                     )
                     .setFooter({ text: `LOA ID: ${loa._id} • Kavià Café` })
                     .setTimestamp();
@@ -2546,7 +2556,8 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                                     { name: '🏢 Department', value: department },
                                     { name: '📝 Reason', value: reason },
                                     { name: '⏳ Time Gone', value: timeGone },
-                                    { name: '📅 Return Date', value: returnDateStr }
+                                    { name: '📅 Start Date', value: startDateStr, inline: true },
+                                    { name: '📅 End / Return Date', value: returnDateStr, inline: true }
                                 )
                                 .setFooter({ text: `LOA ID: ${loa._id}` })
                                 .setTimestamp()
