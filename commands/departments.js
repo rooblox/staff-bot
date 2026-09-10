@@ -55,6 +55,20 @@ const DEPARTMENTS = {
         loaChannelId: '1493725925819289805',
         loaLogChannelId: '1464070445698650316',
         strikeLogChannelId: '1508460972094918832'
+    },
+    'Ownership': {
+        serverId: '1372680943592280217',
+        roleId: '1373883459948384359',
+        logChannelId: '1547393870218797106',
+        loaChannelId: '1547393870218797106',
+        loaLogChannelId: '1547394717116010566'
+    },
+    'Presidential Team': {
+        serverId: '1372680943592280217',
+        roleId: '1417876876105486567',
+        logChannelId: '1547393870218797106',
+        loaChannelId: '1547393870218797106',
+        loaLogChannelId: '1547394717116010566'
     }
 };
 
@@ -66,7 +80,9 @@ const DEPT_CHOICES = [
     { name: 'Media Team', value: 'Media Team' },
     { name: 'Development Member', value: 'Development Member' },
     { name: 'Development Tester', value: 'Development Tester' },
-    { name: 'Human Resources', value: 'Human Resources' }
+    { name: 'Human Resources', value: 'Human Resources' },
+    { name: 'Ownership', value: 'Ownership' },
+    { name: 'Presidential Team', value: 'Presidential Team' }
 ];
 
 const MAIN_GUILD_ID = '1370892833182974035';
