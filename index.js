@@ -97,12 +97,18 @@ async function hasRequiredRole(userId) {
 
 async function hasTrainingRole(userId) {
     try {
+        // Training center
         const trainingGuild = await client.guilds.fetch(TRAINING_BUTTON_GUILD_ID);
         const member = await trainingGuild.members.fetch(userId).catch(() => null);
         if (member && member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) return true;
+        // HRD
         const hrGuild = await client.guilds.fetch('1434556801096876034');
         const hrMember = await hrGuild.members.fetch(userId).catch(() => null);
         if (hrMember && hrMember.roles.cache.has('1484973859513045224')) return true;
+        // SHR / staff server
+        const shrGuild = await client.guilds.fetch('1372680943592280217');
+        const shrMember = await shrGuild.members.fetch(userId).catch(() => null);
+        if (shrMember && shrMember.roles.cache.has('1493725057254428753')) return true;
         return false;
     } catch { return false; }
 }
@@ -118,6 +124,20 @@ async function hasStaffRole(userId, department) {
         for (const guild of client.guilds.cache.values()) {
             const m = await guild.members.fetch(userId).catch(() => null);
             if (m && m.roles.cache.has(LOA_STAFF_ROLE_ID)) return true;
+        }
+        // Also allow staff server leadership roles to approve any LOA
+        const staffGuild = await client.guilds.fetch('1372680943592280217').catch(() => null);
+        if (staffGuild) {
+            const staffMember = await staffGuild.members.fetch(userId).catch(() => null);
+            if (staffMember) {
+                const leadershipRoles = [
+                    '1493725057254428753', // SHR role
+                    '1373883459948384359', // Ownership
+                    '1417876876105486567', // Presidential Team
+                    '1484973859513045224', // HR leadership
+                ];
+                if (leadershipRoles.some(r => staffMember.roles.cache.has(r))) return true;
+            }
         }
         return false;
     } catch { return false; }
