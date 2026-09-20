@@ -3191,7 +3191,7 @@ client.once('ready', async () => {
     }
 
    client.user.setPresence({
-        activities: [{ name: 'over the Kavià Café Staff Team', type: 3 }],
+        activities: [{ name: 'Watching over the Kavià Café Staff Team', type: 3 }],
         status: 'online'
     });
 
