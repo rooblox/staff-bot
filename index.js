@@ -79,10 +79,21 @@ const ROBLOX_COUNT_CHANNEL_ID = '1371143149812187177';
 let lastRobloxMemberCount = 3947;
 let robloxMemberGoal = 4000;
 
+// Weekly Discord stats tracking
+let weeklyDiscordJoins = 0;
+let weeklyDiscordLeaves = 0;
+let lastWeekDiscordJoins = 0;
+let lastWeekDiscordLeaves = 0;
+let weeklyTotalMessages = 0;
+let lastWeekTotalMessages = 0;
+let lastWeekRobloxCount = 3947;
+let weekStartRobloxCount = 3947;
+
 // ========== MOD REPORT / ALLIANCE ==========
-const STAFF_ROLE_ID = '1373551504773877790';
+const STAFF_ROLE_ID = '1372833756489973823';
 const MOD_REPORT_GUILD_ID = '1370892833182974035';
-const MOD_REPORT_CHANNEL_ID = process.env.MOD_REPORT_CHANNEL_ID || '';
+const WEEKLY_STATS_CHANNEL_ID = '1551043091174002708';
+const MOD_REPORT_CHANNEL_ID = '1551043091174002708';
 const ALLIANCE_SERVER_ID = process.env.ALLIANCE_SERVER_ID || '1385081586285940796';
 const ALLIANCE_ROLE_ID = process.env.ALLIANCE_ROLE_ID || '1371492999854293024';
 
@@ -97,18 +108,12 @@ async function hasRequiredRole(userId) {
 
 async function hasTrainingRole(userId) {
     try {
-        // Training center
         const trainingGuild = await client.guilds.fetch(TRAINING_BUTTON_GUILD_ID);
         const member = await trainingGuild.members.fetch(userId).catch(() => null);
         if (member && member.roles.cache.has(TRAINING_BUTTON_ROLE_ID)) return true;
-        // HRD
         const hrGuild = await client.guilds.fetch('1434556801096876034');
         const hrMember = await hrGuild.members.fetch(userId).catch(() => null);
         if (hrMember && hrMember.roles.cache.has('1484973859513045224')) return true;
-        // SHR / staff server
-        const shrGuild = await client.guilds.fetch('1372680943592280217');
-        const shrMember = await shrGuild.members.fetch(userId).catch(() => null);
-        if (shrMember && shrMember.roles.cache.has('1493725057254428753')) return true;
         return false;
     } catch { return false; }
 }
@@ -124,20 +129,6 @@ async function hasStaffRole(userId, department) {
         for (const guild of client.guilds.cache.values()) {
             const m = await guild.members.fetch(userId).catch(() => null);
             if (m && m.roles.cache.has(LOA_STAFF_ROLE_ID)) return true;
-        }
-        // Also allow staff server leadership roles to approve any LOA
-        const staffGuild = await client.guilds.fetch('1372680943592280217').catch(() => null);
-        if (staffGuild) {
-            const staffMember = await staffGuild.members.fetch(userId).catch(() => null);
-            if (staffMember) {
-                const leadershipRoles = [
-                    '1493725057254428753', // SHR role
-                    '1373883459948384359', // Ownership
-                    '1417876876105486567', // Presidential Team
-                    '1484973859513045224', // HR leadership
-                ];
-                if (leadershipRoles.some(r => staffMember.roles.cache.has(r))) return true;
-            }
         }
         return false;
     } catch { return false; }
@@ -677,9 +668,113 @@ function getWeekStart() {
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff, 0, 0, 0, 0));
 }
 
+async function postWeeklyStats(client) {
+    try {
+        const channel = await client.channels.fetch(WEEKLY_STATS_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased()) return;
+
+        const guild = await client.guilds.fetch(MOD_REPORT_GUILD_ID).catch(() => null);
+        if (!guild) return;
+        await guild.members.fetch();
+
+        const weekStart = getWeekStart();
+        const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        // Get current Roblox group count
+        const currentRobloxCount = await getRobloxGroupCount() || lastRobloxMemberCount;
+        const robloxGainedThisWeek = currentRobloxCount - weekStartRobloxCount;
+        const robloxGainedLastWeek = weekStartRobloxCount - lastWeekRobloxCount;
+        const robloxDiff = robloxGainedThisWeek - robloxGainedLastWeek;
+
+        // Discord stats
+        const discordNetThisWeek = weeklyDiscordJoins - weeklyDiscordLeaves;
+        const discordNetLastWeek = lastWeekDiscordJoins - lastWeekDiscordLeaves;
+        const discordNetDiff = discordNetThisWeek - discordNetLastWeek;
+        const msgDiff = weeklyTotalMessages - lastWeekTotalMessages;
+
+        // Ticket stats
+        const { Ticket, Session } = require('./db');
+        const ticketsOpened = await Ticket.countDocuments({ serverId: MOD_REPORT_GUILD_ID, createdAt: { $gte: lastWeekStart, $lt: weekStart } });
+        const ticketsClosed = await Ticket.countDocuments({ serverId: MOD_REPORT_GUILD_ID, closedAt: { $gte: lastWeekStart, $lt: weekStart } });
+        const sessionsHosted = await Session.countDocuments({ status: { $in: ['finished', 'active'] }, createdAt: { $gte: lastWeekStart, $lt: weekStart } });
+
+        // Active LOAs
+        const { LOA } = require('./db');
+        const activeLOAs = await LOA.countDocuments({ status: 'approved' });
+
+        // Most active staff member
+        const { MessageLog } = require('./db');
+        const topLog = await MessageLog.findOne({ guildId: MOD_REPORT_GUILD_ID }).sort({ weeklyCount: -1 });
+        const topStaff = topLog && topLog.weeklyCount > 0 ? `<@${topLog.userId}> (${topLog.weeklyCount} messages)` : 'No activity recorded';
+
+        // Staff message total
+        const allLogs = await MessageLog.find({ guildId: MOD_REPORT_GUILD_ID });
+        const totalStaffMessages = allLogs.reduce((sum, l) => sum + (l.weeklyCount || 0), 0);
+        const totalStaffLastWeek = allLogs.reduce((sum, l) => sum + (l.lastWeekCount || 0), 0);
+        const staffMsgDiff = totalStaffMessages - totalStaffLastWeek;
+
+        function arrow(val) { return val > 0 ? '📈' : val < 0 ? '📉' : '➡️'; }
+        function sign(val) { return val > 0 ? `+${val}` : `${val}`; }
+
+        const statsEmbed = new EmbedBuilder()
+            .setTitle('📊 Weekly Stats Report')
+            .setDescription(`Week of **<t:${Math.floor(lastWeekStart.getTime() / 1000)}:D>** — **<t:${Math.floor(weekStart.getTime() / 1000)}:D>**`)
+            .setColor(0x5865F2)
+            .addFields(
+                { name: '🎮 Roblox Group', value:
+                    `Members This Week: **${robloxGainedThisWeek >= 0 ? '+' : ''}${robloxGainedThisWeek}** ${arrow(robloxGainedThisWeek)}
+` +
+                    `Last Week: **${robloxGainedLastWeek >= 0 ? '+' : ''}${robloxGainedLastWeek}**
+` +
+                    `Change vs Last Week: **${sign(robloxDiff)}** ${arrow(robloxDiff)}
+` +
+                    `Total Members: **${currentRobloxCount.toLocaleString()}** / Goal: **${robloxMemberGoal.toLocaleString()}**`,
+                    inline: false },
+                { name: '💬 Discord Server', value:
+                    `Joins This Week: **${weeklyDiscordJoins}** | Leaves: **${weeklyDiscordLeaves}** | Net: **${sign(discordNetThisWeek)}** ${arrow(discordNetThisWeek)}
+` +
+                    `Last Week Net: **${sign(discordNetLastWeek)}**
+` +
+                    `Change vs Last Week: **${sign(discordNetDiff)}** ${arrow(discordNetDiff)}
+` +
+                    `Total Server Messages: **${weeklyTotalMessages.toLocaleString()}** (Last week: **${lastWeekTotalMessages.toLocaleString()}**, **${sign(msgDiff)}** ${arrow(msgDiff)})`,
+                    inline: false },
+                { name: '👮 Staff Activity', value:
+                    `Total Staff Messages: **${totalStaffMessages}** (Last week: **${totalStaffLastWeek}**, **${sign(staffMsgDiff)}** ${arrow(staffMsgDiff)})
+` +
+                    `🏆 Most Active: ${topStaff}
+` +
+                    `Sessions Hosted: **${sessionsHosted}**
+` +
+                    `Active LOAs: **${activeLOAs}**`,
+                    inline: false },
+                { name: '🎫 Tickets', value:
+                    `Opened This Week: **${ticketsOpened}**
+` +
+                    `Closed This Week: **${ticketsClosed}**`,
+                    inline: false }
+            )
+            .setFooter({ text: 'Kavià Café • Weekly Stats Report' })
+            .setTimestamp();
+
+        await channel.send({ embeds: [statsEmbed] });
+
+        // Reset weekly counters
+        lastWeekDiscordJoins = weeklyDiscordJoins;
+        lastWeekDiscordLeaves = weeklyDiscordLeaves;
+        lastWeekTotalMessages = weeklyTotalMessages;
+        lastWeekRobloxCount = weekStartRobloxCount;
+        weekStartRobloxCount = currentRobloxCount;
+        weeklyDiscordJoins = 0;
+        weeklyDiscordLeaves = 0;
+        weeklyTotalMessages = 0;
+
+        console.log('✅ Weekly stats posted');
+    } catch (err) { console.error('Error posting weekly stats:', err); }
+}
+
 async function postModReport(client) {
     try {
-        if (!MOD_REPORT_CHANNEL_ID) return;
         const guild = await client.guilds.fetch(MOD_REPORT_GUILD_ID).catch(() => null);
         if (!guild) return;
         await guild.members.fetch();
@@ -688,10 +783,18 @@ async function postModReport(client) {
         if (!channel?.isTextBased()) return;
         const weekStart = getWeekStart();
         const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
-        await channel.send({ embeds: [new EmbedBuilder().setTitle('📊 Weekly Mod Report').setDescription(`Week of **<t:${Math.floor(lastWeekStart.getTime() / 1000)}:D>** — **<t:${Math.floor(weekStart.getTime() / 1000)}:D>**`).setColor(0x5865F2).setTimestamp().setFooter({ text: 'Kavià Café • Weekly Staff Activity Report' })] });
+
+        await channel.send({ embeds: [new EmbedBuilder()
+            .setTitle('📋 SHR Weekly Report')
+            .setDescription(`Week of **<t:${Math.floor(lastWeekStart.getTime() / 1000)}:D>** — **<t:${Math.floor(weekStart.getTime() / 1000)}:D>**`)
+            .setColor(0x9B59B6)
+            .setTimestamp()
+            .setFooter({ text: 'Kavià Café • SHR Weekly Report' })
+        ]});
+
+        const { MessageLog } = require('./db');
         const sorted = [...staffMembers.values()].sort((a, b) => a.user.username.localeCompare(b.user.username));
         for (const member of sorted) {
-            const { MessageLog } = require('./db');
             const log = await MessageLog.findOne({ userId: member.id, guildId: MOD_REPORT_GUILD_ID });
             const weekly = log?.weeklyCount || 0;
             const lastWeek = log?.lastWeekCount || 0;
@@ -710,23 +813,27 @@ async function postModReport(client) {
             await channel.send({ embeds: [embed] });
             await new Promise(r => setTimeout(r, 500));
         }
-        const { MessageLog } = require('./db');
+
         await MessageLog.updateMany({ guildId: MOD_REPORT_GUILD_ID }, [{ $set: { lastWeekCount: '$weeklyCount', weeklyCount: 0, weekStartDate: weekStart } }]);
-        console.log('✅ Mod report posted');
-    } catch (err) { console.error('Error posting mod report:', err); }
+        console.log('✅ SHR report posted');
+    } catch (err) { console.error('Error posting SHR report:', err); }
 }
 
 function scheduleWeeklyReport(client) {
     const now = new Date();
     const nextSunday = new Date();
     nextSunday.setUTCDate(now.getUTCDate() + ((7 - now.getUTCDay()) % 7 || 7));
-    nextSunday.setUTCHours(14, 0, 0, 0);
+    nextSunday.setUTCHours(14, 0, 0, 0); // 9AM EST = 2PM UTC
     const delay = nextSunday.getTime() - now.getTime();
     setTimeout(async () => {
+        await postWeeklyStats(client);
         await postModReport(client);
-        setInterval(() => postModReport(client), 7 * 24 * 60 * 60 * 1000);
+        setInterval(async () => {
+            await postWeeklyStats(client);
+            await postModReport(client);
+        }, 7 * 24 * 60 * 60 * 1000);
     }, delay);
-    console.log(`✅ Mod report scheduled`);
+    console.log(`✅ Weekly reports scheduled for ${nextSunday.toISOString()}`);
 }
 
 // ========== ALLIANCE SYNC ==========
@@ -2935,6 +3042,11 @@ client.on('guildMemberRemove', async member => {
         }
     } catch (err) { console.error('Error handling guildMemberRemove for tickets:', err); }
 
+    // Track Discord leaves for weekly stats
+    if (member.guild.id === MOD_REPORT_GUILD_ID) {
+        weeklyDiscordLeaves++;
+    }
+
     // Alliance role - if they left alliance server remove role in main
     try {
         if (member.guild.id === ALLIANCE_SERVER_ID) {
@@ -2951,6 +3063,11 @@ client.on('guildMemberRemove', async member => {
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+
+    // Track total messages in main server for weekly stats
+    if (message.guild && message.guild.id === MOD_REPORT_GUILD_ID) {
+        weeklyTotalMessages++;
+    }
 
     // Staff message tracking for mod report
     if (message.guild && message.guild.id === MOD_REPORT_GUILD_ID) {
@@ -3104,6 +3221,11 @@ client.once('ready', async () => {
 
 // ========== WELCOME MESSAGE ==========
 client.on('guildMemberAdd', async member => {
+    // Track Discord joins for weekly stats
+    if (member.guild.id === MOD_REPORT_GUILD_ID) {
+        weeklyDiscordJoins++;
+    }
+
     // Welcome message
     if (member.guild.id === WELCOME_GUILD_ID) {
         try {
