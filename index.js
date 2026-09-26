@@ -877,6 +877,39 @@ function getLoaLogChannelId(department, deptConfig, guildId) {
     return deptConfig?.loaLogChannelId || null;
 }
 
+
+// ========== WEEKLY STATS PERSISTENCE ==========
+async function restoreWeeklyStats() {
+    try {
+        const saved = await WeeklyStats.findById('singleton');
+        if (saved) {
+            weeklyDiscordJoins = saved.weeklyDiscordJoins || 0;
+            weeklyDiscordLeaves = saved.weeklyDiscordLeaves || 0;
+            lastWeekDiscordJoins = saved.lastWeekDiscordJoins || 0;
+            lastWeekDiscordLeaves = saved.lastWeekDiscordLeaves || 0;
+            weeklyTotalMessages = saved.weeklyTotalMessages || 0;
+            lastWeekTotalMessages = saved.lastWeekTotalMessages || 0;
+            lastWeekRobloxCount = saved.lastWeekRobloxCount || 3947;
+            weekStartRobloxCount = saved.weekStartRobloxCount || 3947;
+            console.log('✅ Restored weekly stats from DB');
+        } else {
+            console.log('✅ No saved weekly stats, starting fresh');
+        }
+    } catch (err) { console.error('Error restoring weekly stats:', err); }
+}
+
+async function saveWeeklyStats() {
+    try {
+        await WeeklyStats.findByIdAndUpdate('singleton', {
+            weeklyDiscordJoins, weeklyDiscordLeaves,
+            lastWeekDiscordJoins, lastWeekDiscordLeaves,
+            weeklyTotalMessages, lastWeekTotalMessages,
+            lastWeekRobloxCount, weekStartRobloxCount,
+            updatedAt: new Date()
+        }, { upsert: true });
+    } catch (err) { console.error('Error saving weekly stats:', err); }
+}
+
 // ========== TRAINING HELPERS ==========
 async function sendNextSection(userId, session) {
     const { trainingConfig, section, department, training } = session;
@@ -3348,6 +3381,9 @@ client.once('ready', async () => {
     await restoreTicketInactivity();
     await checkBirthdays();
     setInterval(checkBirthdays, 60 * 60 * 1000);
+
+    // Restore weekly stats
+    await restoreWeeklyStats();
 
     // Roblox group tracker
     setInterval(() => checkRobloxGroupCount(client), 5 * 60 * 1000);

@@ -96,9 +96,7 @@ const loaSchema = new mongoose.Schema({
     createdAt: Date,
     approvedAt: Date,
     returnReminderSent: Boolean,
-    autoDeleteAt: Date,
-    loaRoleIdDept: String,
-    loaRoleIdMain: String
+    autoDeleteAt: Date
 }, { versionKey: false });
 
 const completedTrainingsSchema = new mongoose.Schema({
@@ -205,6 +203,20 @@ const checklistSchema = new mongoose.Schema({
         done: Boolean,
         addedBy: String
     }]
+}, { versionKey: false });
+
+
+const weeklyStatsSchema = new mongoose.Schema({
+    _id: { type: String, default: 'singleton' },
+    weeklyDiscordJoins: { type: Number, default: 0 },
+    weeklyDiscordLeaves: { type: Number, default: 0 },
+    lastWeekDiscordJoins: { type: Number, default: 0 },
+    lastWeekDiscordLeaves: { type: Number, default: 0 },
+    weeklyTotalMessages: { type: Number, default: 0 },
+    lastWeekTotalMessages: { type: Number, default: 0 },
+    lastWeekRobloxCount: { type: Number, default: 3947 },
+    weekStartRobloxCount: { type: Number, default: 3947 },
+    updatedAt: { type: Date, default: Date.now }
 }, { versionKey: false });
 
 const StaffRecord = mongoose.model('StaffRecord', staffSchema);
