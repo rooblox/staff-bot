@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -703,7 +703,6 @@ async function postWeeklyStats(client) {
         const activeLOAs = await LOA.countDocuments({ status: 'approved' });
 
         // Most active staff member
-        const { MessageLog } = require('./db');
         const topLog = await MessageLog.findOne({ guildId: MOD_REPORT_GUILD_ID }).sort({ weeklyCount: -1 });
         const topStaff = topLog && topLog.weeklyCount > 0 ? `<@${topLog.userId}> (${topLog.weeklyCount} messages)` : 'No activity recorded';
 
@@ -792,7 +791,6 @@ async function postModReport(client) {
             .setFooter({ text: 'Kavià Café • SHR Weekly Report' })
         ]});
 
-        const { MessageLog } = require('./db');
         const sorted = [...staffMembers.values()].sort((a, b) => a.user.username.localeCompare(b.user.username));
         for (const member of sorted) {
             const log = await MessageLog.findOne({ userId: member.id, guildId: MOD_REPORT_GUILD_ID });
@@ -3075,7 +3073,6 @@ client.on('messageCreate', async message => {
             const member = message.guild.members.cache.get(message.author.id) ||
                            await message.guild.members.fetch(message.author.id).catch(() => null);
             if (member && member.roles.cache.has(STAFF_ROLE_ID)) {
-                const { MessageLog } = require('./db');
                 const weekStart = getWeekStart();
                 await MessageLog.findOneAndUpdate(
                     { userId: message.author.id, guildId: MOD_REPORT_GUILD_ID },
