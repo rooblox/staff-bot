@@ -206,6 +206,17 @@ const checklistSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 
+const messageLogSchema = new mongoose.Schema({
+    userId: String,
+    userTag: String,
+    guildId: String,
+    weeklyCount: { type: Number, default: 0 },
+    lastWeekCount: { type: Number, default: 0 },
+    allTimeCount: { type: Number, default: 0 },
+    lastActiveAt: Date,
+    weekStartDate: Date
+}, { versionKey: false });
+
 const weeklyStatsSchema = new mongoose.Schema({
     _id: { type: String, default: 'singleton' },
     weeklyDiscordJoins: { type: Number, default: 0 },
