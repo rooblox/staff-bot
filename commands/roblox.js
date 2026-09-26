@@ -109,16 +109,36 @@ async function getCsrfToken() {
 
 async function setRank(groupId, robloxId, rankId) {
     try {
-        const csrfToken = await getCsrfToken();
-        const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/users/${robloxId}`, {
+        const cookie = COOKIE();
+        if (!cookie) { console.error('setRank: No ROBLOX_COOKIE set'); return false; }
+
+        // First attempt - get CSRF token
+        let csrfToken = await getCsrfToken();
+        if (!csrfToken) { console.error('setRank: Could not get CSRF token'); return false; }
+
+        const makeRequest = (token) => fetch(`https://groups.roblox.com/v1/groups/${groupId}/users/${robloxId}`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
-                'Cookie': `.ROBLOSECURITY=${COOKIE()}`,
-                'x-csrf-token': csrfToken
+                'Cookie': `.ROBLOSECURITY=${cookie}`,
+                'x-csrf-token': token,
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': 'application/json'
             },
-            body: JSON.stringify({ roleId: rankId })
+            body: JSON.stringify({ roleId: parseInt(rankId) })
         });
+
+        let res = await makeRequest(csrfToken);
+
+        // If we get 403 with a new CSRF token, retry once with the new token
+        if (res.status === 403) {
+            const newToken = res.headers['x-csrf-token'];
+            if (newToken && newToken !== csrfToken) {
+                console.log('setRank: Got new CSRF token on 403, retrying...');
+                res = await makeRequest(newToken);
+            }
+        }
+
         if (!res.ok) {
             const text = await res.text();
             console.error('setRank failed:', res.status, text);
