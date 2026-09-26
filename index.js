@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -703,6 +703,7 @@ async function postWeeklyStats(client) {
         const activeLOAs = await LOA.countDocuments({ status: 'approved' });
 
         // Most active staff member
+        const { MessageLog } = require('./db');
         const topLog = await MessageLog.findOne({ guildId: MOD_REPORT_GUILD_ID }).sort({ weeklyCount: -1 });
         const topStaff = topLog && topLog.weeklyCount > 0 ? `<@${topLog.userId}> (${topLog.weeklyCount} messages)` : 'No activity recorded';
 
@@ -791,6 +792,7 @@ async function postModReport(client) {
             .setFooter({ text: 'Kavià Café • SHR Weekly Report' })
         ]});
 
+        const { MessageLog } = require('./db');
         const sorted = [...staffMembers.values()].sort((a, b) => a.user.username.localeCompare(b.user.username));
         for (const member of sorted) {
             const log = await MessageLog.findOne({ userId: member.id, guildId: MOD_REPORT_GUILD_ID });
@@ -957,6 +959,44 @@ async function sendQuizResults(userId, session) {
 client.on('interactionCreate', async interaction => {
 
     if (interaction.isChatInputCommand()) {
+        // Built-in commands
+        if (interaction.commandName === 'weeklystats') {
+            if (!await hasBotPermsRole(interaction.guildId, interaction.user.id)) {
+                return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+            }
+            await interaction.reply({ content: '📊 Posting weekly stats...', ephemeral: true });
+            await postWeeklyStats(client);
+            await postModReport(client);
+            return;
+        }
+
+        if (interaction.commandName === 'loalist') {
+            await interaction.deferReply({ ephemeral: true });
+            try {
+                const activeLOAs = await LOA.find({ status: { $in: ['approved', 'extended'] } }).sort({ returnDateParsed: 1 });
+                if (activeLOAs.length === 0) return interaction.editReply({ content: '✅ No active LOAs right now!' });
+                const lines = activeLOAs.map(l => `• <@${l.userId}> — **${l.department}** — Returns: **${l.returnDate}**`);
+                const chunks = [];
+                let current = '';
+                for (const line of lines) {
+                    if ((current + line).length > 3800) { chunks.push(current); current = ''; }
+                    current += line + '\n';
+                }
+                if (current) chunks.push(current);
+                for (let i = 0; i < chunks.length; i++) {
+                    const embed = new EmbedBuilder()
+                        .setTitle(i === 0 ? `📋 Active LOAs (${activeLOAs.length})` : '📋 Active LOAs (continued)')
+                        .setDescription(chunks[i])
+                        .setColor(0x3498DB)
+                        .setFooter({ text: 'Kavià Café • LOA System' })
+                        .setTimestamp();
+                    if (i === 0) await interaction.editReply({ embeds: [embed] });
+                    else await interaction.followUp({ embeds: [embed], ephemeral: true });
+                }
+            } catch (err) { console.error('Error in /loalist:', err); try { await interaction.editReply({ content: '❌ Error fetching LOAs.' }); } catch {} }
+            return;
+        }
+
         const command = client.commands.get(interaction.commandName);
         if (!command) return;
         try {
@@ -2986,14 +3026,118 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 if (!loa) return interaction.editReply({ content: '❌ LOA not found.' });
                 const newDateParsed = new Date(newReturnDate.split('/').reverse().join('-'));
                 if (isNaN(newDateParsed.getTime())) return interaction.editReply({ content: '❌ Invalid date format. Please use DD/MM/YY.' });
-                await LOA.findByIdAndUpdate(loaId, { status: 'extended', returnDate: newReturnDate, returnDateParsed: newDateParsed, returnReminderSent: false });
+
+                // DM user that extension is pending review
                 const user = await client.users.fetch(loa.userId);
-                await user.send({ embeds: [new EmbedBuilder().setTitle('⏳ LOA Extension Requested').setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** request has been noted.\n\n> <:pink_pin:1166850035611353148> **Extra Time Requested →** *${extendTime}*\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\nThank you for keeping us informed!\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xF39C12).setTimestamp()] });
+                await user.send({ embeds: [new EmbedBuilder()
+                    .setTitle('⏳ LOA Extension Requested')
+                    .setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** request has been submitted and is pending approval from leadership.\n\n> <:pink_pin:1166850035611353148> **Extra Time Requested →** *${extendTime}*\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\nYou will receive a DM once it has been reviewed.\n\n***Sincerely,***\n**Kavià Café Staff Team**`)
+                    .setColor(0xF39C12).setTimestamp()
+                ] });
+
+                // Post to log channel for approval
+                const { DEPARTMENTS } = require('./commands/departments');
+                const deptConfig = loa.department ? DEPARTMENTS[loa.department] : null;
+                const logChannelId = loa.logChannelId || deptConfig?.loaLogChannelId;
+                if (logChannelId) {
+                    const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+                    if (logChannel?.isTextBased()) {
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId(`loa_extaccept_${loaId}_${newReturnDate.replace(/\//g, '-')}`).setLabel('✅ Approve Extension').setStyle(ButtonStyle.Success),
+                            new ButtonBuilder().setCustomId(`loa_extdeny_${loaId}`).setLabel('❌ Deny Extension').setStyle(ButtonStyle.Danger)
+                        );
+                        await logChannel.send({
+                            embeds: [new EmbedBuilder()
+                                .setTitle('⏳ LOA Extension Request')
+                                .setColor(0xF39C12)
+                                .addFields(
+                                    { name: '👤 User', value: `${user.tag} (${user.id})`, inline: true },
+                                    { name: '🏢 Department', value: loa.department || 'Unknown', inline: true },
+                                    { name: '📅 Current Return Date', value: loa.returnDate || 'Unknown', inline: true },
+                                    { name: '⏳ Extra Time Requested', value: extendTime, inline: true },
+                                    { name: '📅 New Return Date', value: newReturnDate, inline: true }
+                                )
+                                .setFooter({ text: `LOA ID: ${loaId}` })
+                                .setTimestamp()
+                            ],
+                            components: [row]
+                        });
+                    }
+                }
+
+                await interaction.editReply({ content: '✅ Extension request submitted! Leadership will review it shortly.' });
+            } catch (err) { console.error('Error extending LOA:', err); try { await interaction.editReply({ content: '❌ Error submitting extension.' }); } catch {} }
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_extaccept_')) {
+            const parts = interaction.customId.replace('loa_extaccept_', '').split('_');
+            const newReturnDate = parts[parts.length - 1].replace(/-/g, '/');
+            const loaId = parts.slice(0, -1).join('_');
+            try {
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+                const newDateParsed = new Date(newReturnDate.split('/').reverse().join('-'));
+                await LOA.findByIdAndUpdate(loaId, { status: 'approved', returnDate: newReturnDate, returnDateParsed: newDateParsed, returnReminderSent: false });
                 const updatedLoa = await LOA.findById(loaId);
                 scheduleLOAReturnReminder(updatedLoa, client);
-                await sendLOALog(user, '⏳ LOA Extension Requested', 0xF39C12, loaId, [{ name: '⏳ Extra Time', value: extendTime }, { name: '📅 New Return Date', value: newReturnDate }]);
-                await interaction.editReply({ content: '✅ Extension request submitted!' });
-            } catch (err) { console.error('Error extending LOA:', err); try { await interaction.editReply({ content: '❌ Error submitting extension.' }); } catch {} }
+                const user = await client.users.fetch(loa.userId);
+                await user.send({ embeds: [new EmbedBuilder()
+                    .setTitle('✅ LOA Extension Approved')
+                    .setDescription(`Hello, <@${loa.userId}>,\n\nYour **LOA Extension** has been **approved**!\n\n> <:pink_pin:1166850035611353148> **New Return Date →** *${newReturnDate}*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                    .setColor(0x2ECC71).setTimestamp()
+                ] });
+                try { await interaction.message.delete(); } catch {}
+                const logChannel = await client.channels.fetch(loa.logChannelId || interaction.channel.id).catch(() => null);
+                if (logChannel?.isTextBased()) {
+                    await logChannel.send({ embeds: [new EmbedBuilder()
+                        .setTitle('✅ LOA Extension Approved')
+                        .setColor(0x2ECC71)
+                        .addFields(
+                            { name: '👤 User', value: `${user.tag} (${user.id})`, inline: true },
+                            { name: '🏢 Department', value: loa.department || 'Unknown', inline: true },
+                            { name: '👮 Approved By', value: interaction.user.tag, inline: true },
+                            { name: '📅 New Return Date', value: newReturnDate, inline: true }
+                        )
+                        .setFooter({ text: `LOA ID: ${loaId}` })
+                        .setTimestamp()
+                    ]});
+                }
+            } catch (err) { console.error('Error approving LOA extension:', err); try { await interaction.reply({ content: '❌ Error approving extension.', ephemeral: true }); } catch {} }
+            return;
+        }
+
+        if (interaction.customId.startsWith('loa_extdeny_')) {
+            const loaId = interaction.customId.replace('loa_extdeny_', '');
+            try {
+                const loa = await LOA.findById(loaId);
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+                try { await interaction.message.delete(); } catch {}
+                const user = await client.users.fetch(loa.userId);
+                await user.send({ embeds: [new EmbedBuilder()
+                    .setTitle('❌ LOA Extension Denied')
+                    .setDescription(`Hello, <@${loa.userId}>,\n\nUnfortunately your **LOA Extension** request has been **denied**.\n\nYour original return date of **${loa.returnDate}** remains unchanged.\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`)
+                    .setColor(0xE74C3C).setTimestamp()
+                ] });
+                const logChannel = await client.channels.fetch(loa.logChannelId || interaction.channel.id).catch(() => null);
+                if (logChannel?.isTextBased()) {
+                    await logChannel.send({ embeds: [new EmbedBuilder()
+                        .setTitle('❌ LOA Extension Denied')
+                        .setColor(0xE74C3C)
+                        .addFields(
+                            { name: '👤 User', value: `${user.tag} (${user.id})`, inline: true },
+                            { name: '🏢 Department', value: loa.department || 'Unknown', inline: true },
+                            { name: '👮 Denied By', value: interaction.user.tag, inline: true },
+                            { name: '📅 Original Return Date', value: loa.returnDate || 'Unknown', inline: true }
+                        )
+                        .setFooter({ text: `LOA ID: ${loaId}` })
+                        .setTimestamp()
+                    ]});
+                }
+                await interaction.reply({ content: '✅ Extension denied and user notified.', ephemeral: true });
+            } catch (err) { console.error('Error denying LOA extension:', err); try { await interaction.reply({ content: '❌ Error denying extension.', ephemeral: true }); } catch {} }
             return;
         }
 
@@ -3073,6 +3217,7 @@ client.on('messageCreate', async message => {
             const member = message.guild.members.cache.get(message.author.id) ||
                            await message.guild.members.fetch(message.author.id).catch(() => null);
             if (member && member.roles.cache.has(STAFF_ROLE_ID)) {
+                const { MessageLog } = require('./db');
                 const weekStart = getWeekStart();
                 await MessageLog.findOneAndUpdate(
                     { userId: message.author.id, guildId: MOD_REPORT_GUILD_ID },
