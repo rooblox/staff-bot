@@ -2465,6 +2465,33 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        // ========== GIVEAWAY BUTTONS ==========
+        if (interaction.customId.startsWith('giveaway_enter_')) {
+            const gwId = interaction.customId.replace('giveaway_enter_', '');
+            const { activeGiveaways } = require('./commands/giveaway');
+            const gw = activeGiveaways.get(gwId);
+            if (!gw || gw.ended) return interaction.reply({ content: '❌ This giveaway has ended.', ephemeral: true });
+            if (gw.participants.has(interaction.user.id)) return interaction.reply({ content: '✅ You\'re already entered! Good luck!', ephemeral: true });
+            gw.participants.set(interaction.user.id, 0);
+            const msgReq = gw.config.requiredMessages > 0
+                ? ` Send **${gw.config.requiredMessages} message${gw.config.requiredMessages !== 1 ? 's' : ''}** in <#${gw.config.channelId}> to qualify for the draw.`
+                : ' Good luck!';
+            return interaction.reply({ content: `🎉 You've entered the giveaway!${msgReq}`, ephemeral: true });
+        }
+
+        if (interaction.customId.startsWith('giveaway_end_')) {
+            const gwId = interaction.customId.replace('giveaway_end_', '');
+            const { activeGiveaways, endGiveaway } = require('./commands/giveaway');
+            const gw = activeGiveaways.get(gwId);
+            if (!gw || gw.ended) return interaction.reply({ content: '❌ Giveaway not found or already ended.', ephemeral: true });
+            if (interaction.user.id !== gw.config.hostId && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+                return interaction.reply({ content: '❌ Only the host or staff can end this early.', ephemeral: true });
+            }
+            await interaction.reply({ content: '⏹️ Ending giveaway...', ephemeral: true });
+            await endGiveaway(interaction.client, gwId);
+            return;
+        }
+
         return;
     }
 
@@ -3238,6 +3265,16 @@ client.on('guildMemberRemove', async member => {
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+
+    // Giveaway message tracking
+    try {
+        const { activeGiveaways } = require('./commands/giveaway');
+        for (const gw of activeGiveaways.values()) {
+            if (!gw.ended && gw.participants.has(message.author.id)) {
+                gw.participants.set(message.author.id, (gw.participants.get(message.author.id) || 0) + 1);
+            }
+        }
+    } catch (err) { /* giveaway command not loaded yet */ }
 
     // Track total messages in main server for weekly stats
     if (message.guild && message.guild.id === MOD_REPORT_GUILD_ID) {
