@@ -148,7 +148,7 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
             const msg = { content: '❌ No forms yet. Use `/application setup` first.', ephemeral: true };
             return isUpdate ? interaction.update(msg) : interaction.reply(msg);
         }
-        embed = stepEmbed('Open — Step 1 of 2', 'Which form do you want to open?');
+        embed = stepEmbed('Open — Step 1 of 3', 'Which form do you want to open?');
         components = [new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId(`appopen_form_${uid}`)
@@ -156,10 +156,20 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
                 .addOptions(forms.map(f => ({ label: f.name.slice(0, 100), value: String(f._id), description: `${f.questions.length} questions · ${f.open ? 'Currently open' : 'Closed'}` })))
         )];
 
+    } else if (session.step === 'pick_server') {
+        embed = stepEmbed('Open — Step 2 of 3',
+            `Form: **${session.formName}** ✅\n\nWhich server should the Apply button be posted in?`);
+        components = [new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId(`appopen_server_${uid}`)
+                .setPlaceholder('Select a server…')
+                .addOptions(guildOptions(client))
+        )];
+
     } else if (session.step === 'pick_channel') {
-        const opts = await channelOptions(client, interaction.guild.id);
-        embed = stepEmbed('Open — Step 2 of 2',
-            `Form: **${session.formName}** ✅\n\nWhich channel should the Apply button be posted in?`);
+        const opts = await channelOptions(client, session.serverId);
+        embed = stepEmbed('Open — Step 3 of 3',
+            `Form: **${session.formName}** ✅\nServer: **${session.serverName}** ✅\n\nWhich channel should the Apply button be posted in?`);
         components = [];
         if (opts.length) {
             components.push(new ActionRowBuilder().addComponents(
@@ -519,7 +529,15 @@ module.exports = {
                 session.formId   = String(form._id);
                 session.formName = form.name;
                 session.formDesc = form.description || '';
-                session.step     = 'pick_channel';
+                session.step     = 'pick_server';
+                return sendOpenStep(interaction, session, true);
+            }
+
+            if (id === `appopen_server_${uid}`) {
+                const guild = client.guilds.cache.get(value);
+                session.serverId   = value;
+                session.serverName = guild ? guild.name : value;
+                session.step       = 'pick_channel';
                 return sendOpenStep(interaction, session, true);
             }
 
