@@ -1,58 +1,109 @@
 const {
     SlashCommandBuilder, EmbedBuilder, ActionRowBuilder,
     ButtonBuilder, ButtonStyle, ModalBuilder,
-    TextInputBuilder, TextInputStyle, PermissionFlagsBits
+    TextInputBuilder, TextInputStyle, PermissionFlagsBits,
+    StringSelectMenuBuilder
 } = require('discord.js');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function truncate(str, max = 1024) {
-    if (!str) return '*None*';
-    return str.length > max ? str.slice(0, max - 3) + '...' : str;
-}
-
-// Search guilds the bot is in — returns array of { id, name }
-function searchGuilds(client, query) {
-    const q = query.toLowerCase().trim();
-    if (!q) return [...client.guilds.cache.values()].slice(0, 25).map(g => ({ id: g.id, name: g.name }));
+// Get all guilds bot is in as select options
+function guildOptions(client) {
     return [...client.guilds.cache.values()]
-        .filter(g => g.name.toLowerCase().includes(q))
         .slice(0, 25)
-        .map(g => ({ id: g.id, name: g.name }));
+        .map(g => ({ label: g.name.slice(0, 100), value: g.id }));
 }
 
-// Search text channels in a guild — works from cache if already fetched, fetches otherwise
-async function searchChannels(client, guildId, query) {
+// Get text channels for a guild as select options
+async function channelOptions(client, guildId) {
     try {
         let guild = client.guilds.cache.get(guildId);
         if (!guild) guild = await client.guilds.fetch(guildId);
-        if (!guild) return [];
-        // Ensure channel cache is populated
         if (guild.channels.cache.size === 0) await guild.channels.fetch();
-        const q = query.toLowerCase().trim();
         return [...guild.channels.cache.values()]
-            .filter(c => {
-                if (!c || !c.name) return false;
-                if (!c.isTextBased()) return false;
-                if (c.isThread && c.isThread()) return false;
-                return !q || c.name.toLowerCase().includes(q);
-            })
+            .filter(c => c && c.name && c.isTextBased() && !(c.isThread && c.isThread()))
             .slice(0, 25)
-            .map(c => ({ id: c.id, name: `#${c.name}` }));
-    } catch (err) {
-        console.error('[searchChannels error]', err);
-        return [];
-    }
+            .map(c => ({ label: `#${c.name}`.slice(0, 100), value: c.id }));
+    } catch { return []; }
 }
 
 // ─── In-memory pending DM sessions ──────────────────────────────────────────
 // userId -> { formId, formName, answers: [], questionIndex, isResubmit, questions }
 const pendingDMs = new Map();
 
-// ─── In-memory setup sessions (waiting for modal submit) ────────────────────
-// userId -> { name, logServerId, logServerName, logChannelId, logChannelName,
-//             ticketServerId, ticketServerName, ticketChannelId, ticketChannelName, description }
+// ─── In-memory setup sessions ────────────────────────────────────────────────
+// userId -> { step, name, description, logServerId, logServerName,
+//             logChannelId, logChannelName, ticketServerId, ticketServerName,
+//             ticketChannelId, ticketChannelName }
 const pendingSetups = new Map();
+
+// ─── Build the step embeds/selects ──────────────────────────────────────────
+
+function stepEmbed(title, desc) {
+    return new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle(title)
+        .setDescription(desc);
+}
+
+async function sendStep(interaction, session, isUpdate = false) {
+    const client = interaction.client;
+    const uid = interaction.user.id;
+
+    let embed, components;
+
+    if (session.step === 'log_server') {
+        const opts = guildOptions(client);
+        embed = stepEmbed('Step 1 of 4 — Log Server', 'Which server should submissions be logged in?');
+        components = [new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId(`appsetup_logserver_${uid}`)
+                .setPlaceholder('Select a server…')
+                .addOptions(opts)
+        )];
+    } else if (session.step === 'log_channel') {
+        const opts = await channelOptions(client, session.logServerId);
+        if (!opts.length) {
+            const msg = { content: `❌ No text channels visible in **${session.logServerName}**. Check bot permissions.`, ephemeral: true };
+            return isUpdate ? interaction.update(msg) : interaction.reply(msg);
+        }
+        embed = stepEmbed('Step 2 of 4 — Log Channel', `Which channel in **${session.logServerName}** should submissions post to?`);
+        components = [new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId(`appsetup_logchannel_${uid}`)
+                .setPlaceholder('Select a channel…')
+                .addOptions(opts)
+        )];
+    } else if (session.step === 'ticket_server') {
+        const opts = guildOptions(client);
+        embed = stepEmbed('Step 3 of 4 — Ticket Server', `Log channel set to **#${session.logChannelName}** in **${session.logServerName}**.\n\nWhich server should applicants open support tickets in?`);
+        components = [new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId(`appsetup_ticketserver_${uid}`)
+                .setPlaceholder('Select a server…')
+                .addOptions(opts)
+        )];
+    } else if (session.step === 'ticket_channel') {
+        const opts = await channelOptions(client, session.ticketServerId);
+        if (!opts.length) {
+            const msg = { content: `❌ No text channels visible in **${session.ticketServerName}**. Check bot permissions.`, ephemeral: true };
+            return isUpdate ? interaction.update(msg) : interaction.reply(msg);
+        }
+        embed = stepEmbed('Step 4 of 4 — Ticket Channel', `Which channel in **${session.ticketServerName}** should applicants open tickets in?`);
+        components = [new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId(`appsetup_ticketchannel_${uid}`)
+                .setPlaceholder('Select a channel…')
+                .addOptions(opts)
+        )];
+    }
+
+    const payload = { embeds: [embed], components, ephemeral: true };
+    if (isUpdate) return interaction.update(payload);
+    return interaction.reply(payload);
+}
+
+// ─── Module exports ──────────────────────────────────────────────────────────
 
 module.exports = {
     pendingDMs,
@@ -63,15 +114,11 @@ module.exports = {
         .setDescription('Application form system')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 
-        // ── SETUP (step 1: pick servers/channels, then modal for questions) ──
+        // ── SETUP ──
         .addSubcommand(sub => sub
             .setName('setup')
             .setDescription('Create a new application form')
             .addStringOption(o => o.setName('name').setDescription('Name for this form e.g. "Barista Application"').setRequired(true).setMaxLength(80))
-            .addStringOption(o => o.setName('log_server').setDescription('Part of the server name to log submissions in').setRequired(true).setMaxLength(100))
-            .addStringOption(o => o.setName('log_channel').setDescription('Part of the channel name to log submissions in').setRequired(true).setMaxLength(100))
-            .addStringOption(o => o.setName('ticket_server').setDescription('Part of the server name where applicants open tickets').setRequired(true).setMaxLength(100))
-            .addStringOption(o => o.setName('ticket_channel').setDescription('Part of the channel name where tickets are opened').setRequired(true).setMaxLength(100))
             .addStringOption(o => o.setName('description').setDescription('Optional description shown on the apply message').setRequired(false).setMaxLength(200))
         )
 
@@ -110,88 +157,19 @@ module.exports = {
             const sub = interaction.options.getSubcommand();
             const client = interaction.client;
 
-            // ── SETUP ──
+            // ── SETUP — kick off the dropdown flow ──
             if (sub === 'setup') {
-                const name           = interaction.options.getString('name');
-                const logServerQ     = interaction.options.getString('log_server');
-                const logChannelQ    = interaction.options.getString('log_channel');
-                const ticketServerQ  = interaction.options.getString('ticket_server');
-                const ticketChannelQ = interaction.options.getString('ticket_channel');
-                const description    = interaction.options.getString('description') || '';
+                const name = interaction.options.getString('name');
+                const description = interaction.options.getString('description') || '';
 
-                // Resolve log server
-                const logGuilds = searchGuilds(client, logServerQ);
-                if (!logGuilds.length) {
-                    const all = searchGuilds(client, '').map(g => `• **${g.name}**`).join('\n');
-                    return interaction.reply({ ephemeral: true, content: `❌ No server found matching **"${logServerQ}"**.\n\nServers the bot is in:\n${all || 'None'}` });
-                }
-                if (logGuilds.length > 5) {
-                    return interaction.reply({ ephemeral: true, content: `⚠️ "${logServerQ}" matches multiple servers. Be more specific:\n${logGuilds.slice(0,10).map(g=>`• **${g.name}**`).join('\n')}` });
-                }
-                const logGuild = logGuilds[0];
-
-                // Resolve ticket server
-                const ticketGuilds = searchGuilds(client, ticketServerQ);
-                if (!ticketGuilds.length) {
-                    const all = searchGuilds(client, '').map(g => `• **${g.name}**`).join('\n');
-                    return interaction.reply({ ephemeral: true, content: `❌ No server found matching **"${ticketServerQ}"**.\n\nServers the bot is in:\n${all || 'None'}` });
-                }
-                if (ticketGuilds.length > 5) {
-                    return interaction.reply({ ephemeral: true, content: `⚠️ "${ticketServerQ}" matches multiple servers. Be more specific:\n${ticketGuilds.slice(0,10).map(g=>`• **${g.name}**`).join('\n')}` });
-                }
-                const ticketGuild = ticketGuilds[0];
-
-                // Resolve log channel
-                const logChannels = await searchChannels(client, logGuild.id, logChannelQ);
-                if (!logChannels.length) {
-                    const all = await searchChannels(client, logGuild.id, '');
-                    return interaction.reply({ ephemeral: true, content: `❌ No channel matching **"${logChannelQ}"** in **${logGuild.name}**.\n\nChannels available:\n${all.map(c=>`• ${c.name}`).join('\n') || 'None visible'}` });
-                }
-                if (logChannels.length > 5) {
-                    return interaction.reply({ ephemeral: true, content: `⚠️ Multiple channels match "${logChannelQ}" in **${logGuild.name}**. Be more specific:\n${logChannels.map(c=>`• ${c.name}`).join('\n')}` });
-                }
-                const logChannel = logChannels[0];
-
-                // Resolve ticket channel
-                const ticketChannels = await searchChannels(client, ticketGuild.id, ticketChannelQ);
-                if (!ticketChannels.length) {
-                    const all = await searchChannels(client, ticketGuild.id, '');
-                    return interaction.reply({ ephemeral: true, content: `❌ No channel matching **"${ticketChannelQ}"** in **${ticketGuild.name}**.\n\nChannels available:\n${all.map(c=>`• ${c.name}`).join('\n') || 'None visible'}` });
-                }
-                if (ticketChannels.length > 5) {
-                    return interaction.reply({ ephemeral: true, content: `⚠️ Multiple channels match "${ticketChannelQ}" in **${ticketGuild.name}**. Be more specific:\n${ticketChannels.map(c=>`• ${c.name}`).join('\n')}` });
-                }
-                const ticketChannel = ticketChannels[0];
-
-                // Save setup context then show the questions modal
-                pendingSetups.set(interaction.user.id, {
+                const session = {
+                    step: 'log_server',
                     name, description,
-                    logServerId: logGuild.id, logServerName: logGuild.name,
-                    logChannelId: logChannel.id, logChannelName: logChannel.name.replace(/^#/, ''),
-                    ticketServerId: ticketGuild.id, ticketServerName: ticketGuild.name,
-                    ticketChannelId: ticketChannel.id, ticketChannelName: ticketChannel.name.replace(/^#/, ''),
-                    createdBy: interaction.user.id, createdByTag: interaction.user.tag
-                });
-
-                const modal = new ModalBuilder()
-                    .setCustomId('app_setup_questions')
-                    .setTitle(`Questions for: ${name.slice(0, 40)}`);
-
-                const q1 = new TextInputBuilder().setCustomId('q1').setLabel('Question 1').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('e.g. What is your Roblox username?');
-                const q2 = new TextInputBuilder().setCustomId('q2').setLabel('Question 2').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('e.g. How old are you?');
-                const q3 = new TextInputBuilder().setCustomId('q3').setLabel('Question 3 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200).setPlaceholder('e.g. Why do you want to join?');
-                const q4 = new TextInputBuilder().setCustomId('q4').setLabel('Question 4 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200);
-                const q5 = new TextInputBuilder().setCustomId('q5').setLabel('Question 5 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200);
-
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(q1),
-                    new ActionRowBuilder().addComponents(q2),
-                    new ActionRowBuilder().addComponents(q3),
-                    new ActionRowBuilder().addComponents(q4),
-                    new ActionRowBuilder().addComponents(q5)
-                );
-
-                return interaction.showModal(modal);
+                    createdBy: interaction.user.id,
+                    createdByTag: interaction.user.tag
+                };
+                pendingSetups.set(interaction.user.id, session);
+                return sendStep(interaction, session, false);
             }
 
             // ── LIST ──
@@ -211,29 +189,30 @@ module.exports = {
             // ── OPEN ──
             if (sub === 'open') {
                 await interaction.deferReply({ ephemeral: true });
-                const formSearch   = interaction.options.getString('form_search').toLowerCase().trim();
+                const formSearch    = interaction.options.getString('form_search').toLowerCase().trim();
                 const channelSearch = interaction.options.getString('channel_search').toLowerCase().trim();
-                const messageId    = interaction.options.getString('message_id');
+                const messageId     = interaction.options.getString('message_id');
 
                 const forms = await AppForm.find();
                 const matchedForms = forms.filter(f => f.name.toLowerCase().includes(formSearch));
                 if (!matchedForms.length) {
-                    return interaction.editReply({ content: `❌ No form found matching **"${formSearch}"**.\n\nAvailable:\n${forms.map(f=>`• **${f.name}**`).join('\n') || 'None yet.'}` });
+                    return interaction.editReply({ content: `❌ No form found matching **"${formSearch}"**.\n\nAvailable:\n${forms.map(f => `• **${f.name}**`).join('\n') || 'None yet.'}` });
                 }
                 if (matchedForms.length > 1) {
-                    return interaction.editReply({ content: `⚠️ Multiple forms match "${formSearch}". Be more specific:\n${matchedForms.map(f=>`• **${f.name}**`).join('\n')}` });
+                    return interaction.editReply({ content: `⚠️ Multiple forms match "${formSearch}". Be more specific:\n${matchedForms.map(f => `• **${f.name}**`).join('\n')}` });
                 }
                 const form = matchedForms[0];
 
-                const channels = await searchChannels(client, interaction.guild.id, channelSearch);
-                if (!channels.length) {
-                    const all = await searchChannels(client, interaction.guild.id, '');
-                    return interaction.editReply({ content: `❌ No channel matching **"${channelSearch}"** in this server.\n\nAvailable:\n${all.map(c=>`• ${c.name}`).join('\n') || 'None visible'}` });
+                // Search channels in current guild
+                const opts = await channelOptions(client, interaction.guild.id);
+                const matched = opts.filter(c => c.label.toLowerCase().includes(channelSearch));
+                if (!matched.length) {
+                    return interaction.editReply({ content: `❌ No channel matching **"${channelSearch}"** in this server.\n\nAvailable:\n${opts.map(c => `• ${c.label}`).join('\n') || 'None visible'}` });
                 }
-                if (channels.length > 5) {
-                    return interaction.editReply({ content: `⚠️ Multiple channels match "${channelSearch}". Be more specific:\n${channels.map(c=>`• ${c.name}`).join('\n')}` });
+                if (matched.length > 5) {
+                    return interaction.editReply({ content: `⚠️ Multiple channels match "${channelSearch}". Be more specific:\n${matched.map(c => `• ${c.label}`).join('\n')}` });
                 }
-                const targetChannel = await client.channels.fetch(channels[0].id);
+                const targetChannel = await client.channels.fetch(matched[0].value);
 
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
@@ -243,11 +222,10 @@ module.exports = {
                 );
 
                 let openMessageId;
-
                 if (messageId) {
                     const existing = await targetChannel.messages.fetch(messageId).catch(() => null);
-                    if (!existing) return interaction.editReply({ content: `❌ Couldn't find that message in ${targetChannel}. Check the message ID is from that channel.` });
-                    if (existing.author.id !== client.user.id) return interaction.editReply({ content: `❌ I can only edit my own messages. Skip the \`message_id\` option and I'll post a small button message below the requirements instead.` });
+                    if (!existing) return interaction.editReply({ content: `❌ Couldn't find that message in ${targetChannel}.` });
+                    if (existing.author.id !== client.user.id) return interaction.editReply({ content: `❌ I can only edit my own messages. Skip \`message_id\` and I'll post a button message below your requirements instead.` });
                     await existing.edit({ components: [row] });
                     openMessageId = messageId;
                     await interaction.editReply({ content: `✅ Apply button added to the existing message in ${targetChannel}!` });
@@ -270,8 +248,8 @@ module.exports = {
                 const q = interaction.options.getString('form_search').toLowerCase().trim();
                 const forms = await AppForm.find();
                 const matched = forms.filter(f => f.name.toLowerCase().includes(q));
-                if (!matched.length) return interaction.editReply({ content: `❌ No form found matching "${q}".\n\nAvailable:\n${forms.map(f=>`• **${f.name}**`).join('\n') || 'None'}` });
-                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches. Be more specific:\n${matched.map(f=>`• **${f.name}**`).join('\n')}` });
+                if (!matched.length) return interaction.editReply({ content: `❌ No form found matching "${q}".\n\nAvailable:\n${forms.map(f => `• **${f.name}**`).join('\n') || 'None'}` });
+                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches. Be more specific:\n${matched.map(f => `• **${f.name}**`).join('\n')}` });
 
                 const form = matched[0];
                 await AppForm.findByIdAndUpdate(form._id, { open: false });
@@ -293,7 +271,7 @@ module.exports = {
                 const forms = await AppForm.find();
                 const matched = forms.filter(f => f.name.toLowerCase().includes(q));
                 if (!matched.length) return interaction.editReply({ content: `❌ No form found matching "${q}".` });
-                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches. Be more specific:\n${matched.map(f=>`• **${f.name}**`).join('\n')}` });
+                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches. Be more specific:\n${matched.map(f => `• **${f.name}**`).join('\n')}` });
 
                 const form = matched[0];
                 await AppForm.findByIdAndDelete(form._id);
@@ -311,38 +289,122 @@ module.exports = {
         }
     },
 
+    // ── Handle all setup select menu interactions ────────────────────────────
+    // Wire into index.js isStringSelectMenu() block:
+    //   if (interaction.customId.startsWith('appsetup_')) { await require('./commands/application').handleSetupSelect(interaction); return; }
+    async handleSetupSelect(interaction) {
+        try {
+            const uid = interaction.user.id;
+            const session = pendingSetups.get(uid);
+            if (!session) {
+                return interaction.update({ content: '❌ Setup session expired. Run `/application setup` again.', embeds: [], components: [] });
+            }
+
+            const id = interaction.customId;
+            const value = interaction.values[0];
+            const client = interaction.client;
+
+            if (id === `appsetup_logserver_${uid}`) {
+                const guild = client.guilds.cache.get(value);
+                session.logServerId = value;
+                session.logServerName = guild ? guild.name : value;
+                session.step = 'log_channel';
+                return sendStep(interaction, session, true);
+            }
+
+            if (id === `appsetup_logchannel_${uid}`) {
+                const guild = client.guilds.cache.get(session.logServerId);
+                const ch = guild ? guild.channels.cache.get(value) : null;
+                session.logChannelId = value;
+                session.logChannelName = ch ? ch.name : value;
+                session.step = 'ticket_server';
+                return sendStep(interaction, session, true);
+            }
+
+            if (id === `appsetup_ticketserver_${uid}`) {
+                const guild = client.guilds.cache.get(value);
+                session.ticketServerId = value;
+                session.ticketServerName = guild ? guild.name : value;
+                session.step = 'ticket_channel';
+                return sendStep(interaction, session, true);
+            }
+
+            if (id === `appsetup_ticketchannel_${uid}`) {
+                const guild = client.guilds.cache.get(session.ticketServerId);
+                const ch = guild ? guild.channels.cache.get(value) : null;
+                session.ticketChannelId = value;
+                session.ticketChannelName = ch ? ch.name : value;
+                // All server/channel info collected — show questions modal
+                const modal = new ModalBuilder()
+                    .setCustomId('app_setup_questions')
+                    .setTitle(`Questions: ${session.name.slice(0, 40)}`);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('q1').setLabel('Question 1').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('e.g. What is your Roblox username?')
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('q2').setLabel('Question 2').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('e.g. How old are you?')
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('q3').setLabel('Question 3 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200).setPlaceholder('e.g. Why do you want to join?')
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('q4').setLabel('Question 4 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('q5').setLabel('Question 5 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200)
+                    )
+                );
+
+                return interaction.showModal(modal);
+            }
+
+        } catch (err) {
+            console.error('[appsetup select error]', err);
+            await interaction.update({ content: '❌ Something went wrong. Try `/application setup` again.', embeds: [], components: [] }).catch(() => {});
+        }
+    },
+
     // ── Handle the questions modal submit ───────────────────────────────────
-    // Call this from index.js in the isModalSubmit() block:
+    // Wire into index.js isModalSubmit() block:
     //   if (interaction.customId === 'app_setup_questions') { await require('./commands/application').handleSetupModal(interaction); return; }
     async handleSetupModal(interaction) {
         try {
             const { AppForm } = require('../db');
-            const setup = pendingSetups.get(interaction.user.id);
-            if (!setup) {
+            const session = pendingSetups.get(interaction.user.id);
+            if (!session) {
                 return interaction.reply({ content: '❌ Setup session expired. Run `/application setup` again.', ephemeral: true });
             }
             pendingSetups.delete(interaction.user.id);
 
-            const questions = [
-                interaction.fields.getTextInputValue('q1'),
-                interaction.fields.getTextInputValue('q2'),
-                interaction.fields.getTextInputValue('q3'),
-                interaction.fields.getTextInputValue('q4'),
-                interaction.fields.getTextInputValue('q5'),
-            ].filter(q => q && q.trim());
+            const questions = ['q1','q2','q3','q4','q5']
+                .map(k => interaction.fields.getTextInputValue(k))
+                .filter(q => q && q.trim());
 
             if (questions.length < 2) {
                 return interaction.reply({ content: '❌ Please add at least 2 questions.', ephemeral: true });
             }
 
             const form = await AppForm.create({
-                ...setup,
+                name: session.name,
+                description: session.description,
                 questions,
+                createdBy: session.createdBy,
+                createdByTag: session.createdByTag,
+                logServerId: session.logServerId,
+                logServerName: session.logServerName,
+                logChannelId: session.logChannelId,
+                logChannelName: session.logChannelName,
+                ticketServerId: session.ticketServerId,
+                ticketServerName: session.ticketServerName,
+                ticketChannelId: session.ticketChannelId,
+                ticketChannelName: session.ticketChannelName,
                 createdAt: new Date(),
                 open: false
             });
 
-            await interaction.reply({
+            return interaction.reply({
                 ephemeral: true,
                 embeds: [new EmbedBuilder()
                     .setTitle('✅ Application Form Created')

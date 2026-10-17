@@ -1069,6 +1069,12 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
     }
 
     if (interaction.isStringSelectMenu()) {
+        // ========== APPLICATION SETUP DROPDOWNS ==========
+        if (interaction.customId.startsWith('appsetup_')) {
+            await require('./commands/application').handleSetupSelect(interaction);
+            return;
+        }
+
         if (interaction.customId.startsWith('loa_selectdept_')) {
             const logChannelId = interaction.customId.replace('loa_selectdept_', '');
             const department = interaction.values[0];
