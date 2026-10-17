@@ -106,7 +106,7 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            const { AppForm } = require('./db');
+            const { AppForm } = require('../db');
             const sub = interaction.options.getSubcommand();
             const client = interaction.client;
 
@@ -316,7 +316,7 @@ module.exports = {
     //   if (interaction.customId === 'app_setup_questions') { await require('./commands/application').handleSetupModal(interaction); return; }
     async handleSetupModal(interaction) {
         try {
-            const { AppForm } = require('./db');
+            const { AppForm } = require('../db');
             const setup = pendingSetups.get(interaction.user.id);
             if (!setup) {
                 return interaction.reply({ content: '❌ Setup session expired. Run `/application setup` again.', ephemeral: true });
