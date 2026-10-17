@@ -3346,6 +3346,12 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
+        // ========== APPLICATION SETUP QUESTIONS MODAL ==========
+        if (interaction.customId === 'app_setup_questions') {
+            await require('./commands/application').handleSetupModal(interaction);
+            return;
+        }
+
         // ========== APPLICATION DECLINE MODAL ==========
         if (interaction.customId.startsWith('app_declinemodal_')) {
             await interaction.deferReply({ ephemeral: true }).catch(() => {});
