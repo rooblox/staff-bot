@@ -1232,6 +1232,13 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ========== APPLICATION SETUP — add more questions / done buttons ==========
+        if (interaction.customId.startsWith('appsetup_addmore_') ||
+            interaction.customId.startsWith('appsetup_savequestions_')) {
+            await require('./commands/application').handleSetupQuestionsButton(interaction);
+            return;
+        }
+
         // ========== APPLICATION OPEN — manual channel ID button ==========
         if (interaction.customId.startsWith('appopen_channel_manual_')) {
             await require('./commands/application').handleOpenSelect(interaction);
@@ -3371,8 +3378,8 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
-        // ========== APPLICATION SETUP QUESTIONS MODAL ==========
-        if (interaction.customId === 'app_setup_questions') {
+        // ========== APPLICATION SETUP QUESTIONS MODAL (rounds 1-3) ==========
+        if (interaction.customId.startsWith('app_setup_questions_')) {
             await require('./commands/application').handleSetupModal(interaction);
             return;
         }

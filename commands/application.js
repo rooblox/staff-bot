@@ -108,17 +108,29 @@ async function sendSetupStep(interaction, session, isUpdate = false) {
     return interaction.reply(payload);
 }
 
-function questionsModal(name) {
+// round: 1, 2, or 3  (questions 1-5, 6-10, 11-15)
+function questionsModal(name, round = 1, customId = 'app_setup_questions_1') {
+    const base  = (round - 1) * 5; // 0, 5, 10
+    const req   = round === 1;
     const modal = new ModalBuilder()
-        .setCustomId('app_setup_questions')
-        .setTitle(`Questions: ${name.slice(0, 40)}`);
-    modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q1').setLabel('Question 1').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('e.g. What is your Roblox username?')),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q2').setLabel('Question 2').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('e.g. How old are you?')),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q3').setLabel('Question 3 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200).setPlaceholder('e.g. Why do you want to join?')),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q4').setLabel('Question 4 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('q5').setLabel('Question 5 (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200))
-    );
+        .setCustomId(customId)
+        .setTitle(`Questions ${base + 1}–${base + 5}: ${name.slice(0, 30)}`);
+    for (let i = 1; i <= 5; i++) {
+        const num      = base + i;
+        const required = req && i <= 2; // first round needs at least 2
+        modal.addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+                .setCustomId(`q${num}`)
+                .setLabel(`Question ${num}${required ? '' : ' (optional)'}`)
+                .setStyle(TextInputStyle.Short)
+                .setRequired(required)
+                .setMaxLength(200)
+                .setPlaceholder(
+                    num === 1 ? 'e.g. What is your Roblox username?' :
+                    num === 2 ? 'e.g. Why do you want to join?' : ''
+                )
+        ));
+    }
     return modal;
 }
 
@@ -343,7 +355,7 @@ module.exports = {
                 const ch    = guild ? guild.channels.cache.get(value) : null;
                 session.ticketChannelId   = value;
                 session.ticketChannelName = ch ? ch.name : value;
-                return interaction.showModal(questionsModal(session.name));
+                return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
             }
 
         } catch (err) {
@@ -382,8 +394,8 @@ module.exports = {
             }
 
             if (field === 'ticket') {
-                // Done — show questions modal
-                return interaction.showModal(questionsModal(session.name));
+                // Done — show questions modal (round 1)
+                return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
             }
 
             // Continue to next step
@@ -395,47 +407,82 @@ module.exports = {
         }
     },
 
-    // ── Questions modal submit ───────────────────────────────────────────────
-    // index.js: if (interaction.customId === 'app_setup_questions') { await require('./commands/application').handleSetupModal(interaction); return; }
+    // ── Questions modal submit (rounds 1–3, customId: app_setup_questions_1/2/3) ──
+    // index.js: if (interaction.customId.startsWith('app_setup_questions_')) { await require('./commands/application').handleSetupModal(interaction); return; }
     async handleSetupModal(interaction) {
         try {
             const { AppForm } = require('../db');
-            const session = pendingSetups.get(interaction.user.id);
+            const uid     = interaction.user.id;
+            const session = pendingSetups.get(uid);
             if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
-            pendingSetups.delete(interaction.user.id);
 
-            const questions = ['q1','q2','q3','q4','q5']
-                .map(k => interaction.fields.getTextInputValue(k))
-                .filter(q => q && q.trim());
+            const round = parseInt(interaction.customId.slice(-1)); // 1, 2, or 3
+            const base  = (round - 1) * 5;
 
-            if (questions.length < 2) return interaction.reply({ content: '❌ Please add at least 2 questions.', ephemeral: true });
+            // Collect this round's answers
+            if (!session.questions) session.questions = [];
+            for (let i = 1; i <= 5; i++) {
+                const val = interaction.fields.getTextInputValue(`q${base + i}`).trim();
+                if (val) session.questions.push(val);
+            }
 
-            const form = await AppForm.create({
-                name: session.name, description: session.description, questions,
-                createdBy: session.createdBy, createdByTag: session.createdByTag,
-                logServerId: session.logServerId, logServerName: session.logServerName,
-                logChannelId: session.logChannelId, logChannelName: session.logChannelName,
-                ticketServerId: session.ticketServerId, ticketServerName: session.ticketServerName,
-                ticketChannelId: session.ticketChannelId, ticketChannelName: session.ticketChannelName,
-                createdAt: new Date(), open: false
-            });
+            // Round 1: must have at least 2
+            if (round === 1 && session.questions.length < 2) {
+                session.questions = [];
+                return interaction.reply({ content: '❌ Please fill in at least 2 questions.', ephemeral: true });
+            }
 
-            return interaction.reply({
-                ephemeral: true,
-                embeds: [new EmbedBuilder()
-                    .setTitle('✅ Application Form Created')
-                    .setColor(0x57f287)
-                    .addFields(
-                        { name: 'Form Name', value: form.name, inline: true },
-                        { name: 'Questions', value: questions.map((q, i) => `**${i + 1}.** ${q}`).join('\n') },
-                        { name: 'Log Channel', value: `#${form.logChannelName} in **${form.logServerName}**`, inline: true },
-                        { name: 'Ticket Channel', value: `#${form.ticketChannelName} in **${form.ticketServerName}**`, inline: true }
-                    )
-                    .setFooter({ text: 'Use /application open to post the Apply button' })]
-            });
+            // If under 15 and not on round 3, offer to add more
+            if (round < 3 && session.questions.length < 15) {
+                const addMoreBtn = new ButtonBuilder()
+                    .setCustomId(`appsetup_addmore_${round + 1}_${uid}`)
+                    .setLabel(`➕ Add questions ${base + 6}–${base + 10}`)
+                    .setStyle(ButtonStyle.Secondary);
+                const doneBtn = new ButtonBuilder()
+                    .setCustomId(`appsetup_savequestions_${uid}`)
+                    .setLabel('✅ Done — save form')
+                    .setStyle(ButtonStyle.Success);
+                return interaction.reply({
+                    ephemeral: true,
+                    content: `Got **${session.questions.length}** question(s) so far. Add more or save now.`,
+                    components: [new ActionRowBuilder().addComponents(addMoreBtn, doneBtn)]
+                });
+            }
+
+            // Round 3 or at 15 — save immediately
+            return saveForm(interaction, session);
+
         } catch (err) {
             console.error('[app_setup_questions modal error]', err);
             await interaction.reply({ content: '❌ Failed to save the form. Check the bot logs.', ephemeral: true }).catch(() => {});
+        }
+    },
+
+    // ── "Add more questions" button + "Done" button ──────────────────────────
+    // index.js: if (interaction.customId.startsWith('appsetup_addmore_') || interaction.customId.startsWith('appsetup_savequestions_')) { await require('./commands/application').handleSetupQuestionsButton(interaction); return; }
+    async handleSetupQuestionsButton(interaction) {
+        try {
+            const uid     = interaction.user.id;
+            const session = pendingSetups.get(uid);
+            if (!session) return interaction.update({ content: '❌ Session expired. Run `/application setup` again.', embeds: [], components: [] });
+
+            if (interaction.customId.startsWith('appsetup_savequestions_')) {
+                await interaction.update({ content: 'Saving…', components: [] });
+                return saveForm(interaction, session);
+            }
+
+            // appsetup_addmore_<round>_<uid>
+            const round = parseInt(interaction.customId.split('_')[2]);
+            await interaction.update({ content: `Opening questions ${(round - 1) * 5 + 1}–${round * 5}…`, components: [] });
+            return interaction.followUp({ content: '​', ephemeral: true }).then(() =>
+                interaction.showModal(questionsModal(session.name, round, `app_setup_questions_${round}`))
+            ).catch(() =>
+                interaction.showModal(questionsModal(session.name, round, `app_setup_questions_${round}`))
+            );
+
+        } catch (err) {
+            console.error('[appsetup questions button error]', err);
+            await interaction.update({ content: '❌ Something went wrong.', components: [] }).catch(() => {});
         }
     },
 
@@ -505,6 +552,44 @@ module.exports = {
         }
     }
 };
+
+// ─── Shared save-form logic ──────────────────────────────────────────────────
+
+async function saveForm(interaction, session) {
+    const { AppForm } = require('../db');
+    pendingSetups.delete(interaction.user.id);
+
+    const questions = session.questions || [];
+    if (questions.length < 2) {
+        const msg = { content: '❌ Need at least 2 questions.', ephemeral: true };
+        return interaction.replied || interaction.deferred ? interaction.editReply(msg) : interaction.reply(msg);
+    }
+
+    const form = await AppForm.create({
+        name: session.name, description: session.description, questions,
+        createdBy: session.createdBy, createdByTag: session.createdByTag,
+        logServerId: session.logServerId, logServerName: session.logServerName,
+        logChannelId: session.logChannelId, logChannelName: session.logChannelName,
+        ticketServerId: session.ticketServerId, ticketServerName: session.ticketServerName,
+        ticketChannelId: session.ticketChannelId, ticketChannelName: session.ticketChannelName,
+        createdAt: new Date(), open: false
+    });
+
+    const embed = new EmbedBuilder()
+        .setTitle('✅ Application Form Created')
+        .setColor(0x57f287)
+        .addFields(
+            { name: 'Form Name', value: form.name, inline: true },
+            { name: 'Questions', value: questions.map((q, i) => `**${i + 1}.** ${q}`).join('\n') },
+            { name: 'Log Channel', value: `#${form.logChannelName} in **${form.logServerName}**`, inline: true },
+            { name: 'Ticket Channel', value: `#${form.ticketChannelName} in **${form.ticketServerName}**`, inline: true }
+        )
+        .setFooter({ text: 'Use /application open to post the Apply button' });
+
+    const payload = { embeds: [embed], content: null, components: [] };
+    if (interaction.replied || interaction.deferred) return interaction.editReply({ ...payload, ephemeral: true });
+    return interaction.reply({ ...payload, ephemeral: true });
+}
 
 // ─── Shared finish-open logic ────────────────────────────────────────────────
 
