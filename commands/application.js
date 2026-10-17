@@ -467,18 +467,15 @@ module.exports = {
             if (!session) return interaction.update({ content: '❌ Session expired. Run `/application setup` again.', embeds: [], components: [] });
 
             if (interaction.customId.startsWith('appsetup_savequestions_')) {
-                await interaction.update({ content: 'Saving…', components: [] });
+                // update replaces the button message; saveForm will editReply with the result
+                await interaction.deferUpdate();
                 return saveForm(interaction, session);
             }
 
             // appsetup_addmore_<round>_<uid>
+            // showModal MUST be the first and only response to a button interaction
             const round = parseInt(interaction.customId.split('_')[2]);
-            await interaction.update({ content: `Opening questions ${(round - 1) * 5 + 1}–${round * 5}…`, components: [] });
-            return interaction.followUp({ content: '​', ephemeral: true }).then(() =>
-                interaction.showModal(questionsModal(session.name, round, `app_setup_questions_${round}`))
-            ).catch(() =>
-                interaction.showModal(questionsModal(session.name, round, `app_setup_questions_${round}`))
-            );
+            return interaction.showModal(questionsModal(session.name, round, `app_setup_questions_${round}`));
 
         } catch (err) {
             console.error('[appsetup questions button error]', err);
@@ -586,9 +583,10 @@ async function saveForm(interaction, session) {
         )
         .setFooter({ text: 'Use /application open to post the Apply button' });
 
-    const payload = { embeds: [embed], content: null, components: [] };
-    if (interaction.replied || interaction.deferred) return interaction.editReply({ ...payload, ephemeral: true });
-    return interaction.reply({ ...payload, ephemeral: true });
+    const payload = { embeds: [embed], content: null, components: [], ephemeral: true };
+    if (interaction.deferred) return interaction.editReply(payload);
+    if (interaction.replied) return interaction.followUp(payload);
+    return interaction.reply(payload);
 }
 
 // ─── Shared finish-open logic ────────────────────────────────────────────────
