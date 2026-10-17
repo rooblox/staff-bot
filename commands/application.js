@@ -51,7 +51,7 @@ module.exports = {
             .setName('setup')
             .setDescription('Create a new application form')
             .addStringOption(o => o.setName('name').setDescription('Name for this application (e.g. "Barista Application")').setRequired(true))
-            .addStringOption(o => o.setName('questions').setDescription('Questions separated by | (e.g. "What is your age? | Why do you want to join? | Your Roblox username?")').setRequired(true))
+            .addStringOption(o => o.setName('questions').setDescription('Questions separated by | e.g. "Your age? | Why join? | Roblox username?"').setRequired(true))
             .addStringOption(o => o.setName('log_server_search').setDescription('Search for the server to log submissions in').setRequired(true))
             .addStringOption(o => o.setName('log_channel_search').setDescription('Search for the channel to log submissions in (after picking server)').setRequired(true))
             .addStringOption(o => o.setName('ticket_server_search').setDescription('Server where applicants open support tickets (for the "Open Ticket" button)').setRequired(true))
