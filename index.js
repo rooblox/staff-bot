@@ -2465,6 +2465,151 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        // ========== APPLICATION BUTTONS ==========
+        if (interaction.customId.startsWith('app_apply_')) {
+            const formId = interaction.customId.replace('app_apply_', '');
+            const { AppForm, AppSubmission } = require('./db');
+            const form = await AppForm.findById(formId).catch(() => null);
+            if (!form) return interaction.reply({ content: '❌ This application form no longer exists.', ephemeral: true });
+            if (!form.open) return interaction.reply({ content: '❌ Applications are currently closed.', ephemeral: true });
+
+            // Check if already pending
+            const existing = await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'pending' });
+            if (existing) return interaction.reply({ content: '⏳ You already have a pending application for this form.', ephemeral: true });
+
+            const { pendingDMs } = require('./commands/application');
+            const isResubmit = !!(await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'declined' }));
+
+            // Try to DM
+            try {
+                const dm = await interaction.user.createDM();
+                const embed = new EmbedBuilder()
+                    .setTitle(`📝 ${form.name}${isResubmit ? ' (Resubmission)' : ''}`)
+                    .setColor(isResubmit ? 0xe67e22 : 0x5865f2)
+                    .setDescription(
+                        (isResubmit ? '> ⚠️ **This is a resubmission.** Please ensure your answers address any previous feedback.\n\n' : '') +
+                        (form.description ? form.description + '\n\n' : '') +
+                        `**Question 1 of ${form.questions.length}:**\n${form.questions[0]}`
+                    )
+                    .setFooter({ text: 'Type your answer below. Type "cancel" to cancel.' });
+                await dm.send({ embeds: [embed] });
+
+                pendingDMs.set(interaction.user.id, {
+                    formId,
+                    formName: form.name,
+                    answers: [],
+                    questionIndex: 0,
+                    isResubmit,
+                    questions: form.questions
+                });
+
+                return interaction.reply({ content: '📬 Check your DMs! I\'ve sent you the application questions.', ephemeral: true });
+            } catch {
+                return interaction.reply({ content: '❌ I couldn\'t DM you. Please enable DMs from server members and try again.', ephemeral: true });
+            }
+        }
+
+        if (interaction.customId.startsWith('app_pass_')) {
+            const subId = interaction.customId.replace('app_pass_', '');
+            const { AppSubmission, AppForm } = require('./db');
+            const sub = await AppSubmission.findById(subId);
+            if (!sub) return interaction.reply({ content: '❌ Submission not found.', ephemeral: true });
+            if (sub.status !== 'pending') return interaction.reply({ content: `❌ Already ${sub.status}.`, ephemeral: true });
+
+            await AppSubmission.findByIdAndUpdate(subId, { status: 'passed', passedBy: interaction.user.id, passedAt: new Date() });
+
+            // Edit the log message
+            const embed = EmbedBuilder.from(interaction.message.embeds[0])
+                .setColor(0x57f287)
+                .setFooter({ text: `✅ Passed by ${interaction.user.tag}` });
+            await interaction.message.edit({ embeds: [embed], components: [] }).catch(() => {});
+
+            // DM applicant
+            const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
+            if (user) {
+                await user.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle(`✅ Application Update — ${sub.formName}`)
+                        .setDescription(`Your application has been **passed**! A staff member will follow up with next steps.`)
+                        .setColor(0x57f287)
+                        .setTimestamp()]
+                }).catch(() => {});
+            }
+
+            return interaction.reply({ content: '✅ Application passed. Applicant has been notified.', ephemeral: true });
+        }
+
+        if (interaction.customId.startsWith('app_ticket_')) {
+            const subId = interaction.customId.replace('app_ticket_', '');
+            const { AppSubmission, AppForm } = require('./db');
+            const sub = await AppSubmission.findById(subId);
+            if (!sub) return interaction.reply({ content: '❌ Submission not found.', ephemeral: true });
+
+            const form = await AppForm.findById(sub.formId);
+            if (!form) return interaction.reply({ content: '❌ Form not found.', ephemeral: true });
+
+            // DM applicant with ticket channel link
+            const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
+            if (user) {
+                await user.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle(`📋 Application Update — ${sub.formName}`)
+                        .setDescription(
+                            `A staff member has reviewed your application and would like you to **open a support ticket**.\n\n` +
+                            `Please open a ticket in: <#${form.ticketChannelId}>\n` +
+                            `Server: **${form.ticketServerName}**`
+                        )
+                        .setColor(0xf1c40f)
+                        .setTimestamp()]
+                }).catch(() => {});
+            }
+
+            await interaction.reply({ content: `✅ Applicant has been directed to open a ticket in **${form.ticketServerName}** → #${form.ticketChannelName}.`, ephemeral: true });
+        }
+
+        if (interaction.customId.startsWith('app_remind_')) {
+            const subId = interaction.customId.replace('app_remind_', '');
+            const { AppSubmission } = require('./db');
+            const sub = await AppSubmission.findById(subId);
+            if (!sub) return interaction.reply({ content: '❌ Submission not found.', ephemeral: true });
+
+            // DM the reviewer a reminder after 1 hour
+            const reviewer = interaction.user;
+            setTimeout(async () => {
+                try {
+                    await reviewer.send({
+                        embeds: [new EmbedBuilder()
+                            .setTitle('🔔 Application Reminder')
+                            .setDescription(`You asked to be reminded about an application from **${sub.userTag}** for **${sub.formName}**.\n\nHead back to the log channel to review it.`)
+                            .setColor(0x3498db)
+                            .setTimestamp()]
+                    });
+                } catch {}
+            }, 60 * 60 * 1000); // 1 hour
+
+            return interaction.reply({ content: '🔔 I\'ll remind you about this application in **1 hour**.', ephemeral: true });
+        }
+
+        if (interaction.customId.startsWith('app_decline_')) {
+            const subId = interaction.customId.replace('app_decline_', '');
+            const modal = new ModalBuilder()
+                .setCustomId(`app_declinemodal_${subId}`)
+                .setTitle('Decline Application');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('reason')
+                        .setLabel('Reason for declining')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setPlaceholder('Be clear and constructive — this will be sent to the applicant.')
+                        .setRequired(true)
+                        .setMaxLength(1000)
+                )
+            );
+            await interaction.showModal(modal);
+            return;
+        }
+
         // ========== GIVEAWAY BUTTONS ==========
         if (interaction.customId.startsWith('giveaway_enter_')) {
             const gwId = interaction.customId.replace('giveaway_enter_', '');
@@ -3201,6 +3346,54 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
+        // ========== APPLICATION DECLINE MODAL ==========
+        if (interaction.customId.startsWith('app_declinemodal_')) {
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            try {
+                const subId = interaction.customId.replace('app_declinemodal_', '');
+                const reason = interaction.fields.getTextInputValue('reason');
+                const { AppSubmission } = require('./db');
+
+                const sub = await AppSubmission.findById(subId);
+                if (!sub) return interaction.editReply({ content: '❌ Submission not found.' });
+                if (sub.status !== 'pending') return interaction.editReply({ content: `❌ Already ${sub.status}.` });
+
+                await AppSubmission.findByIdAndUpdate(subId, {
+                    status: 'declined',
+                    declineReason: reason,
+                    declinedBy: interaction.user.id,
+                    declinedAt: new Date()
+                });
+
+                // Edit log message to show declined
+                const embed = EmbedBuilder.from(interaction.message.embeds[0])
+                    .setColor(0xe74c3c)
+                    .setFooter({ text: `❌ Declined by ${interaction.user.tag} · Reason: ${reason.slice(0, 80)}${reason.length > 80 ? '...' : ''}` });
+                await interaction.message.edit({ embeds: [embed], components: [] }).catch(() => {});
+
+                // DM applicant — they get one more chance notice
+                const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
+                if (user) {
+                    await user.send({
+                        embeds: [new EmbedBuilder()
+                            .setTitle(`❌ Application Update — ${sub.formName}`)
+                            .setDescription(
+                                `Your application has been **declined** at this time.\n\n` +
+                                `**Reason:**\n${reason}\n\n` +
+                                `You may reapply **one more time**. When you reapply, your submission will be marked as a resubmission. Please take the feedback above into account.`
+                            )
+                            .setColor(0xe74c3c)
+                            .setTimestamp()]
+                    }).catch(() => {});
+                }
+
+                await interaction.editReply({ content: '✅ Application declined. Applicant has been notified and given a resubmission chance.' });
+            } catch (err) {
+                console.error('Error declining application:', err);
+                try { await interaction.editReply({ content: '❌ Error declining application.' }); } catch {}
+            }
+            return;
+        }
 
         return;
     }
@@ -3299,6 +3492,92 @@ client.on('messageCreate', async message => {
     }
 
     if (message.channel.type === 1) {
+        // ── Application DM flow ──
+        const { pendingDMs } = require('./commands/application');
+        const appSession = pendingDMs.get(message.author.id);
+        if (appSession) {
+            if (message.content.toLowerCase() === 'cancel') {
+                pendingDMs.delete(message.author.id);
+                await message.reply('❌ Application cancelled.');
+                return;
+            }
+            appSession.answers.push(message.content);
+            const nextIndex = appSession.questionIndex + 1;
+
+            if (nextIndex < appSession.questions.length) {
+                // More questions
+                appSession.questionIndex = nextIndex;
+                pendingDMs.set(message.author.id, appSession);
+                const embed = new EmbedBuilder()
+                    .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
+                    .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
+                    .setDescription(`**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${appSession.questions[nextIndex]}`)
+                    .setFooter({ text: 'Type your answer below. Type "cancel" to cancel.' });
+                await message.reply({ embeds: [embed] });
+            } else {
+                // All answered — submit
+                pendingDMs.delete(message.author.id);
+                try {
+                    const { AppForm, AppSubmission } = require('./db');
+                    const form = await AppForm.findById(appSession.formId);
+                    if (!form) { await message.reply('❌ The application form no longer exists.'); return; }
+
+                    const submission = await AppSubmission.create({
+                        formId: appSession.formId,
+                        formName: appSession.formName,
+                        userId: message.author.id,
+                        userTag: message.author.tag,
+                        answers: appSession.answers,
+                        status: 'pending',
+                        isResubmit: appSession.isResubmit,
+                        submittedAt: new Date()
+                    });
+
+                    // Post to log channel
+                    const logChannel = await message.client.channels.fetch(form.logChannelId).catch(() => null);
+                    if (logChannel) {
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle(`📋 New Application${appSession.isResubmit ? ' (Resubmission ⚠️)' : ''} — ${form.name}`)
+                            .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
+                            .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+                            .addFields(
+                                { name: '👤 Applicant', value: `<@${message.author.id}> (${message.author.tag})`, inline: true },
+                                { name: '🆔 User ID', value: message.author.id, inline: true },
+                                { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
+                                ...form.questions.map((q, i) => ({
+                                    name: `Q${i + 1}: ${q.length > 80 ? q.slice(0, 77) + '...' : q}`,
+                                    value: appSession.answers[i] || '*No answer*'
+                                }))
+                            )
+                            .setFooter({ text: `Submission ID: ${submission._id}` })
+                            .setTimestamp();
+
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId(`app_pass_${submission._id}`).setLabel('✅ Pass').setStyle(ButtonStyle.Success),
+                            new ButtonBuilder().setCustomId(`app_decline_${submission._id}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger),
+                            new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Open Ticket').setStyle(ButtonStyle.Secondary),
+                            new ButtonBuilder().setCustomId(`app_remind_${submission._id}`).setLabel('🔔 Remind Me').setStyle(ButtonStyle.Secondary)
+                        );
+
+                        const logMsg = await logChannel.send({ embeds: [logEmbed], components: [row] });
+                        await AppSubmission.findByIdAndUpdate(submission._id, { logMessageId: logMsg.id, logChannelId: form.logChannelId });
+                    }
+
+                    await message.reply({
+                        embeds: [new EmbedBuilder()
+                            .setTitle('✅ Application Submitted!')
+                            .setDescription(`Your application for **${form.name}** has been submitted. You'll receive a DM when it's been reviewed.`)
+                            .setColor(0x57f287)
+                            .setTimestamp()]
+                    });
+                } catch (err) {
+                    console.error('Error submitting application:', err);
+                    await message.reply('❌ Something went wrong submitting your application. Please try again.');
+                }
+            }
+            return;
+        }
+
         const trainingSession = activeSessions.get(message.author.id);
         if (trainingSession && trainingSession.awaitingAgeVerif) {
             trainingSession.lastAgeVerifContent = message.content || '[Attachment]';

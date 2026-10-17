@@ -206,6 +206,44 @@ const checklistSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 
+const appFormSchema = new mongoose.Schema({
+    name: String,
+    description: String,
+    questions: [String],
+    createdBy: String,
+    createdByTag: String,
+    logServerId: String,
+    logServerName: String,
+    logChannelId: String,
+    logChannelName: String,
+    ticketServerId: String,
+    ticketServerName: String,
+    ticketChannelId: String,
+    ticketChannelName: String,
+    createdAt: Date,
+    open: { type: Boolean, default: false },
+    openMessageId: String,
+    openChannelId: String
+}, { versionKey: false });
+
+const appSubmissionSchema = new mongoose.Schema({
+    formId: String,
+    formName: String,
+    userId: String,
+    userTag: String,
+    answers: [String],
+    status: { type: String, default: 'pending' }, // pending, passed, declined
+    isResubmit: { type: Boolean, default: false },
+    declineReason: String,
+    declinedBy: String,
+    declinedAt: Date,
+    passedBy: String,
+    passedAt: Date,
+    logMessageId: String,
+    logChannelId: String,
+    submittedAt: Date
+}, { versionKey: false });
+
 const messageLogSchema = new mongoose.Schema({
     userId: String,
     userTag: String,
@@ -244,5 +282,7 @@ const Payment = mongoose.model('Payment', paymentSchema);
 
 const WeeklyStats = mongoose.model('WeeklyStats', weeklyStatsSchema);
 const MessageLog = mongoose.model('MessageLog', messageLogSchema);
+const AppForm = mongoose.model('AppForm', appFormSchema);
+const AppSubmission = mongoose.model('AppSubmission', appSubmissionSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission };
