@@ -1075,6 +1075,12 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ========== APPLICATION OPEN DROPDOWNS ==========
+        if (interaction.customId.startsWith('appopen_')) {
+            await require('./commands/application').handleOpenSelect(interaction);
+            return;
+        }
+
         if (interaction.customId.startsWith('loa_selectdept_')) {
             const logChannelId = interaction.customId.replace('loa_selectdept_', '');
             const department = interaction.values[0];
@@ -1218,6 +1224,19 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
 
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
+
+        // ========== APPLICATION SETUP — manual channel ID buttons ==========
+        if (interaction.customId.startsWith('appsetup_logchannel_manual_') ||
+            interaction.customId.startsWith('appsetup_ticketchannel_manual_')) {
+            await require('./commands/application').handleSetupSelect(interaction);
+            return;
+        }
+
+        // ========== APPLICATION OPEN — manual channel ID button ==========
+        if (interaction.customId.startsWith('appopen_channel_manual_')) {
+            await require('./commands/application').handleOpenSelect(interaction);
+            return;
+        }
 
         // ========== TICKET SETUP BUTTONS ==========
         if (interaction.customId.startsWith('ts_editpanel_')) {
@@ -3355,6 +3374,18 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         // ========== APPLICATION SETUP QUESTIONS MODAL ==========
         if (interaction.customId === 'app_setup_questions') {
             await require('./commands/application').handleSetupModal(interaction);
+            return;
+        }
+
+        // ========== APPLICATION SETUP — manual channel ID modals ==========
+        if (interaction.customId.startsWith('appsetup_manualch_')) {
+            await require('./commands/application').handleSetupManualChannel(interaction);
+            return;
+        }
+
+        // ========== APPLICATION OPEN — manual channel ID modal ==========
+        if (interaction.customId.startsWith('appopen_manualch_')) {
+            await require('./commands/application').handleOpenManualChannel(interaction);
             return;
         }
 
