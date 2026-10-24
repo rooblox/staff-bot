@@ -3378,6 +3378,12 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
+        // ========== APPLICATION SETUP DETAILS MODAL (name + description) ==========
+        if (interaction.customId === 'app_setup_details') {
+            await require('./commands/application').handleSetupDetails(interaction);
+            return;
+        }
+
         // ========== APPLICATION SETUP QUESTIONS MODAL (rounds 1-3) ==========
         if (interaction.customId.startsWith('app_setup_questions_')) {
             await require('./commands/application').handleSetupModal(interaction);

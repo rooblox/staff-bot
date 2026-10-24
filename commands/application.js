@@ -108,6 +108,34 @@ async function sendSetupStep(interaction, session, isUpdate = false) {
     return interaction.reply(payload);
 }
 
+// Shown after ticket channel is picked — collects name (pre-filled) + description (paragraph, up to 4000 chars)
+function formDetailsModal(name) {
+    const modal = new ModalBuilder()
+        .setCustomId('app_setup_details')
+        .setTitle('Form Details');
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+                .setCustomId('form_name')
+                .setLabel('Form name')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(80)
+                .setValue(name)
+        ),
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+                .setCustomId('form_description')
+                .setLabel('Description (shown on the Apply message)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(false)
+                .setMaxLength(4000)
+                .setPlaceholder('Describe the role, requirements, expectations… anything you want applicants to read before applying.')
+        )
+    );
+    return modal;
+}
+
 // round: 1, 2, or 3  (questions 1-5, 6-10, 11-15)
 function questionsModal(name, round = 1, customId = 'app_setup_questions_1') {
     const base  = (round - 1) * 5; // 0, 5, 10
@@ -195,6 +223,7 @@ module.exports = {
     pendingDMs,
     pendingSetups,
     pendingOpens,
+    refreshStatusBoard,
 
     data: new SlashCommandBuilder()
         .setName('application')
@@ -205,7 +234,6 @@ module.exports = {
             .setName('setup')
             .setDescription('Create a new application form')
             .addStringOption(o => o.setName('name').setDescription('Name for this form e.g. "Barista Application"').setRequired(true).setMaxLength(80))
-            .addStringOption(o => o.setName('description').setDescription('Optional description shown on the apply message').setRequired(false).setMaxLength(200))
         )
         .addSubcommand(sub => sub
             .setName('list')
@@ -225,6 +253,10 @@ module.exports = {
             .setName('delete')
             .setDescription('Delete an application form permanently')
             .addStringOption(o => o.setName('form_search').setDescription('Part of the form name').setRequired(true).setMaxLength(80))
+        )
+        .addSubcommand(sub => sub
+            .setName('statusboard')
+            .setDescription('Post a live status board that auto-updates when forms open or close')
         ),
 
     async execute(interaction) {
@@ -237,7 +269,7 @@ module.exports = {
                 const session = {
                     step: 'log_server',
                     name: interaction.options.getString('name'),
-                    description: interaction.options.getString('description') || '',
+                    description: '',
                     createdBy: interaction.user.id,
                     createdByTag: interaction.user.tag
                 };
@@ -280,6 +312,7 @@ module.exports = {
                         if (msg.author.id === client.user.id) await msg.edit({ components: [] });
                     } catch {}
                 }
+                await refreshStatusBoard(client);
                 return interaction.editReply({ content: `✅ **${form.name}** closed. Apply button removed.` });
             }
 
@@ -291,7 +324,49 @@ module.exports = {
                 if (!matched.length) return interaction.editReply({ content: `❌ No form found matching "${q}".` });
                 if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches:\n${matched.map(f => `• **${f.name}**`).join('\n')}` });
                 await AppForm.findByIdAndDelete(matched[0]._id);
+                await refreshStatusBoard(client);
                 return interaction.editReply({ content: `✅ **${matched[0].name}** deleted.` });
+            }
+
+            if (sub === 'statusboard') {
+                const { AppStatusBoard } = require('../db');
+                await interaction.deferReply({ ephemeral: true });
+
+                const forms = await AppForm.find().sort({ name: 1 });
+                const open   = forms.filter(f => f.open);
+                const closed = forms.filter(f => !f.open);
+
+                function formLine(f) {
+                    return `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`;
+                }
+
+                const descLines = [];
+                if (open.length)   descLines.push('**Career Applications**\n' + open.map(formLine).join('\n'));
+                if (closed.length) descLines.push(closed.map(formLine).join('\n'));
+                if (!forms.length) descLines.push('No application forms yet.');
+
+                const embed = new EmbedBuilder()
+                    .setTitle('Kavia Applications')
+                    .setDescription(
+                        'Here you can find all Kavià Café applications, along with their current status — whether they are open or closed.\n\n' +
+                        'Start your journey with Kavià Café today!\n\n' +
+                        descLines.join('\n\n') +
+                        '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
+                    )
+                    .setColor(0x5865f2)
+                    .setFooter({ text: 'Last updated' })
+                    .setTimestamp();
+
+                const msg = await interaction.channel.send({ embeds: [embed] });
+
+                // Upsert: one board per channel (replace if already exists in this channel)
+                await AppStatusBoard.findOneAndUpdate(
+                    { guildId: interaction.guild.id, channelId: interaction.channel.id },
+                    { guildId: interaction.guild.id, channelId: interaction.channel.id, messageId: msg.id, updatedAt: new Date() },
+                    { upsert: true }
+                );
+
+                return interaction.editReply({ content: `✅ Status board posted! It will automatically update whenever forms are opened or closed.` });
             }
 
         } catch (err) {
@@ -365,7 +440,7 @@ module.exports = {
                 const ch    = guild ? guild.channels.cache.get(value) : null;
                 session.ticketChannelId   = value;
                 session.ticketChannelName = ch ? ch.name : value;
-                return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
+                return interaction.showModal(formDetailsModal(session.name));
             }
 
         } catch (err) {
@@ -404,8 +479,8 @@ module.exports = {
             }
 
             if (field === 'ticket') {
-                // Done — show questions modal (round 1)
-                return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
+                // Done — show form details modal (name + description) before questions
+                return interaction.showModal(formDetailsModal(session.name));
             }
 
             // Continue to next step
@@ -413,6 +488,25 @@ module.exports = {
 
         } catch (err) {
             console.error('[appsetup manualch error]', err);
+            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', ephemeral: true }).catch(() => {});
+        }
+    },
+
+    // ── Form details modal (name + description, shown before questions) ─────────
+    // index.js: if (interaction.customId === 'app_setup_details') { await require('./commands/application').handleSetupDetails(interaction); return; }
+    async handleSetupDetails(interaction) {
+        try {
+            const uid     = interaction.user.id;
+            const session = pendingSetups.get(uid);
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
+
+            session.name        = interaction.fields.getTextInputValue('form_name').trim();
+            session.description = interaction.fields.getTextInputValue('form_description').trim();
+
+            // Now show questions round 1
+            return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
+        } catch (err) {
+            console.error('[app_setup_details error]', err);
             await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', ephemeral: true }).catch(() => {});
         }
     },
@@ -568,6 +662,59 @@ module.exports = {
     }
 };
 
+// ─── Status board refresh ────────────────────────────────────────────────────
+// Call this any time a form is opened or closed to keep all board messages in sync.
+
+async function refreshStatusBoard(client) {
+    try {
+        const { AppForm, AppStatusBoard } = require('../db');
+        const boards = await AppStatusBoard.find();
+        if (!boards.length) return;
+
+        const forms = await AppForm.find().sort({ name: 1 });
+
+        // Group forms: open first, then closed
+        const open   = forms.filter(f => f.open);
+        const closed = forms.filter(f => !f.open);
+
+        function formLine(f) {
+            return `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`;
+        }
+
+        const descLines = [];
+        if (open.length)   descLines.push('**Career Applications**\n' + open.map(formLine).join('\n'));
+        if (closed.length) descLines.push(closed.map(formLine).join('\n'));
+        if (!forms.length) descLines.push('No application forms have been created yet.');
+
+        const embed = new EmbedBuilder()
+            .setTitle('Kavia Applications')
+            .setDescription(
+                'Here you can find all Kavià Café applications, along with their current status — whether they are open or closed.\n\n' +
+                'Start your journey with Kavià Café today!\n\n' +
+                descLines.join('\n\n') +
+                '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
+            )
+            .setColor(0x5865f2)
+            .setFooter({ text: `Last updated` })
+            .setTimestamp();
+
+        for (const board of boards) {
+            try {
+                const ch  = await client.channels.fetch(board.channelId).catch(() => null);
+                if (!ch) continue;
+                const msg = await ch.messages.fetch(board.messageId).catch(() => null);
+                if (!msg) continue;
+                await msg.edit({ embeds: [embed] });
+                await AppStatusBoard.findByIdAndUpdate(board._id, { updatedAt: new Date() });
+            } catch (err) {
+                console.error('[statusboard refresh error]', err);
+            }
+        }
+    } catch (err) {
+        console.error('[refreshStatusBoard error]', err);
+    }
+}
+
 // ─── Shared save-form logic ──────────────────────────────────────────────────
 
 async function saveForm(interaction, session) {
@@ -639,6 +786,7 @@ async function finishOpen(interaction, session, channelId, client) {
     }
 
     await AppForm.findByIdAndUpdate(session.formId, { open: true, openMessageId, openChannelId: channelId });
+    await refreshStatusBoard(client);
 
     const payload = { content: `✅ Apply button posted in <#${channelId}>!`, embeds: [], components: [] };
     if (interaction.isModalSubmit()) return interaction.reply({ ...payload, ephemeral: true });

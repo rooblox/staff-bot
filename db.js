@@ -226,6 +226,14 @@ const appFormSchema = new mongoose.Schema({
     openChannelId: String
 }, { versionKey: false });
 
+// Tracks the pinned status board message(s) that auto-update on open/close
+const appStatusBoardSchema = new mongoose.Schema({
+    guildId:   String,
+    channelId: String,
+    messageId: String,
+    updatedAt: Date
+}, { versionKey: false });
+
 const appSubmissionSchema = new mongoose.Schema({
     formId: String,
     formName: String,
@@ -284,5 +292,6 @@ const WeeklyStats = mongoose.model('WeeklyStats', weeklyStatsSchema);
 const MessageLog = mongoose.model('MessageLog', messageLogSchema);
 const AppForm = mongoose.model('AppForm', appFormSchema);
 const AppSubmission = mongoose.model('AppSubmission', appSubmissionSchema);
+const AppStatusBoard = mongoose.model('AppStatusBoard', appStatusBoardSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard };
