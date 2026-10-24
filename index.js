@@ -1232,6 +1232,12 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ========== APPLICATION SETUP — "Add Questions" button after details modal ==========
+        if (interaction.customId.startsWith('appsetup_startquestions_')) {
+            await require('./commands/application').handleSetupSelect(interaction);
+            return;
+        }
+
         // ========== APPLICATION SETUP — add more questions / done buttons ==========
         if (interaction.customId.startsWith('appsetup_addmore_') ||
             interaction.customId.startsWith('appsetup_savequestions_')) {

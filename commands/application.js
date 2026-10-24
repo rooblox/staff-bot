@@ -388,8 +388,13 @@ module.exports = {
             const id     = interaction.customId;
             const client = interaction.client;
 
-            // ── Manual ID buttons (isButton) ──
+            // ── Manual ID buttons + start-questions button (isButton) ──
             if (interaction.isButton()) {
+                // "Add Questions" button shown after form details modal
+                if (id === `appsetup_startquestions_${uid}`) {
+                    return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
+                }
+
                 let step, field;
                 if (id === `appsetup_logchannel_manual_${uid}`)    { step = 'log_channel';    field = 'log'; }
                 if (id === `appsetup_ticketchannel_manual_${uid}`) { step = 'ticket_channel'; field = 'ticket'; }
@@ -503,8 +508,17 @@ module.exports = {
             session.name        = interaction.fields.getTextInputValue('form_name').trim();
             session.description = interaction.fields.getTextInputValue('form_description').trim();
 
-            // Now show questions round 1
-            return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
+            // Can't chain modal→modal in Discord — reply with a button to open questions
+            return interaction.reply({
+                ephemeral: true,
+                content: `✅ Details saved!\n**Name:** ${session.name}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nNow click below to add your questions.`,
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`appsetup_startquestions_${uid}`)
+                        .setLabel('➕ Add Questions')
+                        .setStyle(ButtonStyle.Primary)
+                )]
+            });
         } catch (err) {
             console.error('[app_setup_details error]', err);
             await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', ephemeral: true }).catch(() => {});
