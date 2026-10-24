@@ -173,12 +173,30 @@ function questionsModal(name, round = 1, customId = 'app_setup_questions_1') {
                 .setMaxLength(200)
                 .setPlaceholder(
                     num === 1 ? 'e.g. What is your Roblox username?' :
-                    num === 2 ? 'e.g. Why do you want to join?' : ''
+                    num === 2 ? '[SCALE] How active are you? OR [CHOICE: Yes|No|Maybe]' :
+                    num === 3 ? 'Tip: use [SCALE] for 1-10 or [CHOICE: A|B|C] for buttons' : ''
                 )
         ));
     }
     return modal;
 }
+
+// ─── Question type parser ─────────────────────────────────────────────────────
+// Returns { type: 'text'|'scale'|'choice', display: string, choices: string[] }
+function parseQuestion(raw) {
+    const scaleMatch = raw.match(/^\[SCALE\]\s*/i);
+    if (scaleMatch) return { type: 'scale', display: raw.replace(/^\[SCALE\]\s*/i, ''), choices: [] };
+
+    const choiceMatch = raw.match(/^\[CHOICE:\s*(.+)\]\s*/i);
+    if (choiceMatch) {
+        const choices = choiceMatch[1].split('|').map(c => c.trim()).filter(Boolean).slice(0, 5);
+        return { type: 'choice', display: raw.replace(/^\[CHOICE:[^\]]*\]\s*/i, ''), choices };
+    }
+
+    return { type: 'text', display: raw, choices: [] };
+}
+
+module.exports.parseQuestion = parseQuestion;
 
 // ─── Open wizard step renderer ───────────────────────────────────────────────
 

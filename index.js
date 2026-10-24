@@ -2504,6 +2504,100 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        // ========== APPLICATION DM — scale / choice button answers ==========
+        if (interaction.customId.startsWith('app_dmscale_') || interaction.customId.startsWith('app_dmchoice_')) {
+            const { pendingDMs, parseQuestion } = require('./commands/application');
+            const appSession = pendingDMs.get(interaction.user.id);
+            if (!appSession) return interaction.reply({ content: '❌ No active application session.', ephemeral: true });
+
+            // Derive the answer label
+            let answerLabel;
+            if (interaction.customId.startsWith('app_dmscale_')) {
+                answerLabel = interaction.customId.split('_').pop(); // the number
+            } else {
+                // app_dmchoice_<userId>_<index>
+                const idx = parseInt(interaction.customId.split('_').pop());
+                const currentQ = parseQuestion(appSession.questions[appSession.questionIndex]);
+                answerLabel = currentQ.choices[idx] ?? `Option ${idx + 1}`;
+            }
+
+            // Disable the buttons on the answered message
+            await interaction.update({ components: [] });
+
+            appSession.answers.push(answerLabel);
+            const nextIndex = appSession.questionIndex + 1;
+
+            if (nextIndex < appSession.questions.length) {
+                appSession.questionIndex = nextIndex;
+                pendingDMs.set(interaction.user.id, appSession);
+                const nextQ = parseQuestion(appSession.questions[nextIndex]);
+                let components = [];
+                if (nextQ.type === 'scale') {
+                    components = [
+                        new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))),
+                        new ActionRowBuilder().addComponents(...[6,7,8,9,10].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary)))
+                    ];
+                } else if (nextQ.type === 'choice') {
+                    components = [new ActionRowBuilder().addComponents(
+                        ...nextQ.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${interaction.user.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
+                    )];
+                }
+                const embed = new EmbedBuilder()
+                    .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
+                    .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
+                    .setDescription(`**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${nextQ.display}`)
+                    .setFooter({ text: nextQ.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
+                await interaction.followUp({ embeds: [embed], components });
+            } else {
+                // All done — submit
+                pendingDMs.delete(interaction.user.id);
+                try {
+                    const { AppForm, AppSubmission } = require('./db');
+                    const form = await AppForm.findById(appSession.formId);
+                    if (!form) { await interaction.followUp('❌ The application form no longer exists.'); return; }
+
+                    const submission = await AppSubmission.create({
+                        formId: appSession.formId,
+                        formName: appSession.formName,
+                        userId: interaction.user.id,
+                        userTag: interaction.user.tag,
+                        answers: appSession.answers,
+                        isResubmit: appSession.isResubmit,
+                        submittedAt: new Date()
+                    });
+
+                    await interaction.followUp({ embeds: [new EmbedBuilder()
+                        .setTitle('✅ Application Submitted!')
+                        .setDescription('Your application has been submitted. You\'ll be notified of the outcome via DM.')
+                        .setColor(0x57f287).setTimestamp()] });
+
+                    // Post to log channel
+                    const logChannel = await client.channels.fetch(form.logChannelId).catch(() => null);
+                    if (logChannel) {
+                        const fields = appSession.questions.map((q, i) => {
+                            const { display } = parseQuestion(q);
+                            return { name: `Q${i + 1}: ${display.slice(0, 100)}`, value: appSession.answers[i] || '*(no answer)*' };
+                        });
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle(`📋 New Application — ${appSession.formName}${appSession.isResubmit ? ' (Resubmit)' : ''}`)
+                            .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
+                            .addFields({ name: 'Applicant', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true }, ...fields)
+                            .setTimestamp();
+                        const logRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId(`app_pass_${submission._id}`).setLabel('✅ Pass').setStyle(ButtonStyle.Success),
+                            new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Send to Ticket').setStyle(ButtonStyle.Primary),
+                            new ButtonBuilder().setCustomId(`app_decline_${submission._id}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
+                        );
+                        await logChannel.send({ embeds: [logEmbed], components: [logRow] });
+                    }
+                } catch (err) {
+                    console.error('[app DM button submit error]', err);
+                    await interaction.followUp('❌ Failed to submit your application. Please try again.').catch(() => {});
+                }
+            }
+            return;
+        }
+
         // ========== APPLICATION BUTTONS ==========
         if (interaction.customId.startsWith('app_apply_')) {
             const formId = interaction.customId.replace('app_apply_', '');
@@ -2522,16 +2616,36 @@ if (interaction.customId.startsWith('dmreply_')) {
             // Try to DM
             try {
                 const dm = await interaction.user.createDM();
+                const { parseQuestion } = require('./commands/application');
+                const q0 = parseQuestion(form.questions[0]);
+
+                const introDesc =
+                    (isResubmit ? '> ⚠️ **This is a resubmission.** Please ensure your answers address any previous feedback.\n\n' : '') +
+                    (form.description ? form.description + '\n\n' : '') +
+                    `**Question 1 of ${form.questions.length}:**\n${q0.display}`;
+
                 const embed = new EmbedBuilder()
                     .setTitle(`📝 ${form.name}${isResubmit ? ' (Resubmission)' : ''}`)
                     .setColor(isResubmit ? 0xe67e22 : 0x5865f2)
-                    .setDescription(
-                        (isResubmit ? '> ⚠️ **This is a resubmission.** Please ensure your answers address any previous feedback.\n\n' : '') +
-                        (form.description ? form.description + '\n\n' : '') +
-                        `**Question 1 of ${form.questions.length}:**\n${form.questions[0]}`
-                    )
-                    .setFooter({ text: 'Type your answer below. Type "cancel" to cancel.' });
-                await dm.send({ embeds: [embed] });
+                    .setDescription(introDesc)
+                    .setFooter({ text: q0.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
+
+                let components = [];
+                if (q0.type === 'scale') {
+                    const row1 = new ActionRowBuilder().addComponents(
+                        ...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))
+                    );
+                    const row2 = new ActionRowBuilder().addComponents(
+                        ...[6,7,8,9,10].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))
+                    );
+                    components = [row1, row2];
+                } else if (q0.type === 'choice') {
+                    components = [new ActionRowBuilder().addComponents(
+                        ...q0.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${interaction.user.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
+                    )];
+                }
+
+                await dm.send({ embeds: [embed], components });
 
                 pendingDMs.set(interaction.user.id, {
                     formId,
@@ -3556,7 +3670,7 @@ client.on('messageCreate', async message => {
 
     if (message.channel.type === 1) {
         // ── Application DM flow ──
-        const { pendingDMs } = require('./commands/application');
+        const { pendingDMs, parseQuestion } = require('./commands/application');
         const appSession = pendingDMs.get(message.author.id);
         if (appSession) {
             if (message.content.toLowerCase() === 'cancel') {
@@ -3564,6 +3678,14 @@ client.on('messageCreate', async message => {
                 await message.reply('❌ Application cancelled.');
                 return;
             }
+
+            // If current question is a button type, ignore typed messages
+            const currentQ = parseQuestion(appSession.questions[appSession.questionIndex]);
+            if (currentQ.type !== 'text') {
+                await message.reply({ content: '👆 Please use the buttons above to answer this question.', allowedMentions: { repliedUser: false } });
+                return;
+            }
+
             appSession.answers.push(message.content);
             const nextIndex = appSession.questionIndex + 1;
 
@@ -3571,12 +3693,24 @@ client.on('messageCreate', async message => {
                 // More questions
                 appSession.questionIndex = nextIndex;
                 pendingDMs.set(message.author.id, appSession);
+                const nextQ = parseQuestion(appSession.questions[nextIndex]);
+                let components = [];
+                if (nextQ.type === 'scale') {
+                    components = [
+                        new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${message.author.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))),
+                        new ActionRowBuilder().addComponents(...[6,7,8,9,10].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${message.author.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary)))
+                    ];
+                } else if (nextQ.type === 'choice') {
+                    components = [new ActionRowBuilder().addComponents(
+                        ...nextQ.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${message.author.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
+                    )];
+                }
                 const embed = new EmbedBuilder()
                     .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
                     .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
-                    .setDescription(`**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${appSession.questions[nextIndex]}`)
-                    .setFooter({ text: 'Type your answer below. Type "cancel" to cancel.' });
-                await message.reply({ embeds: [embed] });
+                    .setDescription(`**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${nextQ.display}`)
+                    .setFooter({ text: nextQ.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
+                await message.reply({ embeds: [embed], components });
             } else {
                 // All answered — submit
                 pendingDMs.delete(message.author.id);
