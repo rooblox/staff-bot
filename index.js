@@ -1246,8 +1246,9 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
-        // ========== APPLICATION OPEN — manual channel ID button ==========
-        if (interaction.customId.startsWith('appopen_channel_manual_')) {
+        // ========== APPLICATION OPEN — manual channel ID button / attach button ==========
+        if (interaction.customId.startsWith('appopen_channel_manual_') ||
+            interaction.customId.startsWith('appopen_attach_')) {
             await require('./commands/application').handleOpenSelect(interaction);
             return;
         }
@@ -3520,6 +3521,12 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         // ========== APPLICATION OPEN — manual channel ID modal ==========
         if (interaction.customId.startsWith('appopen_manualch_')) {
             await require('./commands/application').handleOpenManualChannel(interaction);
+            return;
+        }
+
+        // ========== APPLICATION OPEN — attach to existing message modal ==========
+        if (interaction.customId.startsWith('appopen_attachmsg_')) {
+            await require('./commands/application').handleOpenAttachMessage(interaction);
             return;
         }
 

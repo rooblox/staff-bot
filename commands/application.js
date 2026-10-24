@@ -212,12 +212,19 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
             const msg = { content: '❌ No forms yet. Use `/application setup` first.', ephemeral: true };
             return isUpdate ? interaction.update(msg) : interaction.reply(msg);
         }
-        embed = stepEmbed('Open — Step 1 of 3', 'Which form do you want to open?');
+        const totalSteps = client.guilds.cache.size > 1 ? 3 : 2;
+        embed = stepEmbed(`Open — Step 1 of ${totalSteps}`,
+            'Pick the form you want to open. The Apply button will be posted in a channel of your choice.');
         components = [new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId(`appopen_form_${uid}`)
                 .setPlaceholder('Select a form…')
-                .addOptions(forms.map(f => ({ label: f.name.slice(0, 100), value: String(f._id), description: `${f.questions.length} questions · ${f.open ? 'Currently open' : 'Closed'}` })))
+                .addOptions(forms.map(f => ({
+                    label: f.name.slice(0, 100),
+                    value: String(f._id),
+                    description: `${f.department || 'General'} · ${f.gameLink ? 'Game link' : `${f.questions.length} questions`} · ${f.open ? '🟢 Open' : '🔴 Closed'}`
+                        .slice(0, 100)
+                })))
         )];
 
     } else if (session.step === 'pick_server') {
@@ -232,8 +239,11 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
 
     } else if (session.step === 'pick_channel') {
         const opts = await channelOptions(client, session.serverId);
-        embed = stepEmbed('Open — Step 3 of 3',
-            `Form: **${session.formName}** ✅\nServer: **${session.serverName}** ✅\n\nWhich channel should the Apply button be posted in?`);
+        const totalSteps = client.guilds.cache.size > 1 ? 3 : 2;
+        const stepNum    = totalSteps === 3 ? 3 : 2;
+        embed = stepEmbed(`Open — Step ${stepNum} of ${totalSteps}`,
+            `Form: **${session.formName}** ✅\n${totalSteps === 3 ? `Server: **${session.serverName}** ✅\n` : ''}` +
+            `\nWhich channel should the Apply button be posted in?`);
         components = [];
         if (opts.length) {
             components.push(new ActionRowBuilder().addComponents(
@@ -244,7 +254,11 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
             ));
         }
         components.push(new ActionRowBuilder().addComponents(
-            manualIdButton(`appopen_channel_manual_${uid}`, '📋 Enter channel ID manually')
+            manualIdButton(`appopen_channel_manual_${uid}`, '📋 Enter channel ID manually'),
+            new ButtonBuilder()
+                .setCustomId(`appopen_attach_${uid}`)
+                .setLabel('📌 Attach to existing message')
+                .setStyle(ButtonStyle.Secondary)
         ));
     }
 
@@ -277,8 +291,7 @@ module.exports = {
         )
         .addSubcommand(sub => sub
             .setName('open')
-            .setDescription('Post an Apply button — select form and channel via dropdowns')
-            .addStringOption(o => o.setName('message_id').setDescription('Optional: attach to an existing bot message instead of posting a new one').setRequired(false))
+            .setDescription('Open a form and post the Apply button in a channel')
         )
         .addSubcommand(sub => sub
             .setName('close')
@@ -326,8 +339,7 @@ module.exports = {
             }
 
             if (sub === 'open') {
-                const messageId = interaction.options.getString('message_id') || null;
-                const session = { step: 'pick_form', messageId };
+                const session = { step: 'pick_form' };
                 pendingOpens.set(interaction.user.id, session);
                 return sendOpenStep(interaction, session, false);
             }
@@ -670,6 +682,32 @@ module.exports = {
             const id     = interaction.customId;
             const client = interaction.client;
 
+            // "Attach to existing message" button — ask for message ID via modal
+            if (interaction.isButton() && id === `appopen_attach_${uid}`) {
+                const modal = new ModalBuilder()
+                    .setCustomId(`appopen_attachmsg_${uid}`)
+                    .setTitle('Attach to Existing Message');
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('channel_id')
+                            .setLabel('Channel ID')
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true).setMinLength(17).setMaxLength(20)
+                            .setPlaceholder('e.g. 1234567890123456789')
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('message_id')
+                            .setLabel('Message ID (must be a message I sent)')
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true).setMinLength(17).setMaxLength(20)
+                            .setPlaceholder('e.g. 1234567890123456789')
+                    )
+                );
+                return interaction.showModal(modal);
+            }
+
             // Manual channel ID button
             if (interaction.isButton() && id === `appopen_channel_manual_${uid}`) {
                 const modal = new ModalBuilder()
@@ -695,7 +733,15 @@ module.exports = {
                 session.formId   = String(form._id);
                 session.formName = form.name;
                 session.formDesc = form.description || '';
-                session.step     = 'pick_server';
+                // Auto-skip server step if bot is only in one guild
+                if (client.guilds.cache.size === 1) {
+                    const guild = [...client.guilds.cache.values()][0];
+                    session.serverId   = guild.id;
+                    session.serverName = guild.name;
+                    session.step       = 'pick_channel';
+                } else {
+                    session.step = 'pick_server';
+                }
                 return sendOpenStep(interaction, session, true);
             }
 
@@ -729,6 +775,24 @@ module.exports = {
             await finishOpen(interaction, session, chId, client);
         } catch (err) {
             console.error('[appopen manual error]', err);
+            await interaction.reply({ content: '❌ Something went wrong.', ephemeral: true }).catch(() => {});
+        }
+    },
+
+    // ── Open wizard "attach to existing message" modal ───────────────────────
+    // index.js: if (interaction.customId.startsWith('appopen_attachmsg_')) { await require('./commands/application').handleOpenAttachMessage(interaction); return; }
+    async handleOpenAttachMessage(interaction) {
+        try {
+            const uid     = interaction.user.id;
+            const session = pendingOpens.get(uid);
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', ephemeral: true });
+            const chId  = interaction.fields.getTextInputValue('channel_id').trim();
+            const msgId = interaction.fields.getTextInputValue('message_id').trim();
+            session.messageId = msgId;
+            const client = interaction.client;
+            await finishOpen(interaction, session, chId, client);
+        } catch (err) {
+            console.error('[appopen attach error]', err);
             await interaction.reply({ content: '❌ Something went wrong.', ephemeral: true }).catch(() => {});
         }
     }
@@ -890,8 +954,14 @@ async function finishOpen(interaction, session, channelId, client) {
     const { AppForm } = require('../db');
     pendingOpens.delete(interaction.user.id);
 
+    // Helper: reply works for both select menus (update) and modal submits (reply/editReply)
+    const replyOrUpdate = (payload) => {
+        if (interaction.isModalSubmit()) return interaction.reply({ ...payload, ephemeral: true });
+        return interaction.update(payload);
+    };
+
     const targetChannel = await client.channels.fetch(channelId).catch(() => null);
-    if (!targetChannel) return interaction.update({ content: `❌ Couldn't find channel \`${channelId}\`. Check the ID is correct and the bot is in that server.`, embeds: [], components: [] });
+    if (!targetChannel) return replyOrUpdate({ content: `❌ Couldn't find channel \`${channelId}\`. Make sure the ID is correct and the bot is in that server.`, embeds: [], components: [] });
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -903,8 +973,8 @@ async function finishOpen(interaction, session, channelId, client) {
     let openMessageId;
     if (session.messageId) {
         const existing = await targetChannel.messages.fetch(session.messageId).catch(() => null);
-        if (!existing) return interaction.update({ content: `❌ Couldn't find message \`${session.messageId}\` in that channel.`, embeds: [], components: [] });
-        if (existing.author.id !== client.user.id) return interaction.update({ content: `❌ I can only edit my own messages. Skip \`message_id\` to post a new button message instead.`, embeds: [], components: [] });
+        if (!existing) return replyOrUpdate({ content: `❌ Couldn't find message \`${session.messageId}\` in <#${channelId}>. Double-check the message ID.`, embeds: [], components: [] });
+        if (existing.author.id !== client.user.id) return replyOrUpdate({ content: `❌ That message wasn't sent by me — I can only add buttons to my own messages. Use the regular flow to post a fresh Apply button instead.`, embeds: [], components: [] });
         await existing.edit({ components: [row] });
         openMessageId = session.messageId;
     } else {
@@ -918,7 +988,5 @@ async function finishOpen(interaction, session, channelId, client) {
     await AppForm.findByIdAndUpdate(session.formId, { open: true, openMessageId, openChannelId: channelId });
     await refreshStatusBoard(client);
 
-    const payload = { content: `✅ Apply button posted in <#${channelId}>!`, embeds: [], components: [] };
-    if (interaction.isModalSubmit()) return interaction.reply({ ...payload, ephemeral: true });
-    return interaction.update(payload);
+    return replyOrUpdate({ content: `✅ **${session.formName}** is now open! Apply button posted in <#${channelId}>.`, embeds: [], components: [] });
 }
