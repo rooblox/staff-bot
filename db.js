@@ -1,895 +1,299 @@
-const {
-    SlashCommandBuilder, EmbedBuilder, ActionRowBuilder,
-    ButtonBuilder, ButtonStyle, ModalBuilder,
-    TextInputBuilder, TextInputStyle, PermissionFlagsBits,
-    StringSelectMenuBuilder
-} = require('discord.js');
+const mongoose = require('mongoose');
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+let isConnected = false;
 
-function guildOptions(client) {
-    return [...client.guilds.cache.values()]
-        .slice(0, 25)
-        .map(g => ({ label: g.name.slice(0, 100), value: g.id }));
+async function connectDB() {
+    if (isConnected) return;
+    await mongoose.connect(process.env.MONGODB_URI);
+    isConnected = true;
+    console.log('✅ Connected to MongoDB');
 }
 
-async function channelOptions(client, guildId) {
-    try {
-        let guild = client.guilds.cache.get(guildId);
-        if (!guild) guild = await client.guilds.fetch(guildId);
-        if (guild.channels.cache.size === 0) await guild.channels.fetch();
-        return [...guild.channels.cache.values()]
-            .filter(c => c && c.name && c.isTextBased() && !(c.isThread && c.isThread()))
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .slice(0, 24) // leave room for a "manual entry" option if needed
-            .map(c => ({ label: `#${c.name}`.slice(0, 100), value: c.id }));
-    } catch { return []; }
-}
-
-// ─── In-memory sessions ──────────────────────────────────────────────────────
-const pendingDMs    = new Map(); // userId -> DM application flow
-const pendingSetups = new Map(); // userId -> setup wizard session
-const pendingOpens  = new Map(); // userId -> open wizard session
-
-// ─── Step renderer for setup wizard ─────────────────────────────────────────
-
-function stepEmbed(title, desc) {
-    return new EmbedBuilder().setColor(0x5865f2).setTitle(title).setDescription(desc);
-}
-
-function manualIdButton(customId, label) {
-    return new ButtonBuilder()
-        .setCustomId(customId)
-        .setLabel(label)
-        .setStyle(ButtonStyle.Secondary);
-}
-
-async function sendSetupStep(interaction, session, isUpdate = false) {
-    const client = interaction.client;
-    const uid    = interaction.user.id;
-    let embed, components;
-
-    if (session.step === 'log_server') {
-        embed = stepEmbed('Step 1 of 4 — Log Server', 'Which server should submissions be logged in?');
-        components = [new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId(`appsetup_logserver_${uid}`)
-                .setPlaceholder('Select a server…')
-                .addOptions(guildOptions(client))
-        )];
-
-    } else if (session.step === 'log_channel') {
-        const opts = await channelOptions(client, session.logServerId);
-        embed = stepEmbed('Step 2 of 4 — Log Channel',
-            `Which channel in **${session.logServerName}** should submissions post to?\n${opts.length < 2 ? '\n⚠️ Few channels visible — use the button below to enter a channel ID manually.' : ''}`);
-        components = [];
-        if (opts.length) {
-            components.push(new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId(`appsetup_logchannel_${uid}`)
-                    .setPlaceholder('Select a channel…')
-                    .addOptions(opts)
-            ));
-        }
-        components.push(new ActionRowBuilder().addComponents(
-            manualIdButton(`appsetup_logchannel_manual_${uid}`, '📋 Enter channel ID manually')
-        ));
-
-    } else if (session.step === 'ticket_server') {
-        embed = stepEmbed('Step 3 of 4 — Ticket Server',
-            `Log: **#${session.logChannelName}** in **${session.logServerName}** ✅\n\nWhich server should applicants open support tickets in?`);
-        components = [new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId(`appsetup_ticketserver_${uid}`)
-                .setPlaceholder('Select a server…')
-                .addOptions(guildOptions(client))
-        )];
-
-    } else if (session.step === 'ticket_channel') {
-        const opts = await channelOptions(client, session.ticketServerId);
-        embed = stepEmbed('Step 4 of 4 — Ticket Channel',
-            `Which channel in **${session.ticketServerName}** should applicants open tickets in?\n${opts.length < 2 ? '\n⚠️ Few channels visible — use the button below to enter a channel ID manually.' : ''}`);
-        components = [];
-        if (opts.length) {
-            components.push(new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId(`appsetup_ticketchannel_${uid}`)
-                    .setPlaceholder('Select a channel…')
-                    .addOptions(opts)
-            ));
-        }
-        components.push(new ActionRowBuilder().addComponents(
-            manualIdButton(`appsetup_ticketchannel_manual_${uid}`, '📋 Enter channel ID manually')
-        ));
-    }
-
-    const payload = { embeds: [embed], components, ephemeral: true };
-    if (isUpdate) return interaction.update(payload);
-    return interaction.reply(payload);
-}
-
-// Shown after ticket channel is picked — collects name (pre-filled) + description (paragraph, up to 4000 chars)
-function formDetailsModal(name) {
-    const modal = new ModalBuilder()
-        .setCustomId('app_setup_details')
-        .setTitle('Form Details');
-    modal.addComponents(
-        new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-                .setCustomId('form_name')
-                .setLabel('Form name')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-                .setMaxLength(80)
-                .setValue(name)
-        ),
-        new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-                .setCustomId('form_department')
-                .setLabel('Department (e.g. Barista, Management, Media)')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(false)
-                .setMaxLength(50)
-                .setPlaceholder('e.g. Barista Team')
-        ),
-        new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-                .setCustomId('form_game_link')
-                .setLabel('Game link (optional — skips DM questions)')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(false)
-                .setMaxLength(200)
-                .setPlaceholder('https://www.roblox.com/games/… — leave blank for a question-based form')
-        ),
-        new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-                .setCustomId('form_description')
-                .setLabel('Description (shown on the Apply message)')
-                .setStyle(TextInputStyle.Paragraph)
-                .setRequired(false)
-                .setMaxLength(4000)
-                .setPlaceholder('Describe the role, requirements, expectations… anything you want applicants to read before applying.')
-        )
-    );
-    return modal;
-}
-
-// round: 1, 2, or 3  (questions 1-5, 6-10, 11-15)
-function questionsModal(name, round = 1, customId = 'app_setup_questions_1') {
-    const base  = (round - 1) * 5; // 0, 5, 10
-    const req   = round === 1;
-    const modal = new ModalBuilder()
-        .setCustomId(customId)
-        .setTitle(`Questions ${base + 1}–${base + 5}: ${name.slice(0, 30)}`);
-    for (let i = 1; i <= 5; i++) {
-        const num      = base + i;
-        const required = req && i <= 2; // first round needs at least 2
-        modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-                .setCustomId(`q${num}`)
-                .setLabel(`Question ${num}${required ? '' : ' (optional)'}`)
-                .setStyle(TextInputStyle.Short)
-                .setRequired(required)
-                .setMaxLength(200)
-                .setPlaceholder(
-                    num === 1 ? 'e.g. What is your Roblox username?' :
-                    num === 2 ? 'e.g. Why do you want to join?' : ''
-                )
-        ));
-    }
-    return modal;
-}
-
-// ─── Open wizard step renderer ───────────────────────────────────────────────
-
-async function sendOpenStep(interaction, session, isUpdate = false) {
-    const client = interaction.client;
-    const uid    = interaction.user.id;
-    let embed, components;
-
-    if (session.step === 'pick_form') {
-        const { AppForm } = require('../db');
-        const forms = await AppForm.find().sort({ createdAt: -1 }).limit(25);
-        if (!forms.length) {
-            const msg = { content: '❌ No forms yet. Use `/application setup` first.', ephemeral: true };
-            return isUpdate ? interaction.update(msg) : interaction.reply(msg);
-        }
-        embed = stepEmbed('Open — Step 1 of 3', 'Which form do you want to open?');
-        components = [new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId(`appopen_form_${uid}`)
-                .setPlaceholder('Select a form…')
-                .addOptions(forms.map(f => ({ label: f.name.slice(0, 100), value: String(f._id), description: `${f.questions.length} questions · ${f.open ? 'Currently open' : 'Closed'}` })))
-        )];
-
-    } else if (session.step === 'pick_server') {
-        embed = stepEmbed('Open — Step 2 of 3',
-            `Form: **${session.formName}** ✅\n\nWhich server should the Apply button be posted in?`);
-        components = [new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId(`appopen_server_${uid}`)
-                .setPlaceholder('Select a server…')
-                .addOptions(guildOptions(client))
-        )];
-
-    } else if (session.step === 'pick_channel') {
-        const opts = await channelOptions(client, session.serverId);
-        embed = stepEmbed('Open — Step 3 of 3',
-            `Form: **${session.formName}** ✅\nServer: **${session.serverName}** ✅\n\nWhich channel should the Apply button be posted in?`);
-        components = [];
-        if (opts.length) {
-            components.push(new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId(`appopen_channel_${uid}`)
-                    .setPlaceholder('Select a channel…')
-                    .addOptions(opts)
-            ));
-        }
-        components.push(new ActionRowBuilder().addComponents(
-            manualIdButton(`appopen_channel_manual_${uid}`, '📋 Enter channel ID manually')
-        ));
-    }
-
-    const payload = { embeds: [embed], components, ephemeral: true };
-    if (isUpdate) return interaction.update(payload);
-    return interaction.reply(payload);
-}
-
-// ─── Module ──────────────────────────────────────────────────────────────────
-
-module.exports = {
-    pendingDMs,
-    pendingSetups,
-    pendingOpens,
-    refreshStatusBoard,
-
-    data: new SlashCommandBuilder()
-        .setName('application')
-        .setDescription('Application form system')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-
-        .addSubcommand(sub => sub
-            .setName('setup')
-            .setDescription('Create a new application form')
-            .addStringOption(o => o.setName('name').setDescription('Name for this form e.g. "Barista Application"').setRequired(true).setMaxLength(80))
-        )
-        .addSubcommand(sub => sub
-            .setName('list')
-            .setDescription('List all application forms')
-        )
-        .addSubcommand(sub => sub
-            .setName('open')
-            .setDescription('Post an Apply button — select form and channel via dropdowns')
-            .addStringOption(o => o.setName('message_id').setDescription('Optional: attach to an existing bot message instead of posting a new one').setRequired(false))
-        )
-        .addSubcommand(sub => sub
-            .setName('close')
-            .setDescription('Close a form and remove its Apply button')
-            .addStringOption(o => o.setName('form_search').setDescription('Part of the form name').setRequired(true).setMaxLength(80))
-        )
-        .addSubcommand(sub => sub
-            .setName('delete')
-            .setDescription('Delete an application form permanently')
-            .addStringOption(o => o.setName('form_search').setDescription('Part of the form name').setRequired(true).setMaxLength(80))
-        )
-        .addSubcommand(sub => sub
-            .setName('statusboard')
-            .setDescription('Post a live status board that auto-updates when forms open or close')
-        ),
-
-    async execute(interaction) {
-        try {
-            const { AppForm } = require('../db');
-            const sub    = interaction.options.getSubcommand();
-            const client = interaction.client;
-
-            if (sub === 'setup') {
-                const session = {
-                    step: 'log_server',
-                    name: interaction.options.getString('name'),
-                    description: '',
-                    createdBy: interaction.user.id,
-                    createdByTag: interaction.user.tag
-                };
-                pendingSetups.set(interaction.user.id, session);
-                return sendSetupStep(interaction, session, false);
-            }
-
-            if (sub === 'list') {
-                const forms = await AppForm.find().sort({ createdAt: -1 }).limit(20);
-                if (!forms.length) return interaction.reply({ content: '❌ No application forms yet. Use `/application setup` to create one.', ephemeral: true });
-                const embed = new EmbedBuilder()
-                    .setTitle('📋 Application Forms')
-                    .setColor(0x5865f2)
-                    .setDescription(forms.map(f =>
-                        `**${f.name}**\n${f.questions.length} questions · Log: #${f.logChannelName} in ${f.logServerName} · ${f.open ? '🟢 Open' : '🔴 Closed'}`
-                    ).join('\n\n'));
-                return interaction.reply({ embeds: [embed], ephemeral: true });
-            }
-
-            if (sub === 'open') {
-                const messageId = interaction.options.getString('message_id') || null;
-                const session = { step: 'pick_form', messageId };
-                pendingOpens.set(interaction.user.id, session);
-                return sendOpenStep(interaction, session, false);
-            }
-
-            if (sub === 'close') {
-                await interaction.deferReply({ ephemeral: true });
-                const q      = interaction.options.getString('form_search').toLowerCase().trim();
-                const forms  = await AppForm.find();
-                const matched = forms.filter(f => f.name.toLowerCase().includes(q));
-                if (!matched.length) return interaction.editReply({ content: `❌ No form found matching "${q}".\n\nAvailable:\n${forms.map(f => `• **${f.name}**`).join('\n') || 'None'}` });
-                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches:\n${matched.map(f => `• **${f.name}**`).join('\n')}` });
-                const form = matched[0];
-                await AppForm.findByIdAndUpdate(form._id, { open: false });
-                if (form.openMessageId && form.openChannelId) {
-                    try {
-                        const ch  = await client.channels.fetch(form.openChannelId);
-                        const msg = await ch.messages.fetch(form.openMessageId);
-                        if (msg.author.id === client.user.id) await msg.edit({ components: [] });
-                    } catch {}
-                }
-                await refreshStatusBoard(client);
-                return interaction.editReply({ content: `✅ **${form.name}** closed. Apply button removed.` });
-            }
-
-            if (sub === 'delete') {
-                await interaction.deferReply({ ephemeral: true });
-                const q      = interaction.options.getString('form_search').toLowerCase().trim();
-                const forms  = await AppForm.find();
-                const matched = forms.filter(f => f.name.toLowerCase().includes(q));
-                if (!matched.length) return interaction.editReply({ content: `❌ No form found matching "${q}".` });
-                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches:\n${matched.map(f => `• **${f.name}**`).join('\n')}` });
-                await AppForm.findByIdAndDelete(matched[0]._id);
-                await refreshStatusBoard(client);
-                return interaction.editReply({ content: `✅ **${matched[0].name}** deleted.` });
-            }
-
-            if (sub === 'statusboard') {
-                const { AppStatusBoard } = require('../db');
-                await interaction.deferReply({ ephemeral: true });
-
-                const forms = await AppForm.find().sort({ name: 1 });
-                const open   = forms.filter(f => f.open);
-                const closed = forms.filter(f => !f.open);
-
-                function formLine(f) {
-                    return `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`;
-                }
-
-                const descLines = [];
-                if (open.length)   descLines.push('**Career Applications**\n' + open.map(formLine).join('\n'));
-                if (closed.length) descLines.push(closed.map(formLine).join('\n'));
-                if (!forms.length) descLines.push('No application forms yet.');
-
-                const embed = new EmbedBuilder()
-                    .setTitle('Kavia Applications')
-                    .setDescription(
-                        'Here you can find all Kavià Café applications, along with their current status — whether they are open or closed.\n\n' +
-                        'Start your journey with Kavià Café today!\n\n' +
-                        descLines.join('\n\n') +
-                        '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
-                    )
-                    .setColor(0x5865f2)
-                    .setFooter({ text: 'Last updated' })
-                    .setTimestamp();
-
-                const msg = await interaction.channel.send({ embeds: [embed] });
-
-                // Upsert: one board per channel (replace if already exists in this channel)
-                await AppStatusBoard.findOneAndUpdate(
-                    { guildId: interaction.guild.id, channelId: interaction.channel.id },
-                    { guildId: interaction.guild.id, channelId: interaction.channel.id, messageId: msg.id, updatedAt: new Date() },
-                    { upsert: true }
-                );
-
-                return interaction.editReply({ content: `✅ Status board posted! It will automatically update whenever forms are opened or closed.` });
-            }
-
-        } catch (err) {
-            console.error('[application execute error]', err);
-            const msg = { content: '❌ Something went wrong. Check the bot logs.', ephemeral: true };
-            if (interaction.deferred || interaction.replied) await interaction.editReply(msg).catch(() => {});
-            else await interaction.reply(msg).catch(() => {});
-        }
-    },
-
-    // ── Setup select menus + manual-ID buttons ───────────────────────────────
-    // index.js: if (interaction.customId.startsWith('appsetup_')) { await require('./commands/application').handleSetupSelect(interaction); return; }
-    async handleSetupSelect(interaction) {
-        try {
-            const uid     = interaction.user.id;
-            const session = pendingSetups.get(uid);
-            if (!session) return interaction.update({ content: '❌ Session expired. Run `/application setup` again.', embeds: [], components: [] });
-
-            const id     = interaction.customId;
-            const client = interaction.client;
-
-            // ── Manual ID buttons + start-questions button (isButton) ──
-            if (interaction.isButton()) {
-                // "Add Questions" button shown after form details modal
-                if (id === `appsetup_startquestions_${uid}`) {
-                    return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
-                }
-
-                let step, field;
-                if (id === `appsetup_logchannel_manual_${uid}`)    { step = 'log_channel';    field = 'log'; }
-                if (id === `appsetup_ticketchannel_manual_${uid}`) { step = 'ticket_channel'; field = 'ticket'; }
-                if (!step) return;
-
-                const modal = new ModalBuilder()
-                    .setCustomId(`appsetup_manualch_${field}_${uid}`)
-                    .setTitle(field === 'log' ? 'Log Channel ID' : 'Ticket Channel ID');
-                modal.addComponents(new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                        .setCustomId('channel_id')
-                        .setLabel('Paste the channel ID')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true)
-                        .setMinLength(17).setMaxLength(20)
-                        .setPlaceholder('e.g. 1370946382550011925')
-                ));
-                return interaction.showModal(modal);
-            }
-
-            // ── Select menus ──
-            const value = interaction.values[0];
-
-            if (id === `appsetup_logserver_${uid}`) {
-                const guild = client.guilds.cache.get(value);
-                session.logServerId   = value;
-                session.logServerName = guild ? guild.name : value;
-                session.step = 'log_channel';
-                return sendSetupStep(interaction, session, true);
-            }
-            if (id === `appsetup_logchannel_${uid}`) {
-                const guild = client.guilds.cache.get(session.logServerId);
-                const ch    = guild ? guild.channels.cache.get(value) : null;
-                session.logChannelId   = value;
-                session.logChannelName = ch ? ch.name : value;
-                session.step = 'ticket_server';
-                return sendSetupStep(interaction, session, true);
-            }
-            if (id === `appsetup_ticketserver_${uid}`) {
-                const guild = client.guilds.cache.get(value);
-                session.ticketServerId   = value;
-                session.ticketServerName = guild ? guild.name : value;
-                session.step = 'ticket_channel';
-                return sendSetupStep(interaction, session, true);
-            }
-            if (id === `appsetup_ticketchannel_${uid}`) {
-                const guild = client.guilds.cache.get(session.ticketServerId);
-                const ch    = guild ? guild.channels.cache.get(value) : null;
-                session.ticketChannelId   = value;
-                session.ticketChannelName = ch ? ch.name : value;
-                return interaction.showModal(formDetailsModal(session.name));
-            }
-
-        } catch (err) {
-            console.error('[appsetup select error]', err);
-            await interaction.update({ content: '❌ Something went wrong. Try `/application setup` again.', embeds: [], components: [] }).catch(() => {});
-        }
-    },
-
-    // ── Setup manual channel ID modal submits ────────────────────────────────
-    // index.js: if (interaction.customId.startsWith('appsetup_manualch_')) { await require('./commands/application').handleSetupManualChannel(interaction); return; }
-    async handleSetupManualChannel(interaction) {
-        try {
-            const uid     = interaction.user.id;
-            const session = pendingSetups.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
-
-            const parts   = interaction.customId.split('_'); // appsetup_manualch_log/ticket_uid
-            const field   = parts[2]; // 'log' or 'ticket'
-            const chId    = interaction.fields.getTextInputValue('channel_id').trim();
-            const client  = interaction.client;
-
-            // Try to resolve the channel name
-            let chName = chId;
-            try {
-                const ch = await client.channels.fetch(chId);
-                chName = ch.name;
-            } catch {}
-
-            if (field === 'log') {
-                session.logChannelId   = chId;
-                session.logChannelName = chName;
-                session.step = 'ticket_server';
-            } else {
-                session.ticketChannelId   = chId;
-                session.ticketChannelName = chName;
-            }
-
-            if (field === 'ticket') {
-                // Done — show form details modal (name + description) before questions
-                return interaction.showModal(formDetailsModal(session.name));
-            }
-
-            // Continue to next step
-            return sendSetupStep(interaction, session, false);
-
-        } catch (err) {
-            console.error('[appsetup manualch error]', err);
-            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', ephemeral: true }).catch(() => {});
-        }
-    },
-
-    // ── Form details modal (name + description, shown before questions) ─────────
-    // index.js: if (interaction.customId === 'app_setup_details') { await require('./commands/application').handleSetupDetails(interaction); return; }
-    async handleSetupDetails(interaction) {
-        try {
-            const uid     = interaction.user.id;
-            const session = pendingSetups.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
-
-            session.name        = interaction.fields.getTextInputValue('form_name').trim();
-            session.department  = interaction.fields.getTextInputValue('form_department').trim() || 'General';
-            session.gameLink    = interaction.fields.getTextInputValue('form_game_link').trim() || null;
-            session.description = interaction.fields.getTextInputValue('form_description').trim();
-
-            // Game-link forms don't need questions — save immediately
-            if (session.gameLink) {
-                return interaction.reply({
-                    ephemeral: true,
-                    content: `✅ Details saved!\n**Name:** ${session.name}\n**Department:** ${session.department}\n**Game Link:** ${session.gameLink}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nThis form links directly to the game — no questions needed. Click to save.`,
-                    components: [new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`appsetup_savelink_${uid}`)
-                            .setLabel('💾 Save Form')
-                            .setStyle(ButtonStyle.Success)
-                    )]
-                });
-            }
-
-            // Can't chain modal→modal in Discord — reply with a button to open questions
-            return interaction.reply({
-                ephemeral: true,
-                content: `✅ Details saved!\n**Name:** ${session.name}\n**Department:** ${session.department}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nNow click below to add your questions.`,
-                components: [new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`appsetup_startquestions_${uid}`)
-                        .setLabel('➕ Add Questions')
-                        .setStyle(ButtonStyle.Primary)
-                )]
-            });
-        } catch (err) {
-            console.error('[app_setup_details error]', err);
-            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', ephemeral: true }).catch(() => {});
-        }
-    },
-
-    // ── Questions modal submit (rounds 1–3, customId: app_setup_questions_1/2/3) ──
-    // index.js: if (interaction.customId.startsWith('app_setup_questions_')) { await require('./commands/application').handleSetupModal(interaction); return; }
-    async handleSetupModal(interaction) {
-        try {
-            const { AppForm } = require('../db');
-            const uid     = interaction.user.id;
-            const session = pendingSetups.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
-
-            const round = parseInt(interaction.customId.slice(-1)); // 1, 2, or 3
-            const base  = (round - 1) * 5;
-
-            // Collect this round's answers
-            if (!session.questions) session.questions = [];
-            for (let i = 1; i <= 5; i++) {
-                const val = interaction.fields.getTextInputValue(`q${base + i}`).trim();
-                if (val) session.questions.push(val);
-            }
-
-            // Round 1: must have at least 2
-            if (round === 1 && session.questions.length < 2) {
-                session.questions = [];
-                return interaction.reply({ content: '❌ Please fill in at least 2 questions.', ephemeral: true });
-            }
-
-            // If under 15 and not on round 3, offer to add more
-            if (round < 3 && session.questions.length < 15) {
-                const addMoreBtn = new ButtonBuilder()
-                    .setCustomId(`appsetup_addmore_${round + 1}_${uid}`)
-                    .setLabel(`➕ Add questions ${base + 6}–${base + 10}`)
-                    .setStyle(ButtonStyle.Secondary);
-                const doneBtn = new ButtonBuilder()
-                    .setCustomId(`appsetup_savequestions_${uid}`)
-                    .setLabel('✅ Done — save form')
-                    .setStyle(ButtonStyle.Success);
-                return interaction.reply({
-                    ephemeral: true,
-                    content: `Got **${session.questions.length}** question(s) so far. Add more or save now.`,
-                    components: [new ActionRowBuilder().addComponents(addMoreBtn, doneBtn)]
-                });
-            }
-
-            // Round 3 or at 15 — save immediately
-            return saveForm(interaction, session);
-
-        } catch (err) {
-            console.error('[app_setup_questions modal error]', err);
-            await interaction.reply({ content: '❌ Failed to save the form. Check the bot logs.', ephemeral: true }).catch(() => {});
-        }
-    },
-
-    // ── "Add more questions" button + "Done" button ──────────────────────────
-    // index.js: if (interaction.customId.startsWith('appsetup_addmore_') || interaction.customId.startsWith('appsetup_savequestions_')) { await require('./commands/application').handleSetupQuestionsButton(interaction); return; }
-    async handleSetupQuestionsButton(interaction) {
-        try {
-            const uid     = interaction.user.id;
-            const session = pendingSetups.get(uid);
-            if (!session) return interaction.update({ content: '❌ Session expired. Run `/application setup` again.', embeds: [], components: [] });
-
-            // Game-link form: save directly without questions
-            if (interaction.customId.startsWith('appsetup_savelink_')) {
-                await interaction.deferUpdate();
-                return saveForm(interaction, session);
-            }
-
-            if (interaction.customId.startsWith('appsetup_savequestions_')) {
-                // update replaces the button message; saveForm will editReply with the result
-                await interaction.deferUpdate();
-                return saveForm(interaction, session);
-            }
-
-            // appsetup_addmore_<round>_<uid>
-            // showModal MUST be the first and only response to a button interaction
-            const round = parseInt(interaction.customId.split('_')[2]);
-            return interaction.showModal(questionsModal(session.name, round, `app_setup_questions_${round}`));
-
-        } catch (err) {
-            console.error('[appsetup questions button error]', err);
-            await interaction.update({ content: '❌ Something went wrong.', components: [] }).catch(() => {});
-        }
-    },
-
-    // ── Open wizard select menus + manual button ─────────────────────────────
-    // index.js: if (interaction.customId.startsWith('appopen_')) { await require('./commands/application').handleOpenSelect(interaction); return; }
-    async handleOpenSelect(interaction) {
-        try {
-            const uid     = interaction.user.id;
-            const session = pendingOpens.get(uid);
-            if (!session) return interaction.update({ content: '❌ Session expired. Run `/application open` again.', embeds: [], components: [] });
-
-            const id     = interaction.customId;
-            const client = interaction.client;
-
-            // Manual channel ID button
-            if (interaction.isButton() && id === `appopen_channel_manual_${uid}`) {
-                const modal = new ModalBuilder()
-                    .setCustomId(`appopen_manualch_${uid}`)
-                    .setTitle('Channel ID');
-                modal.addComponents(new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                        .setCustomId('channel_id')
-                        .setLabel('Paste the channel ID to post the button in')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true).setMinLength(17).setMaxLength(20)
-                        .setPlaceholder('e.g. 1234567890123456789')
-                ));
-                return interaction.showModal(modal);
-            }
-
-            const value = interaction.values[0];
-
-            if (id === `appopen_form_${uid}`) {
-                const { AppForm } = require('../db');
-                const form = await AppForm.findById(value);
-                if (!form) return interaction.update({ content: '❌ Form not found.', embeds: [], components: [] });
-                session.formId   = String(form._id);
-                session.formName = form.name;
-                session.formDesc = form.description || '';
-                session.step     = 'pick_server';
-                return sendOpenStep(interaction, session, true);
-            }
-
-            if (id === `appopen_server_${uid}`) {
-                const guild = client.guilds.cache.get(value);
-                session.serverId   = value;
-                session.serverName = guild ? guild.name : value;
-                session.step       = 'pick_channel';
-                return sendOpenStep(interaction, session, true);
-            }
-
-            if (id === `appopen_channel_${uid}`) {
-                await finishOpen(interaction, session, value, client);
-            }
-
-        } catch (err) {
-            console.error('[appopen select error]', err);
-            await interaction.update({ content: '❌ Something went wrong. Try `/application open` again.', embeds: [], components: [] }).catch(() => {});
-        }
-    },
-
-    // ── Open wizard manual channel modal ────────────────────────────────────
-    // index.js: if (interaction.customId.startsWith('appopen_manualch_')) { await require('./commands/application').handleOpenManualChannel(interaction); return; }
-    async handleOpenManualChannel(interaction) {
-        try {
-            const uid     = interaction.user.id;
-            const session = pendingOpens.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', ephemeral: true });
-            const chId   = interaction.fields.getTextInputValue('channel_id').trim();
-            const client = interaction.client;
-            await finishOpen(interaction, session, chId, client);
-        } catch (err) {
-            console.error('[appopen manual error]', err);
-            await interaction.reply({ content: '❌ Something went wrong.', ephemeral: true }).catch(() => {});
-        }
-    }
-};
-
-// ─── Status board refresh ────────────────────────────────────────────────────
-// Call this any time a form is opened or closed to keep all board messages in sync.
-
-async function refreshStatusBoard(client) {
-    try {
-        const { AppForm, AppStatusBoard } = require('../db');
-        const boards = await AppStatusBoard.find();
-        if (!boards.length) return;
-
-        const forms = await AppForm.find().sort({ department: 1, name: 1 });
-
-        // Group by department
-        const byDept = new Map();
-        for (const f of forms) {
-            const dept = f.department || 'General';
-            if (!byDept.has(dept)) byDept.set(dept, []);
-            byDept.get(dept).push(f);
-        }
-
-        // Build embed description: one section per dept
-        const descSections = [];
-        // Hardcoded Barista is always first and always open
-        descSections.push('**Barista**\n🟢 **Barista** — OPEN');
-        for (const [dept, deptForms] of byDept) {
-            const lines = deptForms.map(f =>
-                `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`
-            );
-            descSections.push(`**${dept}**\n${lines.join('\n')}`);
-        }
-        if (forms.length === 0 && descSections.length === 1) {
-            // Only the hardcoded barista line — skip the "no forms" message
-        }
-
-        const embed = new EmbedBuilder()
-            .setTitle('Kavia Applications')
-            .setDescription(
-                'Here you can find all Kavià Café applications, along with their current status — whether they are open or closed.\n\n' +
-                'Start your journey with Kavià Café today!\n\n' +
-                descSections.join('\n\n') +
-                '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
-            )
-            .setColor(0x5865f2)
-            .setFooter({ text: `Last updated` })
-            .setTimestamp();
-
-        // Build Apply buttons grouped by dept — max 5 rows × 5 buttons = 25 total
-        // Each dept gets its own row; if a dept has more than 5 open forms they overflow to next row
-        const openForms = forms.filter(f => f.open);
-        const components = [];
-
-        // Hardcoded always-open Barista link
-        const deptButtons = new Map();
-        deptButtons.set('Barista', [
-            new ButtonBuilder()
-                .setURL('https://www.roblox.com/games/88140934632053/Kavia-Cafe-Interview-Center')
-                .setLabel('Join Interview Center — Barista')
-                .setStyle(ButtonStyle.Link)
-        ]);
-
-        for (const f of openForms) {
-            const dept = f.department || 'General';
-            if (!deptButtons.has(dept)) deptButtons.set(dept, []);
-            const btn = f.gameLink
-                ? new ButtonBuilder()
-                    .setURL(f.gameLink)
-                    .setLabel(`Apply — ${f.name}`)
-                    .setStyle(ButtonStyle.Link)
-                : new ButtonBuilder()
-                    .setCustomId(`app_apply_${f._id}`)
-                    .setLabel(`Apply — ${f.name}`)
-                    .setStyle(ButtonStyle.Success);
-            deptButtons.get(dept).push(btn);
-        }
-
-        for (const [, buttons] of deptButtons) {
-            // Chunk into rows of 5
-            for (let i = 0; i < buttons.length && components.length < 5; i += 5) {
-                components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
-            }
-        }
-
-        for (const board of boards) {
-            try {
-                const ch  = await client.channels.fetch(board.channelId).catch(() => null);
-                if (!ch) continue;
-                const msg = await ch.messages.fetch(board.messageId).catch(() => null);
-                if (!msg) continue;
-                await msg.edit({ embeds: [embed], components });
-                await AppStatusBoard.findByIdAndUpdate(board._id, { updatedAt: new Date() });
-            } catch (err) {
-                console.error('[statusboard refresh error]', err);
-            }
-        }
-    } catch (err) {
-        console.error('[refreshStatusBoard error]', err);
-    }
-}
-
-// ─── Shared save-form logic ──────────────────────────────────────────────────
-
-async function saveForm(interaction, session) {
-    const { AppForm } = require('../db');
-    pendingSetups.delete(interaction.user.id);
-
-    const questions = session.questions || [];
-    if (!session.gameLink && questions.length < 2) {
-        const msg = { content: '❌ Need at least 2 questions.', ephemeral: true };
-        return interaction.replied || interaction.deferred ? interaction.editReply(msg) : interaction.reply(msg);
-    }
-
-    const form = await AppForm.create({
-        name: session.name, description: session.description,
-        department: session.department || 'General',
-        gameLink: session.gameLink || null, questions,
-        createdBy: session.createdBy, createdByTag: session.createdByTag,
-        logServerId: session.logServerId, logServerName: session.logServerName,
-        logChannelId: session.logChannelId, logChannelName: session.logChannelName,
-        ticketServerId: session.ticketServerId, ticketServerName: session.ticketServerName,
-        ticketChannelId: session.ticketChannelId, ticketChannelName: session.ticketChannelName,
-        createdAt: new Date(), open: false
-    });
-
-    const embed = new EmbedBuilder()
-        .setTitle('✅ Application Form Created')
-        .setColor(0x57f287)
-        .addFields(
-            { name: 'Form Name', value: form.name, inline: true },
-            { name: 'Questions', value: questions.map((q, i) => `**${i + 1}.** ${q}`).join('\n') },
-            { name: 'Log Channel', value: `#${form.logChannelName} in **${form.logServerName}**`, inline: true },
-            { name: 'Ticket Channel', value: `#${form.ticketChannelName} in **${form.ticketServerName}**`, inline: true }
-        )
-        .setFooter({ text: 'Use /application open to post the Apply button' });
-
-    const payload = { embeds: [embed], content: null, components: [], ephemeral: true };
-    if (interaction.deferred) return interaction.editReply(payload);
-    if (interaction.replied) return interaction.followUp(payload);
-    return interaction.reply(payload);
-}
-
-// ─── Shared finish-open logic ────────────────────────────────────────────────
-
-async function finishOpen(interaction, session, channelId, client) {
-    const { AppForm } = require('../db');
-    pendingOpens.delete(interaction.user.id);
-
-    const targetChannel = await client.channels.fetch(channelId).catch(() => null);
-    if (!targetChannel) return interaction.update({ content: `❌ Couldn't find channel \`${channelId}\`. Check the ID is correct and the bot is in that server.`, embeds: [], components: [] });
-
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`app_apply_${session.formId}`)
-            .setLabel('Apply Now 📝')
-            .setStyle(ButtonStyle.Primary)
-    );
-
-    let openMessageId;
-    if (session.messageId) {
-        const existing = await targetChannel.messages.fetch(session.messageId).catch(() => null);
-        if (!existing) return interaction.update({ content: `❌ Couldn't find message \`${session.messageId}\` in that channel.`, embeds: [], components: [] });
-        if (existing.author.id !== client.user.id) return interaction.update({ content: `❌ I can only edit my own messages. Skip \`message_id\` to post a new button message instead.`, embeds: [], components: [] });
-        await existing.edit({ components: [row] });
-        openMessageId = session.messageId;
-    } else {
-        const msg = await targetChannel.send({
-            content: `> 📝 **${session.formName}**${session.formDesc ? ` — ${session.formDesc}` : ''}\n> Click below to apply. Make sure your DMs are open!`,
-            components: [row]
-        });
-        openMessageId = msg.id;
-    }
-
-    await AppForm.findByIdAndUpdate(session.formId, { open: true, openMessageId, openChannelId: channelId });
-    await refreshStatusBoard(client);
-
-    const payload = { content: `✅ Apply button posted in <#${channelId}>!`, embeds: [], components: [] };
-    if (interaction.isModalSubmit()) return interaction.reply({ ...payload, ephemeral: true });
-    return interaction.update(payload);
-}
+const staffSchema = new mongoose.Schema({
+    _id: String,
+    rank: String,
+    strikes: [{
+        reason: String,
+        date: String,
+        department: String,
+        addedBy: { id: String, username: String },
+        removed: Boolean,
+        removedBy: String,
+        removedReason: String,
+        removedAt: String
+    }],
+    terminations: [{
+        reason: String,
+        date: String,
+        department: String,
+        addedBy: { id: String, username: String },
+        proof: String,
+        removed: Boolean,
+        removedBy: String,
+        removedReason: String,
+        removedAt: String
+    }],
+    blacklists: [{
+        reason: String,
+        date: String,
+        department: String,
+        addedBy: { id: String, username: String },
+        removed: Boolean,
+        removedBy: String,
+        removedReason: String,
+        removedAt: String
+    }],
+    notes: [{
+        note: String,
+        date: String,
+        department: String,
+        addedBy: { id: String, username: String }
+    }]
+}, { versionKey: false });
+
+const reminderSchema = new mongoose.Schema({
+    userId: String,
+    message: String,
+    fireAt: Date,
+    createdAt: Date,
+    createdBy: String,
+    recurring: String,
+    recurringMs: Number
+}, { versionKey: false });
+
+const sessionSchema = new mongoose.Schema({
+    hostId: String,
+    coHostId: String,
+    shiftType: String,
+    time: String,
+    announcementMessageId: String,
+    announcementChannelId: String,
+    requestMessageId: String,
+    requestChannelId: String,
+    status: String,
+    preSessionReminderSent: Boolean,
+    sessionStarted: Boolean,
+    finishCheckStarted: Boolean,
+    hostConfirmed: Boolean,
+    createdAt: Date,
+    approvedAt: Date,
+    sessionFireAt: Date,
+    autoDeleteAt: Date
+}, { versionKey: false });
+
+const loaSchema = new mongoose.Schema({
+    userId: String,
+    username: String,
+    department: String,
+    reason: String,
+    timeGone: String,
+    returnDate: String,
+    returnDateParsed: Date,
+    status: String,
+    messageId: String,
+    channelId: String,
+    logChannelId: String,
+    createdAt: Date,
+    approvedAt: Date,
+    returnReminderSent: Boolean,
+    autoDeleteAt: Date
+}, { versionKey: false });
+
+const completedTrainingsSchema = new mongoose.Schema({
+    _id: String,
+    completedTrainings: [String]
+}, { versionKey: false });
+
+const ticketSchema = new mongoose.Schema({
+    caseId: String,
+    userId: String,
+    category: String,
+    serverId: String,
+    channelId: String,
+    ticketCategoryId: String,
+    claimedBy: String,
+    claimedByTag: String,
+    status: String,
+    openReason: String,
+    pingRoleId: String,
+    pingRoleIds: [String],
+    logChannelId: String,
+    repingTimeout: String,
+    createdAt: Date,
+    claimedAt: Date,
+    closedAt: Date
+}, { versionKey: false });
+
+const reviewSchema = new mongoose.Schema({
+    staffId: String,
+    staffTag: String,
+    reviewerId: String,
+    reviewerTag: String,
+    rating: Number,
+    ticketCaseId: String,
+    serverId: String,
+    createdAt: Date
+}, { versionKey: false });
+
+const ticketPanelSchema = new mongoose.Schema({
+    serverId: String,
+    channelId: String,
+    logChannelId: String,
+    messageId: String,
+    title: String,
+    description: String,
+    categories: [{
+        name: String,
+        pingRoleId: String,
+        pingRoleIds: [String],
+        emoji: String,
+        description: String
+    }],
+    ticketCategoryId: String,
+    createdAt: Date
+}, { versionKey: false });
+
+const birthdaySchema = new mongoose.Schema({
+    _id: String,
+    month: Number,
+    day: Number,
+    lastAnnouncedYear: Number
+}, { versionKey: false });
+
+const paymentSchema = new mongoose.Schema({
+    offeredBy: String,
+    offeredByTag: String,
+    targetId: String,
+    targetTag: String,
+    targetDiscriminator: String,
+    targetCreatedAt: Date,
+    amount: Number,
+    currency: String,
+    description: String,
+    serverId: String,
+    serverName: String,
+    department: String,
+    logChannelId: String,
+    status: String,
+    counterAmount: Number,
+    agreementSigned: Boolean,
+    agreementSignedAt: Date,
+    paid: Boolean,
+    paidAt: Date,
+    paidBy: String,
+    paidByTag: String,
+    createdAt: Date,
+    robloxUsername: String,
+    history: [{
+        action: String,
+        by: String,
+        byTag: String,
+        amount: Number,
+        at: Date,
+        note: String
+    }]
+}, { versionKey: false });
+const checklistSchema = new mongoose.Schema({
+    _id: String,
+    scope: String,
+    serverId: String,
+    ownerId: String,
+    items: [{
+        text: String,
+        done: Boolean,
+        addedBy: String
+    }]
+}, { versionKey: false });
+
+
+const appFormSchema = new mongoose.Schema({
+    name: String,
+    description: String,
+    department: { type: String, default: 'General' },
+    gameLink: String,
+    questions: [String],
+    createdBy: String,
+    createdByTag: String,
+    logServerId: String,
+    logServerName: String,
+    logChannelId: String,
+    logChannelName: String,
+    ticketServerId: String,
+    ticketServerName: String,
+    ticketChannelId: String,
+    ticketChannelName: String,
+    createdAt: Date,
+    open: { type: Boolean, default: false },
+    openMessageId: String,
+    openChannelId: String
+}, { versionKey: false });
+
+// Tracks the pinned status board message(s) that auto-update on open/close
+const appStatusBoardSchema = new mongoose.Schema({
+    guildId:   String,
+    channelId: String,
+    messageId: String,
+    updatedAt: Date
+}, { versionKey: false });
+
+const appSubmissionSchema = new mongoose.Schema({
+    formId: String,
+    formName: String,
+    userId: String,
+    userTag: String,
+    answers: [String],
+    status: { type: String, default: 'pending' }, // pending, passed, declined
+    isResubmit: { type: Boolean, default: false },
+    declineReason: String,
+    declinedBy: String,
+    declinedAt: Date,
+    passedBy: String,
+    passedAt: Date,
+    logMessageId: String,
+    logChannelId: String,
+    submittedAt: Date
+}, { versionKey: false });
+
+const messageLogSchema = new mongoose.Schema({
+    userId: String,
+    userTag: String,
+    guildId: String,
+    weeklyCount: { type: Number, default: 0 },
+    lastWeekCount: { type: Number, default: 0 },
+    allTimeCount: { type: Number, default: 0 },
+    lastActiveAt: Date,
+    weekStartDate: Date
+}, { versionKey: false });
+
+const weeklyStatsSchema = new mongoose.Schema({
+    _id: { type: String, default: 'singleton' },
+    weeklyDiscordJoins: { type: Number, default: 0 },
+    weeklyDiscordLeaves: { type: Number, default: 0 },
+    lastWeekDiscordJoins: { type: Number, default: 0 },
+    lastWeekDiscordLeaves: { type: Number, default: 0 },
+    weeklyTotalMessages: { type: Number, default: 0 },
+    lastWeekTotalMessages: { type: Number, default: 0 },
+    lastWeekRobloxCount: { type: Number, default: 3947 },
+    weekStartRobloxCount: { type: Number, default: 3947 },
+    updatedAt: { type: Date, default: Date.now }
+}, { versionKey: false });
+
+const StaffRecord = mongoose.model('StaffRecord', staffSchema);
+const Reminder = mongoose.model('Reminder', reminderSchema);
+const Session = mongoose.model('Session', sessionSchema);
+const LOA = mongoose.model('LOA', loaSchema);
+const CompletedTrainings = mongoose.model('CompletedTrainings', completedTrainingsSchema);
+const Ticket = mongoose.model('Ticket', ticketSchema);
+const Review = mongoose.model('Review', reviewSchema);
+const TicketPanel = mongoose.model('TicketPanel', ticketPanelSchema);
+const Birthday = mongoose.model('Birthday', birthdaySchema);
+const Checklist = mongoose.model('Checklist', checklistSchema);
+const Payment = mongoose.model('Payment', paymentSchema);
+
+const WeeklyStats = mongoose.model('WeeklyStats', weeklyStatsSchema);
+const MessageLog = mongoose.model('MessageLog', messageLogSchema);
+const AppForm = mongoose.model('AppForm', appFormSchema);
+const AppSubmission = mongoose.model('AppSubmission', appSubmissionSchema);
+const AppStatusBoard = mongoose.model('AppStatusBoard', appStatusBoardSchema);
+
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard };
