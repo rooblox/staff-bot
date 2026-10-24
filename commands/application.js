@@ -856,12 +856,23 @@ async function saveForm(interaction, session) {
         createdAt: new Date(), open: false
     });
 
+    // Split questions into chunks that fit within Discord's 1024-char field limit
+    const qLines = questions.map((q, i) => `**${i + 1}.** ${q}`);
+    const qChunks = [];
+    let chunk = '';
+    for (const line of qLines) {
+        if ((chunk + '\n' + line).length > 1020) { qChunks.push(chunk); chunk = line; }
+        else chunk = chunk ? chunk + '\n' + line : line;
+    }
+    if (chunk) qChunks.push(chunk);
+
     const embed = new EmbedBuilder()
         .setTitle('✅ Application Form Created')
         .setColor(0x57f287)
         .addFields(
             { name: 'Form Name', value: form.name, inline: true },
-            { name: 'Questions', value: questions.map((q, i) => `**${i + 1}.** ${q}`).join('\n') },
+            { name: 'Department', value: form.department || 'General', inline: true },
+            ...qChunks.map((c, i) => ({ name: i === 0 ? 'Questions' : '​', value: c })),
             { name: 'Log Channel', value: `#${form.logChannelName} in **${form.logServerName}**`, inline: true },
             { name: 'Ticket Channel', value: `#${form.ticketChannelName} in **${form.ticketServerName}**`, inline: true }
         )
