@@ -1238,9 +1238,10 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
-        // ========== APPLICATION SETUP — add more questions / done buttons ==========
+        // ========== APPLICATION SETUP — add more questions / done / save-link buttons ==========
         if (interaction.customId.startsWith('appsetup_addmore_') ||
-            interaction.customId.startsWith('appsetup_savequestions_')) {
+            interaction.customId.startsWith('appsetup_savequestions_') ||
+            interaction.customId.startsWith('appsetup_savelink_')) {
             await require('./commands/application').handleSetupQuestionsButton(interaction);
             return;
         }

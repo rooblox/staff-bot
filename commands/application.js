@@ -134,6 +134,15 @@ function formDetailsModal(name) {
         ),
         new ActionRowBuilder().addComponents(
             new TextInputBuilder()
+                .setCustomId('form_game_link')
+                .setLabel('Game link (optional — skips DM questions)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setMaxLength(200)
+                .setPlaceholder('https://www.roblox.com/games/… — leave blank for a question-based form')
+        ),
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
                 .setCustomId('form_description')
                 .setLabel('Description (shown on the Apply message)')
                 .setStyle(TextInputStyle.Paragraph)
@@ -516,12 +525,27 @@ module.exports = {
 
             session.name        = interaction.fields.getTextInputValue('form_name').trim();
             session.department  = interaction.fields.getTextInputValue('form_department').trim() || 'General';
+            session.gameLink    = interaction.fields.getTextInputValue('form_game_link').trim() || null;
             session.description = interaction.fields.getTextInputValue('form_description').trim();
+
+            // Game-link forms don't need questions — save immediately
+            if (session.gameLink) {
+                return interaction.reply({
+                    ephemeral: true,
+                    content: `✅ Details saved!\n**Name:** ${session.name}\n**Department:** ${session.department}\n**Game Link:** ${session.gameLink}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nThis form links directly to the game — no questions needed. Click to save.`,
+                    components: [new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`appsetup_savelink_${uid}`)
+                            .setLabel('💾 Save Form')
+                            .setStyle(ButtonStyle.Success)
+                    )]
+                });
+            }
 
             // Can't chain modal→modal in Discord — reply with a button to open questions
             return interaction.reply({
                 ephemeral: true,
-                content: `✅ Details saved!\n**Name:** ${session.name}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nNow click below to add your questions.`,
+                content: `✅ Details saved!\n**Name:** ${session.name}\n**Department:** ${session.department}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nNow click below to add your questions.`,
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
                         .setCustomId(`appsetup_startquestions_${uid}`)
@@ -593,6 +617,12 @@ module.exports = {
             const uid     = interaction.user.id;
             const session = pendingSetups.get(uid);
             if (!session) return interaction.update({ content: '❌ Session expired. Run `/application setup` again.', embeds: [], components: [] });
+
+            // Game-link form: save directly without questions
+            if (interaction.customId.startsWith('appsetup_savelink_')) {
+                await interaction.deferUpdate();
+                return saveForm(interaction, session);
+            }
 
             if (interaction.customId.startsWith('appsetup_savequestions_')) {
                 // update replaces the button message; saveForm will editReply with the result
@@ -707,15 +737,16 @@ async function refreshStatusBoard(client) {
 
         // Build embed description: one section per dept
         const descSections = [];
-        if (forms.length === 0) {
-            descSections.push('No application forms have been created yet.');
-        } else {
-            for (const [dept, deptForms] of byDept) {
-                const lines = deptForms.map(f =>
-                    `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`
-                );
-                descSections.push(`**${dept}**\n${lines.join('\n')}`);
-            }
+        // Hardcoded Barista is always first and always open
+        descSections.push('**Barista**\n🟢 **Barista** — OPEN');
+        for (const [dept, deptForms] of byDept) {
+            const lines = deptForms.map(f =>
+                `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`
+            );
+            descSections.push(`**${dept}**\n${lines.join('\n')}`);
+        }
+        if (forms.length === 0 && descSections.length === 1) {
+            // Only the hardcoded barista line — skip the "no forms" message
         }
 
         const embed = new EmbedBuilder()
@@ -735,24 +766,34 @@ async function refreshStatusBoard(client) {
         const openForms = forms.filter(f => f.open);
         const components = [];
 
-        // Collect buttons per dept, then chunk into rows of max 5
+        // Hardcoded always-open Barista link
         const deptButtons = new Map();
+        deptButtons.set('Barista', [
+            new ButtonBuilder()
+                .setURL('https://www.roblox.com/games/88140934632053/Kavia-Cafe-Interview-Center')
+                .setLabel('Join Interview Center — Barista')
+                .setStyle(ButtonStyle.Link)
+        ]);
+
         for (const f of openForms) {
             const dept = f.department || 'General';
             if (!deptButtons.has(dept)) deptButtons.set(dept, []);
-            deptButtons.get(dept).push(
-                new ButtonBuilder()
+            const btn = f.gameLink
+                ? new ButtonBuilder()
+                    .setURL(f.gameLink)
+                    .setLabel(`Apply — ${f.name}`)
+                    .setStyle(ButtonStyle.Link)
+                : new ButtonBuilder()
                     .setCustomId(`app_apply_${f._id}`)
                     .setLabel(`Apply — ${f.name}`)
-                    .setStyle(ButtonStyle.Success)
-            );
+                    .setStyle(ButtonStyle.Success);
+            deptButtons.get(dept).push(btn);
         }
 
         for (const [, buttons] of deptButtons) {
             // Chunk into rows of 5
             for (let i = 0; i < buttons.length && components.length < 5; i += 5) {
-                const row = new ActionRowBuilder().addComponents(buttons.slice(i, i + 5));
-                components.push(row);
+                components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
             }
         }
 
@@ -780,14 +821,15 @@ async function saveForm(interaction, session) {
     pendingSetups.delete(interaction.user.id);
 
     const questions = session.questions || [];
-    if (questions.length < 2) {
+    if (!session.gameLink && questions.length < 2) {
         const msg = { content: '❌ Need at least 2 questions.', ephemeral: true };
         return interaction.replied || interaction.deferred ? interaction.editReply(msg) : interaction.reply(msg);
     }
 
     const form = await AppForm.create({
         name: session.name, description: session.description,
-        department: session.department || 'General', questions,
+        department: session.department || 'General',
+        gameLink: session.gameLink || null, questions,
         createdBy: session.createdBy, createdByTag: session.createdByTag,
         logServerId: session.logServerId, logServerName: session.logServerName,
         logChannelId: session.logChannelId, logChannelName: session.logChannelName,
