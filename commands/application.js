@@ -125,6 +125,15 @@ function formDetailsModal(name) {
         ),
         new ActionRowBuilder().addComponents(
             new TextInputBuilder()
+                .setCustomId('form_department')
+                .setLabel('Department (e.g. Barista, Management, Media)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setMaxLength(50)
+                .setPlaceholder('e.g. Barista Team')
+        ),
+        new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
                 .setCustomId('form_description')
                 .setLabel('Description (shown on the Apply message)')
                 .setStyle(TextInputStyle.Paragraph)
@@ -506,6 +515,7 @@ module.exports = {
             if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
 
             session.name        = interaction.fields.getTextInputValue('form_name').trim();
+            session.department  = interaction.fields.getTextInputValue('form_department').trim() || 'General';
             session.description = interaction.fields.getTextInputValue('form_description').trim();
 
             // Can't chain modal→modal in Discord — reply with a button to open questions
@@ -685,32 +695,66 @@ async function refreshStatusBoard(client) {
         const boards = await AppStatusBoard.find();
         if (!boards.length) return;
 
-        const forms = await AppForm.find().sort({ name: 1 });
+        const forms = await AppForm.find().sort({ department: 1, name: 1 });
 
-        // Group forms: open first, then closed
-        const open   = forms.filter(f => f.open);
-        const closed = forms.filter(f => !f.open);
-
-        function formLine(f) {
-            return `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`;
+        // Group by department
+        const byDept = new Map();
+        for (const f of forms) {
+            const dept = f.department || 'General';
+            if (!byDept.has(dept)) byDept.set(dept, []);
+            byDept.get(dept).push(f);
         }
 
-        const descLines = [];
-        if (open.length)   descLines.push('**Career Applications**\n' + open.map(formLine).join('\n'));
-        if (closed.length) descLines.push(closed.map(formLine).join('\n'));
-        if (!forms.length) descLines.push('No application forms have been created yet.');
+        // Build embed description: one section per dept
+        const descSections = [];
+        if (forms.length === 0) {
+            descSections.push('No application forms have been created yet.');
+        } else {
+            for (const [dept, deptForms] of byDept) {
+                const lines = deptForms.map(f =>
+                    `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`
+                );
+                descSections.push(`**${dept}**\n${lines.join('\n')}`);
+            }
+        }
 
         const embed = new EmbedBuilder()
             .setTitle('Kavia Applications')
             .setDescription(
                 'Here you can find all Kavià Café applications, along with their current status — whether they are open or closed.\n\n' +
                 'Start your journey with Kavià Café today!\n\n' +
-                descLines.join('\n\n') +
+                descSections.join('\n\n') +
                 '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
             )
             .setColor(0x5865f2)
             .setFooter({ text: `Last updated` })
             .setTimestamp();
+
+        // Build Apply buttons grouped by dept — max 5 rows × 5 buttons = 25 total
+        // Each dept gets its own row; if a dept has more than 5 open forms they overflow to next row
+        const openForms = forms.filter(f => f.open);
+        const components = [];
+
+        // Collect buttons per dept, then chunk into rows of max 5
+        const deptButtons = new Map();
+        for (const f of openForms) {
+            const dept = f.department || 'General';
+            if (!deptButtons.has(dept)) deptButtons.set(dept, []);
+            deptButtons.get(dept).push(
+                new ButtonBuilder()
+                    .setCustomId(`app_apply_${f._id}`)
+                    .setLabel(`Apply — ${f.name}`)
+                    .setStyle(ButtonStyle.Success)
+            );
+        }
+
+        for (const [, buttons] of deptButtons) {
+            // Chunk into rows of 5
+            for (let i = 0; i < buttons.length && components.length < 5; i += 5) {
+                const row = new ActionRowBuilder().addComponents(buttons.slice(i, i + 5));
+                components.push(row);
+            }
+        }
 
         for (const board of boards) {
             try {
@@ -718,7 +762,7 @@ async function refreshStatusBoard(client) {
                 if (!ch) continue;
                 const msg = await ch.messages.fetch(board.messageId).catch(() => null);
                 if (!msg) continue;
-                await msg.edit({ embeds: [embed] });
+                await msg.edit({ embeds: [embed], components });
                 await AppStatusBoard.findByIdAndUpdate(board._id, { updatedAt: new Date() });
             } catch (err) {
                 console.error('[statusboard refresh error]', err);
@@ -742,7 +786,8 @@ async function saveForm(interaction, session) {
     }
 
     const form = await AppForm.create({
-        name: session.name, description: session.description, questions,
+        name: session.name, description: session.description,
+        department: session.department || 'General', questions,
         createdBy: session.createdBy, createdByTag: session.createdByTag,
         logServerId: session.logServerId, logServerName: session.logServerName,
         logChannelId: session.logChannelId, logChannelName: session.logChannelName,

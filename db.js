@@ -209,6 +209,7 @@ const checklistSchema = new mongoose.Schema({
 const appFormSchema = new mongoose.Schema({
     name: String,
     description: String,
+    department: { type: String, default: 'General' },
     questions: [String],
     createdBy: String,
     createdByTag: String,
