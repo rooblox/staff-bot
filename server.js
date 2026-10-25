@@ -165,12 +165,12 @@ function createServer(client) {
             }
 
             // Verify current group rank matches fromRoleId before ranking
-            const { getMemberRole, setRank } = require('./commands/roblox');
+            const { getUserRankInGroup, setRank } = require('./commands/roblox');
             let currentRole;
             try {
-                currentRole = await getMemberRole(GROUP_ID, userId);
+                currentRole = await getUserRankInGroup(GROUP_ID, userId);
             } catch (err) {
-                console.error(`[/staff-promote] getMemberRole failed for ${userId}:`, err);
+                console.error(`[/staff-promote] getUserRankInGroup failed for ${userId}:`, err);
                 return res.status(200).json({ success: false, error: 'rank_check_failed' });
             }
 
