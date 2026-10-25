@@ -840,6 +840,8 @@ async function refreshStatusBoard(client) {
                 '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
             )
             .setColor(0x5865f2)
+            .setThumbnail('https://media.discordapp.net/attachments/1420962537096351836/1428133141377187940/kaviacafe_single.png?ex=6ade7522&is=6add23a2&hm=2ae259cb819031cbee22162f972214a6e7b03f348fb92260b1a5ad0cb1d41c2c&=&format=webp&quality=lossless')
+            .setImage('https://media.discordapp.net/attachments/1420962537096351836/1428133980720463942/kaviastaff_logo21.png?ex=6ade75ea&is=6add246a&hm=6f51e2ec395a0004a54e298795d4bb3e1154279063cb5f9d19cddc248ec5660c&=&format=webp&quality=lossless')
             .setFooter({ text: `Last updated` })
             .setTimestamp();
 

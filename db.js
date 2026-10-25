@@ -254,6 +254,33 @@ const appSubmissionSchema = new mongoose.Schema({
     submittedAt: Date
 }, { versionKey: false });
 
+const giveawaySchema = new mongoose.Schema({
+    giveawayId: { type: String, required: true, unique: true },
+    status: { type: String, default: 'active' }, // 'active' | 'ended'
+    config: {
+        prize: String,
+        description: String,
+        winnersCount: Number,
+        requiredMessages: Number,
+        weighted: Boolean,
+        channelId: String,
+        messageId: String,
+        guildName: String,
+        guildId: String,
+        hostId: String,
+        endAt: Date
+    },
+    // Array of { userId, msgCount } — updated as people enter/chat
+    participants: [{ userId: String, msgCount: { type: Number, default: 0 } }],
+    endAt: Date,
+    createdAt: Date,
+    endedAt: Date,
+    winners: [String],
+    qualifiedCount: Number,
+    rerolledBy: String,
+    rerolledAt: Date
+}, { versionKey: false });
+
 const messageLogSchema = new mongoose.Schema({
     userId: String,
     userTag: String,
@@ -295,5 +322,6 @@ const MessageLog = mongoose.model('MessageLog', messageLogSchema);
 const AppForm = mongoose.model('AppForm', appFormSchema);
 const AppSubmission = mongoose.model('AppSubmission', appSubmissionSchema);
 const AppStatusBoard = mongoose.model('AppStatusBoard', appStatusBoardSchema);
+const Giveaway = mongoose.model('Giveaway', giveawaySchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, Giveaway };

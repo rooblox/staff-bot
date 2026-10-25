@@ -2772,6 +2772,14 @@ if (interaction.customId.startsWith('dmreply_')) {
             if (!gw || gw.ended) return interaction.reply({ content: '❌ This giveaway has ended.', ephemeral: true });
             if (gw.participants.has(interaction.user.id)) return interaction.reply({ content: '✅ You\'re already entered! Good luck!', ephemeral: true });
             gw.participants.set(interaction.user.id, 0);
+            // Persist new participant to DB
+            try {
+                const { Giveaway } = require('./db');
+                await Giveaway.findOneAndUpdate(
+                    { giveawayId: gwId },
+                    { $push: { participants: { userId: interaction.user.id, msgCount: 0 } } }
+                );
+            } catch (err) { console.error('[giveaway] DB enter error:', err); }
             const msgReq = gw.config.requiredMessages > 0
                 ? ` Send **${gw.config.requiredMessages} message${gw.config.requiredMessages !== 1 ? 's' : ''}** in <#${gw.config.channelId}> to qualify for the draw.`
                 : ' Good luck!';
@@ -3646,9 +3654,21 @@ client.on('messageCreate', async message => {
     // Giveaway message tracking
     try {
         const { activeGiveaways } = require('./commands/giveaway');
-        for (const gw of activeGiveaways.values()) {
-            if (!gw.ended && gw.participants.has(message.author.id)) {
-                gw.participants.set(message.author.id, (gw.participants.get(message.author.id) || 0) + 1);
+        for (const [gwId, gw] of activeGiveaways.entries()) {
+            if (!gw.ended && gw.participants.has(message.author.id) &&
+                message.channelId === gw.config.channelId) {
+                const newCount = (gw.participants.get(message.author.id) || 0) + 1;
+                gw.participants.set(message.author.id, newCount);
+                // Throttle DB writes: only persist every 5 messages to reduce load
+                if (newCount % 5 === 0 || newCount === gw.config.requiredMessages) {
+                    try {
+                        const { Giveaway } = require('./db');
+                        await Giveaway.findOneAndUpdate(
+                            { giveawayId: gwId, 'participants.userId': message.author.id },
+                            { $set: { 'participants.$.msgCount': newCount } }
+                        );
+                    } catch (dbErr) { console.error('[giveaway] DB msgCount update error:', dbErr); }
+                }
             }
         }
     } catch (err) { /* giveaway command not loaded yet */ }
@@ -3914,6 +3934,10 @@ client.once('ready', async () => {
     // Alliance role sync
     await syncAllianceRole(client);
     setInterval(() => syncAllianceRole(client), 6 * 60 * 60 * 1000);
+
+    // Restore giveaways (re-schedule timers, end any that expired during downtime)
+    const { restoreGiveaways } = require('./commands/giveaway');
+    await restoreGiveaways(client);
 });
 
 

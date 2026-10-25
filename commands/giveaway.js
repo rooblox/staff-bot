@@ -1,11 +1,11 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 
 // In-memory store: giveawayId -> { config, participants: Map<userId, msgCount>, endAt, ended, timeoutId }
+// These are kept in sync with MongoDB — DB is the source of truth across restarts.
 const activeGiveaways = new Map();
 
-// Keep ended giveaway data for rerolls (last 50, oldest dropped automatically)
+// Keep ended giveaway data for rerolls (also persisted to DB now, no limit)
 const endedGiveaways = new Map();
-const MAX_ENDED = 50;
 
 function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -101,20 +101,98 @@ async function endGiveaway(client, giveawayId) {
         }
     }
 
-    // Save to ended store for rerolls
-    if (endedGiveaways.size >= MAX_ENDED) {
-        const oldestKey = endedGiveaways.keys().next().value;
-        endedGiveaways.delete(oldestKey);
-    }
+    // Save to ended store (in-memory for reroll)
     endedGiveaways.set(giveawayId, { config, qualified, lastWinners: winners });
 
+    // Persist to DB: mark ended, save winners, keep participant data
+    try {
+        const { Giveaway } = require('../db');
+        await Giveaway.findOneAndUpdate(
+            { giveawayId },
+            {
+                status: 'ended',
+                endedAt: new Date(),
+                winners,
+                qualifiedCount: qualified.size
+            }
+        );
+    } catch (err) {
+        console.error('[giveaway] DB end save error:', err);
+    }
+
     activeGiveaways.delete(giveawayId);
+}
+
+// ─── Called once on bot startup — restores active giveaways from DB ───────────
+async function restoreGiveaways(client) {
+    try {
+        const { Giveaway } = require('../db');
+
+        // Restore ended giveaways for reroll support
+        const recentEnded = await Giveaway.find({ status: 'ended' }).sort({ endedAt: -1 }).limit(50);
+        for (const doc of recentEnded) {
+            endedGiveaways.set(doc.giveawayId, {
+                config: doc.config,
+                qualified: new Map(doc.participants.filter(p => p.msgCount >= doc.config.requiredMessages).map(p => [p.userId, p.msgCount])),
+                lastWinners: doc.winners || []
+            });
+        }
+
+        // Restore active giveaways and reschedule timers
+        const active = await Giveaway.find({ status: 'active' });
+        let restored = 0;
+
+        for (const doc of active) {
+            const now = Date.now();
+            const endAt = new Date(doc.endAt);
+            const remaining = endAt.getTime() - now;
+
+            // Expired while bot was down — end it now
+            if (remaining <= 0) {
+                const participants = new Map(doc.participants.map(p => [p.userId, p.msgCount]));
+                activeGiveaways.set(doc.giveawayId, {
+                    config: doc.config,
+                    participants,
+                    endAt,
+                    ended: false,
+                    timeoutId: null
+                });
+                await endGiveaway(client, doc.giveawayId);
+                continue;
+            }
+
+            // Still has time — restore and reschedule
+            const participants = new Map(doc.participants.map(p => [p.userId, p.msgCount]));
+            const timeoutId = setTimeout(() => {
+                endGiveaway(client, doc.giveawayId);
+            }, remaining);
+
+            activeGiveaways.set(doc.giveawayId, {
+                config: doc.config,
+                participants,
+                endAt,
+                ended: false,
+                timeoutId
+            });
+            restored++;
+        }
+
+        if (active.length > 0) {
+            console.log(`[giveaway] Restored ${restored} active giveaway(s), ended ${active.length - restored} that expired during downtime.`);
+        }
+        if (recentEnded.length > 0) {
+            console.log(`[giveaway] Loaded ${recentEnded.length} ended giveaway(s) for reroll support.`);
+        }
+    } catch (err) {
+        console.error('[giveaway] Restore error:', err);
+    }
 }
 
 module.exports = {
     activeGiveaways,
     endedGiveaways,
     endGiveaway,
+    restoreGiveaways,
 
     data: new SlashCommandBuilder()
         .setName('giveaway')
@@ -144,7 +222,7 @@ module.exports = {
 
         .addSubcommand(sub => sub
             .setName('reroll')
-            .setDescription('Reroll winners for a recently ended giveaway')
+            .setDescription('Reroll winners for an ended giveaway')
             .addStringOption(opt => opt.setName('giveaway_id').setDescription('Giveaway ID (shown in the footer of the giveaway message)').setRequired(true))
             .addIntegerOption(opt => opt.setName('winners').setDescription('How many new winners to pick? (defaults to original count)').setMinValue(1).setMaxValue(20))
         ),
@@ -162,7 +240,7 @@ module.exports = {
             const targetChannel     = interaction.options.getChannel('channel') ?? interaction.channel;
             const description       = interaction.options.getString('description');
 
-            const msMap     = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 };
+            const msMap      = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 };
             const durationMs = duration * msMap[unit];
             const endAt      = new Date(Date.now() + durationMs);
             const giveawayId = generateId();
@@ -203,6 +281,7 @@ module.exports = {
                 channelId: targetChannel.id,
                 messageId: msg.id,
                 guildName: interaction.guild.name,
+                guildId: interaction.guild.id,
                 hostId: interaction.user.id,
                 endAt
             };
@@ -215,6 +294,21 @@ module.exports = {
                 config, participants: new Map(), endAt, ended: false, timeoutId
             });
 
+            // Persist to DB
+            try {
+                const { Giveaway } = require('../db');
+                await Giveaway.create({
+                    giveawayId,
+                    status: 'active',
+                    config,
+                    participants: [],
+                    endAt,
+                    createdAt: new Date()
+                });
+            } catch (err) {
+                console.error('[giveaway] DB create error:', err);
+            }
+
             await interaction.reply({
                 content: `✅ Giveaway started in ${targetChannel}! Ends <t:${Math.floor(endAt.getTime() / 1000)}:R>.`,
                 ephemeral: true
@@ -222,19 +316,36 @@ module.exports = {
         }
 
         if (sub === 'reroll') {
-            const giveawayId  = interaction.options.getString('giveaway_id').trim();
-            const newCount    = interaction.options.getInteger('winners');
+            const giveawayId = interaction.options.getString('giveaway_id').trim();
+            const newCount   = interaction.options.getInteger('winners');
 
-            // Check if still active (host ended it early but reroll was requested)
             const active = activeGiveaways.get(giveawayId);
             if (active && !active.ended) {
                 return interaction.reply({ content: `⚠️ That giveaway is still running! End it first.`, ephemeral: true });
             }
 
-            const ended = endedGiveaways.get(giveawayId);
+            // Check in-memory first, then DB
+            let ended = endedGiveaways.get(giveawayId);
+            if (!ended) {
+                try {
+                    const { Giveaway } = require('../db');
+                    const doc = await Giveaway.findOne({ giveawayId, status: 'ended' });
+                    if (doc) {
+                        ended = {
+                            config: doc.config,
+                            qualified: new Map(doc.participants.filter(p => p.msgCount >= doc.config.requiredMessages).map(p => [p.userId, p.msgCount])),
+                            lastWinners: doc.winners || []
+                        };
+                        endedGiveaways.set(giveawayId, ended);
+                    }
+                } catch (err) {
+                    console.error('[giveaway] DB reroll lookup error:', err);
+                }
+            }
+
             if (!ended) {
                 return interaction.reply({
-                    content: `❌ Giveaway \`${giveawayId}\` not found. Rerolls are only available for giveaways that ended since the bot last restarted.\n\nThe ID is in the footer of the original giveaway message.`,
+                    content: `❌ Giveaway \`${giveawayId}\` not found.\n\nThe ID is in the footer of the original giveaway message.`,
                     ephemeral: true
                 });
             }
@@ -260,12 +371,17 @@ module.exports = {
                 .setFooter({ text: `Giveaway ID: ${giveawayId}` })
                 .setTimestamp();
 
-            // Update stored last winners
+            // Update in-memory and DB
             ended.lastWinners = winners;
+            try {
+                const { Giveaway } = require('../db');
+                await Giveaway.findOneAndUpdate({ giveawayId }, { winners, rerolledBy: interaction.user.id, rerolledAt: new Date() });
+            } catch (err) {
+                console.error('[giveaway] DB reroll save error:', err);
+            }
 
             await interaction.reply({ embeds: [embed] });
 
-            // DM new winners
             for (const winnerId of winners) {
                 const user = await interaction.client.users.fetch(winnerId).catch(() => null);
                 if (user) {
