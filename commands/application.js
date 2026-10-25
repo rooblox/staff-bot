@@ -380,39 +380,19 @@ module.exports = {
                 const { AppStatusBoard } = require('../db');
                 await interaction.deferReply({ ephemeral: true });
 
-                const forms = await AppForm.find().sort({ name: 1 });
-                const open   = forms.filter(f => f.open);
-                const closed = forms.filter(f => !f.open);
+                // Post a placeholder, then immediately fill it via refreshStatusBoard
+                // so there is only ONE place that builds the embed/buttons
+                const placeholder = await interaction.channel.send({ content: '⏳ Loading status board...' });
 
-                function formLine(f) {
-                    return `${f.open ? '🟢' : '🔴'} **${f.name}** — ${f.open ? 'OPEN' : 'CLOSED'}`;
-                }
-
-                const descLines = [];
-                if (open.length)   descLines.push('**Career Applications**\n' + open.map(formLine).join('\n'));
-                if (closed.length) descLines.push(closed.map(formLine).join('\n'));
-                if (!forms.length) descLines.push('No application forms yet.');
-
-                const embed = new EmbedBuilder()
-                    .setTitle('Kavia Applications')
-                    .setDescription(
-                        'Here you can find all Kavià Café applications, along with their current status — whether they are open or closed.\n\n' +
-                        'Start your journey with Kavià Café today!\n\n' +
-                        descLines.join('\n\n') +
-                        '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
-                    )
-                    .setColor(0x5865f2)
-                    .setFooter({ text: 'Last updated' })
-                    .setTimestamp();
-
-                const msg = await interaction.channel.send({ embeds: [embed] });
-
-                // Upsert: one board per channel (replace if already exists in this channel)
+                // Upsert: one board per channel
                 await AppStatusBoard.findOneAndUpdate(
                     { guildId: interaction.guild.id, channelId: interaction.channel.id },
-                    { guildId: interaction.guild.id, channelId: interaction.channel.id, messageId: msg.id, updatedAt: new Date() },
+                    { guildId: interaction.guild.id, channelId: interaction.channel.id, messageId: placeholder.id, updatedAt: new Date() },
                     { upsert: true }
                 );
+
+                // Now fill it with the real embed + buttons
+                await refreshStatusBoard(client);
 
                 return interaction.editReply({ content: `✅ Status board posted! It will automatically update whenever forms are opened or closed.` });
             }
