@@ -469,7 +469,7 @@ module.exports = {
                     modal.addComponents(new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId('role_id')
-                            .setLabel('Paste the role ID (or leave blank for default)')
+                            .setLabel('Role ID (blank = default)')
                             .setStyle(TextInputStyle.Short)
                             .setRequired(false)
                             .setMinLength(0).setMaxLength(20)
