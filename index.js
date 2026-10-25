@@ -1337,12 +1337,11 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
 
         // ── Alliance: meets requirements → post the application form directly ──
         if (interaction.customId.startsWith('ticket_pr_alliance_meets_')) {
-            await interaction.deferUpdate().catch(() => {});
             try {
                 const { AppForm } = require('./db');
                 const form = await AppForm.findOne({ name: /kavià cafe alliance requests/i }).catch(() => null);
 
-                await interaction.editReply({
+                await interaction.update({
                     embeds: [new EmbedBuilder()
                         .setColor(0x2ECC71)
                         .setTitle('✅ Great! Here\'s the application form')
@@ -3767,6 +3766,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('ticket_closemodal_')) {
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const caseId = interaction.customId.replace('ticket_closemodal_', '');
