@@ -1036,14 +1036,16 @@ client.on('interactionCreate', async interaction => {
             // Pre-emptively defer for slash commands that do DB work,
             // so Discord's 3-second window is met before any async work starts.
             // Commands that reply/update themselves (setup, open) are excluded.
-            const DEFER_COMMANDS = {
-                application: ['list', 'close', 'delete', 'statusboard'],
-                giveaway: ['reroll'],
-            };
-            const sub = interaction.isChatInputCommand() ? interaction.options.getSubcommand(false) : null;
-            const deferSubs = DEFER_COMMANDS[interaction.commandName];
-            if (deferSubs && sub && deferSubs.includes(sub) && !interaction.deferred && !interaction.replied) {
-                await interaction.deferReply({ flags: 64 });
+            if (interaction.isChatInputCommand()) {
+                const DEFER_COMMANDS = {
+                    application: ['list', 'close', 'delete', 'statusboard'],
+                    giveaway: ['reroll'],
+                };
+                const sub = interaction.options.getSubcommand(false);
+                const deferSubs = DEFER_COMMANDS[interaction.commandName];
+                if (deferSubs && sub && deferSubs.includes(sub) && !interaction.deferred && !interaction.replied) {
+                    await interaction.deferReply({ flags: 64 });
+                }
             }
             await command.execute(interaction, client);
         } catch (error) {
@@ -1232,7 +1234,7 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         return;
     }
 
-    if (interaction.isButton()) {
+    if (interaction.isButton()) { try {
 
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
@@ -2829,7 +2831,10 @@ if (interaction.customId.startsWith('dmreply_')) {
         }
 
         return;
-    }
+    } catch (err) {
+        // Silently ignore double-ack (40060) — usually a double-click; all other errors are logged
+        if (err.code !== 40060) console.error('[button handler error]', err);
+    } }
 
     if (interaction.isModalSubmit()) {
 if (interaction.customId.startsWith('dmreplymodal_')) {
