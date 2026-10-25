@@ -995,16 +995,16 @@ client.on('interactionCreate', async interaction => {
         // Built-in commands
         if (interaction.commandName === 'weeklystats') {
             if (!await hasBotPermsRole(interaction.guildId, interaction.user.id)) {
-                return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+                return interaction.reply({ content: '❌ You do not have permission.', flags: 64 });
             }
-            await interaction.reply({ content: '📊 Posting weekly stats...', ephemeral: true });
+            await interaction.reply({ content: '📊 Posting weekly stats...', flags: 64 });
             await postWeeklyStats(client);
             await postModReport(client);
             return;
         }
 
         if (interaction.commandName === 'loalist') {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: 64 });
             try {
                 const activeLOAs = await LOA.find({ status: { $in: ['approved', 'extended'] } }).sort({ returnDateParsed: 1 });
                 if (activeLOAs.length === 0) return interaction.editReply({ content: '✅ No active LOAs right now!' });
@@ -1024,7 +1024,7 @@ client.on('interactionCreate', async interaction => {
                         .setFooter({ text: 'Kavià Café • LOA System' })
                         .setTimestamp();
                     if (i === 0) await interaction.editReply({ embeds: [embed] });
-                    else await interaction.followUp({ embeds: [embed], ephemeral: true });
+                    else await interaction.followUp({ embeds: [embed], flags: 64 });
                 }
             } catch (err) { console.error('Error in /loalist:', err); try { await interaction.editReply({ content: '❌ Error fetching LOAs.' }); } catch {} }
             return;
@@ -1049,7 +1049,7 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(`❌ Command error [/${interaction.commandName}]`, error);
             if (!interaction.replied && !interaction.deferred) {
-                try { await interaction.reply({ content: `❌ Error running command.`, ephemeral: true }); } catch {}
+                try { await interaction.reply({ content: `❌ Error running command.`, flags: 64 }); } catch {}
             }
         }
         return;
@@ -1159,7 +1159,7 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         if (interaction.customId.startsWith('ts_selecteditcat_')) {
             const panelId = interaction.customId.replace('ts_selecteditcat_', '');
             const panel = await TicketPanel.findById(panelId);
-            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', flags: 64 });
             const index = parseInt(interaction.values[0]);
             const cat = panel.categories[index];
             const currentRoleIds = cat.pingRoleIds?.length > 0 ? cat.pingRoleIds.join(', ') : cat.pingRoleId || '';
@@ -1177,7 +1177,7 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         if (interaction.customId.startsWith('ts_selectremovecat_')) {
             const panelId = interaction.customId.replace('ts_selectremovecat_', '');
             const panel = await TicketPanel.findById(panelId);
-            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', flags: 64 });
             const index = parseInt(interaction.values[0]);
             const removed = panel.categories[index];
             panel.categories.splice(index, 1);
@@ -1194,7 +1194,7 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             const robloxId = parts[0];
             const groupId = parts.slice(1).join('_');
             const context = client.rankChangeContext?.get(`${robloxId}_${groupId}`);
-            if (!context) return interaction.reply({ content: '❌ This selection has expired.', ephemeral: true });
+            if (!context) return interaction.reply({ content: '❌ This selection has expired.', flags: 64 });
             await interaction.deferUpdate().catch(() => {});
             const selectedRoleId = interaction.values[0];
             const { setRank, getGroupRanks } = require('./commands/roblox');
@@ -1269,7 +1269,7 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         if (interaction.customId.startsWith('ts_editpanel_')) {
             const panelId = interaction.customId.replace('ts_editpanel_', '');
             const panel = await TicketPanel.findById(panelId);
-            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', flags: 64 });
             const modal = new ModalBuilder().setCustomId(`ts_editpanelmodal_${panelId}`).setTitle('Edit Panel');
             modal.addComponents(
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('title').setLabel('Panel Title').setStyle(TextInputStyle.Short).setRequired(true).setValue(panel.title)),
@@ -1295,26 +1295,26 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         if (interaction.customId.startsWith('ts_editcat_')) {
             const panelId = interaction.customId.replace('ts_editcat_', '');
             const panel = await TicketPanel.findById(panelId);
-            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
-            if (panel.categories.length === 0) return interaction.reply({ content: '❌ No categories to edit.', ephemeral: true });
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', flags: 64 });
+            if (panel.categories.length === 0) return interaction.reply({ content: '❌ No categories to edit.', flags: 64 });
             const select = new StringSelectMenuBuilder()
                 .setCustomId(`ts_selecteditcat_${panelId}`)
                 .setPlaceholder('Select a category to edit...')
                 .addOptions(panel.categories.map((c, i) => ({ label: `${i + 1}. ${c.name}`, value: String(i) })));
-            await interaction.reply({ content: 'Select which category to edit:', components: [new ActionRowBuilder().addComponents(select)], ephemeral: true });
+            await interaction.reply({ content: 'Select which category to edit:', components: [new ActionRowBuilder().addComponents(select)], flags: 64 });
             return;
         }
 
         if (interaction.customId.startsWith('ts_removecat_')) {
             const panelId = interaction.customId.replace('ts_removecat_', '');
             const panel = await TicketPanel.findById(panelId);
-            if (!panel) return interaction.reply({ content: '❌ Panel not found.', ephemeral: true });
-            if (panel.categories.length === 0) return interaction.reply({ content: '❌ No categories to remove.', ephemeral: true });
+            if (!panel) return interaction.reply({ content: '❌ Panel not found.', flags: 64 });
+            if (panel.categories.length === 0) return interaction.reply({ content: '❌ No categories to remove.', flags: 64 });
             const select = new StringSelectMenuBuilder()
                 .setCustomId(`ts_selectremovecat_${panelId}`)
                 .setPlaceholder('Select a category to remove...')
                 .addOptions(panel.categories.map((c, i) => ({ label: `${i + 1}. ${c.name}`, value: String(i) })));
-            await interaction.reply({ content: 'Select which category to remove:', components: [new ActionRowBuilder().addComponents(select)], ephemeral: true });
+            await interaction.reply({ content: 'Select which category to remove:', components: [new ActionRowBuilder().addComponents(select)], flags: 64 });
             return;
         }
 
@@ -1353,9 +1353,9 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         if (interaction.customId.startsWith('ticket_claim_')) {
             const caseId = interaction.customId.replace('ticket_claim_', '');
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (ticket.claimedBy) return interaction.reply({ content: '❌ This ticket has already been claimed.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', ephemeral: true });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
+            if (ticket.claimedBy) return interaction.reply({ content: '❌ This ticket has already been claimed.', flags: 64 });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', flags: 64 });
            await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed', claimedAt: new Date() });
             if (client.ticketRepingTimeouts.has(caseId)) { clearTimeout(client.ticketRepingTimeouts.get(caseId)); client.ticketRepingTimeouts.delete(caseId); }
             try { await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); } catch {}
@@ -1378,8 +1378,8 @@ await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`**$
         if (interaction.customId.startsWith('ticket_unclaim_')) {
             const caseId = interaction.customId.replace('ticket_unclaim_', '');
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', ephemeral: true });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
+            if (ticket.claimedBy !== interaction.user.id && !await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to unclaim this ticket.', flags: 64 });
             await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: null, claimedByTag: null, status: 'open' });
             try { await interaction.channel.permissionOverwrites.delete(interaction.user.id); } catch {}
             try { await interaction.channel.setName(`unclaimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
@@ -1401,8 +1401,8 @@ await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩
         if (interaction.customId.startsWith('ticket_close_') && !interaction.customId.startsWith('ticket_closerequest_') && !interaction.customId.startsWith('ticket_closeconfirm_') && !interaction.customId.startsWith('ticket_closecancel_') && !interaction.customId.startsWith('ticket_closeleft_')) {
             const caseId = interaction.customId.replace('ticket_close_', '');
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds) && interaction.user.id !== ticket.userId) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds) && interaction.user.id !== ticket.userId) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', flags: 64 });
             const modal = new ModalBuilder().setCustomId(`ticket_closemodal_${caseId}`).setTitle('Close Ticket');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('closereason').setLabel('Reason for closing').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for closing this ticket...').setRequired(true)));
             await interaction.showModal(modal);
@@ -1412,7 +1412,7 @@ await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩
         if (interaction.customId.startsWith('ticket_closeconfirm_')) {
             const caseId = interaction.customId.replace('ticket_closeconfirm_', '');
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
             await interaction.update({ components: [] });
             await closeTicket(ticket, interaction.channel, interaction.user, 'Resolved');
             return;
@@ -1427,8 +1427,8 @@ await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩
         if (interaction.customId.startsWith('ticket_closeleft_')) {
             const caseId = interaction.customId.replace('ticket_closeleft_', '');
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', ephemeral: true });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to close this ticket.', flags: 64 });
             await interaction.update({ components: [] });
             await closeTicket(ticket, interaction.channel, interaction.user, 'Ticket creator left the server');
             return;
@@ -1437,9 +1437,9 @@ await interaction.channel.send({ embeds: [new EmbedBuilder().setDescription(`↩
         if (interaction.customId.startsWith('ticket_closerequest_')) {
             const caseId = interaction.customId.replace('ticket_closerequest_', '');
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
-            await interaction.reply({ content: '✅ Closure request sent to the ticket opener.', ephemeral: true });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
+            await interaction.reply({ content: '✅ Closure request sent to the ticket opener.', flags: 64 });
             await interaction.channel.send({
                 content: `<@${ticket.userId}>`,
 embeds: [new EmbedBuilder().setTitle('❓ Closure Request').setDescription(`**${interaction.user.tag}** has requested to close your ticket.\n\nHas your issue been resolved? If so, click **Yes** below to close the ticket.`).setColor(0xF39C12).setImage('https://cdn.discordapp.com/attachments/620024668673409069/1521630625990312058/avatar-removebg-preview__7_-removebg-preview.png?ex=6a458873&is=6a4436f3&hm=13097ba5884157460dad416471432ea6e311d8b943e0c7bda7b1dac51b517454&').setFooter({ text: 'Kavià Café • Ticket System' }).setTimestamp()],
@@ -1468,8 +1468,8 @@ if (interaction.customId.startsWith('dmreply_')) {
        if (interaction.customId.startsWith('ticket_adduser_')) {
             const caseId = interaction.customId.replace('ticket_adduser_', '');
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to add users.', ephemeral: true });
+            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to add users.', flags: 64 });
             const userSelect = new UserSelectMenuBuilder()
                 .setCustomId(`ticket_adduser_select_${caseId}`)
                 .setPlaceholder('Select user to add...')
@@ -1478,7 +1478,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             await interaction.reply({
                 content: '👤 Select a user to add to this ticket:',
                 components: [new ActionRowBuilder().addComponents(userSelect)],
-                ephemeral: true
+                flags: 64
             });
             return;
         }
@@ -1487,10 +1487,10 @@ if (interaction.customId.startsWith('dmreply_')) {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
             const sectionIndex = parseInt(parts[3]);
-            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
+            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
-            if (session.locked) return interaction.reply({ content: '🔒 Your session is locked. Please wait for a staff member to resolve your help request.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active training session found.', flags: 64 });
+            if (session.locked) return interaction.reply({ content: '🔒 Your session is locked. Please wait for a staff member to resolve your help request.', flags: 64 });
             await interaction.update({ components: [] });
             const nextSection = sectionIndex + 1;
             if (nextSection < session.trainingConfig.sections.length) { session.section = nextSection; await sendNextSection(userId, session); }
@@ -1502,9 +1502,9 @@ if (interaction.customId.startsWith('dmreply_')) {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
             const sectionIndex = parseInt(parts[3]);
-            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
+            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active training session found.', flags: 64 });
             session.locked = true;
             await interaction.update({ components: [] });
             await interaction.user.send({ embeds: [new EmbedBuilder().setTitle('🆘 Help Request Sent').setDescription('Your help request has been sent to a staff member. Your session has been paused until the issue is resolved.').setColor(0xE74C3C).setTimestamp()] });
@@ -1528,9 +1528,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('st_resolve_')) {
             const parts = interaction.customId.split('_');
             const userId = parts[2];
-            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to resolve training sessions.', ephemeral: true });
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to resolve training sessions.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', flags: 64 });
             session.locked = false;
             await interaction.update({ components: [] });
             const user = await client.users.fetch(userId);
@@ -1541,9 +1541,9 @@ if (interaction.customId.startsWith('dmreply_')) {
 
         if (interaction.customId.startsWith('st_ageverif_accept_')) {
             const userId = interaction.customId.replace('st_ageverif_accept_', '');
-            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', flags: 64 });
             if (session.ageVerifRepingTimeout) clearTimeout(session.ageVerifRepingTimeout);
             session.awaitingAgeVerif = false;
             await interaction.update({ components: [] });
@@ -1566,9 +1566,9 @@ if (interaction.customId.startsWith('dmreply_')) {
 
         if (interaction.customId.startsWith('st_ageverif_deny_')) {
             const userId = interaction.customId.replace('st_ageverif_deny_', '');
-            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', flags: 64 });
             const modal = new ModalBuilder().setCustomId(`st_ageverif_denymodal_${userId}`).setTitle('Deny Age Verification');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying age verification...').setRequired(true)));
             await interaction.showModal(modal);
@@ -1580,9 +1580,9 @@ if (interaction.customId.startsWith('dmreply_')) {
             const answer = parts[2];
             const userId = parts[3];
             const questionIndex = parseInt(parts[4]);
-            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', ephemeral: true });
+            if (interaction.user.id !== userId) return interaction.reply({ content: '❌ This is not your training session.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active training session found.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active training session found.', flags: 64 });
             const q = session.trainingConfig.quiz[questionIndex];
             const correct = answer === q.answer;
             if (correct) session.score++;
@@ -1605,9 +1605,9 @@ if (interaction.customId.startsWith('dmreply_')) {
 
         if (interaction.customId.startsWith('st_pass_')) {
             const userId = interaction.customId.replace('st_pass_', '');
-            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', flags: 64 });
             await interaction.update({ components: [] });
             try {
                 const trainingKey = `${session.training} — ${session.department}`;
@@ -1633,9 +1633,9 @@ if (interaction.customId.startsWith('dmreply_')) {
 
         if (interaction.customId.startsWith('st_fail_')) {
             const userId = interaction.customId.replace('st_fail_', '');
-            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+            if (!await hasTrainingRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
             const session = activeSessions.get(userId);
-            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ No active session found for this user.', flags: 64 });
             await interaction.update({ components: [] });
             const user = await client.users.fetch(userId);
             await user.send({ embeds: [new EmbedBuilder().setTitle('❌ Training Result').setDescription(`Hello, ${user}.\n\nUnfortunately, you have **not passed** your **${session.training}** for the **${session.department}** department at this time.\n\nPlease don't be discouraged — this is a learning experience. Your training will now restart from the beginning.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
@@ -1658,11 +1658,11 @@ if (interaction.customId.startsWith('dmreply_')) {
         }
 
         if (interaction.customId.startsWith('sesaccept_')) {
-            if (!await hasRequiredRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
+            if (!await hasRequiredRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to use this button.', flags: 64 });
             const sessionId = interaction.customId.replace('sesaccept_', '');
             try {
                 const session = await Session.findById(sessionId);
-                if (!session) return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
+                if (!session) return interaction.reply({ content: '❌ Session not found.', flags: 64 });
                 await Session.findByIdAndUpdate(sessionId, { status: 'approved', approvedAt: new Date() });
                 const user = await client.users.fetch(session.hostId);
                 let linkText = '';
@@ -1672,15 +1672,15 @@ if (interaction.customId.startsWith('dmreply_')) {
                 await interaction.update({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` })], components: [] });
                 session.status = 'approved';
                 await scheduleSession(session);
-            } catch (err) { console.error('Error accepting session:', err); await interaction.reply({ content: '❌ Error accepting request.', ephemeral: true }); }
+            } catch (err) { console.error('Error accepting session:', err); await interaction.reply({ content: '❌ Error accepting request.', flags: 64 }); }
             return;
         }
 
         if (interaction.customId.startsWith('sesdecline_') && !interaction.customId.startsWith('sesdeclinemodal_')) {
-            if (!await hasRequiredRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to use this button.', ephemeral: true });
+            if (!await hasRequiredRole(interaction.user.id)) return interaction.reply({ content: '❌ You do not have permission to use this button.', flags: 64 });
             const sessionId = interaction.customId.replace('sesdecline_', '');
             const session = await Session.findById(sessionId);
-            if (!session) return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ Session not found.', flags: 64 });
             const modal = new ModalBuilder().setCustomId(`sesdeclinemodal_${sessionId}`).setTitle('Decline Session Request');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('declinereason').setLabel('Reason for declining').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for declining this request...').setRequired(true)));
             await interaction.showModal(modal);
@@ -1690,7 +1690,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('ses_stillhosting_')) {
             const sessionId = interaction.customId.replace('ses_stillhosting_', '');
             const session = await Session.findById(sessionId);
-            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
+            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { hostConfirmed: true });
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
@@ -1701,7 +1701,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('ses_canthost_')) {
             const sessionId = interaction.customId.replace('ses_canthost_', '');
             const session = await Session.findById(sessionId);
-            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
+            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
             try { const host = await client.users.fetch(session.hostId); await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Cancelled').setDescription('Your session has been cancelled. Please let a staff member know if you need to reschedule.').setColor(0xE74C3C).setTimestamp()] }); } catch {}
@@ -1713,7 +1713,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('ses_finished_')) {
             const sessionId = interaction.customId.replace('ses_finished_', '');
             const session = await Session.findById(sessionId);
-            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
+            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'finished' });
             try { const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID); const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID); const msg = await announcementChannel.messages.fetch(session.announcementMessageId).catch(() => null); if (msg) await msg.delete().catch(() => {}); } catch (err) { console.error('Error deleting announcement:', err); }
@@ -1725,7 +1725,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('ses_notfinished_')) {
             const sessionId = interaction.customId.replace('ses_notfinished_', '');
             const session = await Session.findById(sessionId);
-            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', ephemeral: true });
+            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
             if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('⏳ Session Still Going').setDescription(`<@${session.hostId}>'s **${session.shiftType}** is still in progress. We'll check back in another 25 minutes.`).setColor(0xF39C12).setTimestamp()] });
@@ -1744,7 +1744,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             await interaction.reply({
                 content: '**Step 1:** Select your department below.',
                 components: [new ActionRowBuilder().addComponents(select)],
-                ephemeral: true
+                flags: 64
             });
             return;
         }
@@ -1753,8 +1753,8 @@ if (interaction.customId.startsWith('dmreply_')) {
             const loaId = interaction.customId.replace('loa_accept_', '');
             try {
                 const loa = await LOA.findById(loaId);
-                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', flags: 64 });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
                 await LOA.findByIdAndUpdate(loaId, { status: 'approved', approvedAt: new Date() });
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Leave of Absence Approved').setDescription(`Hello, <@${loa.userId}>!\n\nWe are pleased to inform you that your **Leave of Absence** request has been **approved** at **Kavià Café**.\n\n> <:pink_pin:1166850035611353148> **Department →** *${loa.department || 'Unknown'}*\n> <:pink_pin:1166850035611353148> **Time Gone →** *${loa.timeGone}*\n> <:pink_pin:1166850035611353148> **Return Date →** *${loa.returnDate}*\n> <:pink_pin:1166850035611353148> **Status →** *Approved ✅*\n\n***Sincerely,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
@@ -1818,7 +1818,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                     }
                 } catch (err) { console.error('Error posting LOA approval log:', err); }
                 scheduleLOAReturnReminder(loa, client);
-            } catch (err) { console.error('Error approving LOA:', err); await interaction.reply({ content: '❌ Error approving LOA.', ephemeral: true }); }
+            } catch (err) { console.error('Error approving LOA:', err); await interaction.reply({ content: '❌ Error approving LOA.', flags: 64 }); }
             return;
         }
 
@@ -1826,8 +1826,8 @@ if (interaction.customId.startsWith('dmreply_')) {
             const loaId = interaction.customId.replace('loa_deny_', '');
             try {
                 const loa = await LOA.findById(loaId);
-                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', flags: 64 });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
                 const modal = new ModalBuilder().setCustomId(`loa_denymodal_${loaId}`).setTitle('Deny LOA Request');
                 modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('denyreason').setLabel('Reason for denial').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter the reason for denying this LOA...').setRequired(true)));
                 await interaction.showModal(modal);
@@ -1839,8 +1839,8 @@ if (interaction.customId.startsWith('dmreply_')) {
             const loaId = interaction.customId.replace('loa_moreinfo_', '');
             try {
                 const loa = await LOA.findById(loaId);
-                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', ephemeral: true });
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', flags: 64 });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission to do this.', flags: 64 });
                 const modal = new ModalBuilder().setCustomId(`loa_moreinfomodal_${loaId}`).setTitle('Request More Info');
                 modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('moreinfo').setLabel('What info is needed?').setStyle(TextInputStyle.Paragraph).setPlaceholder('Enter what additional information is needed...').setRequired(true)));
                 await interaction.showModal(modal);
@@ -1851,7 +1851,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('loa_returned_')) {
             const loaId = interaction.customId.replace('loa_returned_', '');
             const loa = await LOA.findById(loaId);
-            if (!loa || interaction.user.id !== loa.userId) return interaction.reply({ content: '❌ This is not your LOA.', ephemeral: true });
+            if (!loa || interaction.user.id !== loa.userId) return interaction.reply({ content: '❌ This is not your LOA.', flags: 64 });
             await interaction.update({ components: [] });
             await LOA.findByIdAndUpdate(loaId, { status: 'returned' });
             try { const deptConfig = DEPARTMENTS[loa.department]; if (deptConfig) { const loaGuild = await client.guilds.fetch(deptConfig.serverId); const loaChannel = await loaGuild.channels.fetch(deptConfig.loaChannelId); const msg = await loaChannel.messages.fetch(loa.messageId).catch(() => null); if (msg) await msg.delete().catch(() => {}); } } catch {}
@@ -1878,9 +1878,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_accept_')) {
             const paymentId = interaction.customId.replace('pay_accept_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
-            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', flags: 64 });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', flags: 64 });
 
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'accepted',
@@ -1925,9 +1925,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_decline_')) {
             const paymentId = interaction.customId.replace('pay_decline_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
-            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', flags: 64 });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', flags: 64 });
 
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'declined',
@@ -1958,9 +1958,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_counter_')) {
             const paymentId = interaction.customId.replace('pay_counter_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
-            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', flags: 64 });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', flags: 64 });
 
             const modal = new ModalBuilder()
                 .setCustomId(`pay_countermodal_${paymentId}`)
@@ -1990,10 +1990,10 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_staffaccept_')) {
             const paymentId = interaction.customId.replace('pay_staffaccept_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
             const hasPerms = await hasBotPermsRole(interaction.guildId || payment.serverId, interaction.user.id);
-            if (!hasPerms) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
-            if (payment.status !== 'counter_pending') return interaction.reply({ content: '❌ No counter offer to accept.', ephemeral: true });
+            if (!hasPerms) return interaction.reply({ content: '❌ You do not have permission.', flags: 64 });
+            if (payment.status !== 'counter_pending') return interaction.reply({ content: '❌ No counter offer to accept.', flags: 64 });
 
             const newAmount = payment.counterAmount;
             await Payment.findByIdAndUpdate(paymentId, {
@@ -2038,7 +2038,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_staffdeclinecounter_')) {
             const paymentId = interaction.customId.replace('pay_staffdeclinecounter_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
 
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'declined',
@@ -2070,7 +2070,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_staffdecline_')) {
             const paymentId = interaction.customId.replace('pay_staffdecline_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
 
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'declined',
@@ -2102,8 +2102,8 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_sendagreement_')) {
             const paymentId = interaction.customId.replace('pay_sendagreement_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.status !== 'accepted') return interaction.reply({ content: '❌ Payment must be accepted before sending agreement.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.status !== 'accepted') return interaction.reply({ content: '❌ Payment must be accepted before sending agreement.', flags: 64 });
 
             await interaction.update({ components: [] });
 
@@ -2133,9 +2133,9 @@ if (interaction.customId.startsWith('dmreply_')) {
                     ],
                     components: [row]
                 });
-                await interaction.followUp({ content: `✅ Agreement sent to **${target.tag}**.`, ephemeral: true });
+                await interaction.followUp({ content: `✅ Agreement sent to **${target.tag}**.`, flags: 64 });
             } catch {
-                await interaction.followUp({ content: '❌ Could not send agreement — user may have DMs closed.', ephemeral: true });
+                await interaction.followUp({ content: '❌ Could not send agreement — user may have DMs closed.', flags: 64 });
             }
             return;
         }
@@ -2143,8 +2143,8 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_agree_')) {
             const paymentId = interaction.customId.replace('pay_agree_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', flags: 64 });
 
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'agreed',
@@ -2189,8 +2189,8 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_disagree_')) {
             const paymentId = interaction.customId.replace('pay_disagree_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', flags: 64 });
 
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'declined',
@@ -2218,8 +2218,8 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_paid_')) {
             const paymentId = interaction.customId.replace('pay_paid_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.status !== 'agreed') return interaction.reply({ content: '❌ Agreement must be signed before marking as paid.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.status !== 'agreed') return interaction.reply({ content: '❌ Agreement must be signed before marking as paid.', flags: 64 });
 
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'paid',
@@ -2264,9 +2264,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_accept_')) {
             const paymentId = interaction.customId.replace('pay_accept_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
-            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', flags: 64 });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, { status: 'accepted', $push: { history: { action: 'Accepted', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
             await interaction.update({ components: [] });
@@ -2288,9 +2288,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_decline_')) {
             const paymentId = interaction.customId.replace('pay_decline_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
-            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', flags: 64 });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, { status: 'declined', $push: { history: { action: 'Declined', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
             await interaction.update({ components: [] });
@@ -2302,9 +2302,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_counter_')) {
             const paymentId = interaction.customId.replace('pay_counter_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', ephemeral: true });
-            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This offer is not for you.', flags: 64 });
+            if (payment.status !== 'pending' && payment.status !== 'countered') return interaction.reply({ content: '❌ This offer has already been responded to.', flags: 64 });
             const modal = new ModalBuilder().setCustomId('pay_countermodal_' + paymentId).setTitle('Request Different Amount');
             modal.addComponents(
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('counteramount').setLabel('Your requested amount').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 500').setRequired(true)),
@@ -2317,9 +2317,9 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_staffaccept_')) {
             const paymentId = interaction.customId.replace('pay_staffaccept_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
             const hasPerms = await hasBotPermsRole(interaction.guildId || payment.serverId, interaction.user.id);
-            if (!hasPerms) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+            if (!hasPerms) return interaction.reply({ content: '❌ You do not have permission.', flags: 64 });
             const newAmount = payment.counterAmount;
             await Payment.findByIdAndUpdate(paymentId, { amount: newAmount, counterAmount: null, status: 'countered', $push: { history: { action: 'Counter Accepted by Staff', by: interaction.user.id, byTag: interaction.user.tag, amount: newAmount, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
@@ -2341,7 +2341,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_staffdeclinecounter_')) {
             const paymentId = interaction.customId.replace('pay_staffdeclinecounter_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, { status: 'declined', $push: { history: { action: 'Counter Declined by Staff', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
             await interaction.update({ components: [] });
@@ -2353,7 +2353,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_staffdecline_')) {
             const paymentId = interaction.customId.replace('pay_staffdecline_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, { status: 'declined', $push: { history: { action: 'Cancelled by Staff', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
             await interaction.update({ components: [] });
@@ -2365,7 +2365,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_sendagreement_')) {
             const paymentId = interaction.customId.replace('pay_sendagreement_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
             await interaction.update({ components: [] });
             const cs = payment.currency === 'robux' ? 'R$' : '$';
             const currentAmount = payment.counterAmount || payment.amount;
@@ -2377,16 +2377,16 @@ if (interaction.customId.startsWith('dmreply_')) {
                     new ButtonBuilder().setCustomId('pay_disagree_' + paymentId).setLabel('❌ I Disagree').setStyle(ButtonStyle.Danger)
                 );
                 await target.send({ embeds: [new EmbedBuilder().setTitle('📝 Payment Agreement — Kavià Café').setColor(0x9B59B6).setDescription('Please read and agree to the following terms before your payment of **' + cs + currentAmount + ' ' + (payment.currency === 'robux' ? 'Robux' : 'USD') + '** is sent.').addFields({ name: '📋 Agreement Terms', value: AGREEMENT_TEXT }, { name: '💰 Payment Amount', value: cs + currentAmount + ' ' + (payment.currency === 'robux' ? 'Robux' : 'USD'), inline: true }, { name: '📝 For', value: payment.description, inline: true }, { name: '🆔 Your Discord ID', value: '`' + payment.targetId + '`', inline: true }, { name: '📛 Your Username', value: payment.targetTag, inline: true }).setFooter({ text: 'Ref: ' + payment._id + ' • Your Discord account serves as your digital signature' }).setTimestamp()], components: [row] });
-                await interaction.followUp({ content: '✅ Agreement sent to **' + target.tag + '**.', ephemeral: true });
-            } catch { await interaction.followUp({ content: '❌ Could not send agreement — user may have DMs closed.', ephemeral: true }); }
+                await interaction.followUp({ content: '✅ Agreement sent to **' + target.tag + '**.', flags: 64 });
+            } catch { await interaction.followUp({ content: '❌ Could not send agreement — user may have DMs closed.', flags: 64 }); }
             return;
         }
 
         if (interaction.customId.startsWith('pay_agree_')) {
             const paymentId = interaction.customId.replace('pay_agree_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, { status: 'agreed', agreementSigned: true, agreementSignedAt: new Date(), $push: { history: { action: 'Agreement Signed', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
             await interaction.update({ components: [] });
@@ -2405,8 +2405,8 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_disagree_')) {
             const paymentId = interaction.customId.replace('pay_disagree_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.targetId !== interaction.user.id) return interaction.reply({ content: '❌ This agreement is not for you.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, { status: 'declined', $push: { history: { action: 'Agreement Refused', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
             await interaction.update({ components: [] });
@@ -2418,7 +2418,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_groupwait_')) {
             const paymentId = interaction.customId.replace('pay_groupwait_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, {
                 status: 'group_wait',
                 $push: { history: { action: 'Group Wait Applied', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } }
@@ -2492,8 +2492,8 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('pay_paid_')) {
             const paymentId = interaction.customId.replace('pay_paid_', '');
             const payment = await Payment.findById(paymentId).catch(() => null);
-            if (!payment) return interaction.reply({ content: '❌ Payment not found.', ephemeral: true });
-            if (payment.status !== 'agreed') return interaction.reply({ content: '❌ Agreement must be signed before marking as paid.', ephemeral: true });
+            if (!payment) return interaction.reply({ content: '❌ Payment not found.', flags: 64 });
+            if (payment.status !== 'agreed') return interaction.reply({ content: '❌ Agreement must be signed before marking as paid.', flags: 64 });
             await Payment.findByIdAndUpdate(paymentId, { status: 'paid', paid: true, paidAt: new Date(), paidBy: interaction.user.id, paidByTag: interaction.user.tag, $push: { history: { action: 'Marked as Paid', by: interaction.user.id, byTag: interaction.user.tag, at: new Date() } } });
             const updated = await Payment.findById(paymentId);
             await interaction.update({ components: [] });
@@ -2507,7 +2507,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('loa_extend_')) {
             const loaId = interaction.customId.replace('loa_extend_', '');
             const loa = await LOA.findById(loaId);
-            if (!loa || interaction.user.id !== loa.userId) return interaction.reply({ content: '❌ This is not your LOA.', ephemeral: true });
+            if (!loa || interaction.user.id !== loa.userId) return interaction.reply({ content: '❌ This is not your LOA.', flags: 64 });
             const modal = new ModalBuilder().setCustomId(`loa_extendmodal_${loaId}`).setTitle('Request LOA Extension');
             modal.addComponents(
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('extendtime').setLabel('How much more time do you need?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 1 week, 2 weeks, 1 month').setRequired(true)),
@@ -2521,7 +2521,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('app_dmscale_') || interaction.customId.startsWith('app_dmchoice_')) {
             const { pendingDMs, parseQuestion } = require('./commands/application');
             const appSession = pendingDMs.get(interaction.user.id);
-            if (!appSession) return interaction.reply({ content: '❌ No active application session.', ephemeral: true });
+            if (!appSession) return interaction.reply({ content: '❌ No active application session.', flags: 64 });
 
             // Derive the answer label
             let answerLabel;
@@ -2616,12 +2616,12 @@ if (interaction.customId.startsWith('dmreply_')) {
             const formId = interaction.customId.replace('app_apply_', '');
             const { AppForm, AppSubmission } = require('./db');
             const form = await AppForm.findById(formId).catch(() => null);
-            if (!form) return interaction.reply({ content: '❌ This application form no longer exists.', ephemeral: true });
-            if (!form.open) return interaction.reply({ content: '❌ Applications are currently closed.', ephemeral: true });
+            if (!form) return interaction.reply({ content: '❌ This application form no longer exists.', flags: 64 });
+            if (!form.open) return interaction.reply({ content: '❌ Applications are currently closed.', flags: 64 });
 
             // Check if already pending
             const existing = await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'pending' });
-            if (existing) return interaction.reply({ content: '⏳ You already have a pending application for this form.', ephemeral: true });
+            if (existing) return interaction.reply({ content: '⏳ You already have a pending application for this form.', flags: 64 });
 
             const { pendingDMs } = require('./commands/application');
             const isResubmit = !!(await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'declined' }));
@@ -2669,9 +2669,9 @@ if (interaction.customId.startsWith('dmreply_')) {
                     questions: form.questions
                 });
 
-                return interaction.reply({ content: '📬 Check your DMs! I\'ve sent you the application questions.', ephemeral: true });
+                return interaction.reply({ content: '📬 Check your DMs! I\'ve sent you the application questions.', flags: 64 });
             } catch {
-                return interaction.reply({ content: '❌ I couldn\'t DM you. Please enable DMs from server members and try again.', ephemeral: true });
+                return interaction.reply({ content: '❌ I couldn\'t DM you. Please enable DMs from server members and try again.', flags: 64 });
             }
         }
 
@@ -2679,8 +2679,8 @@ if (interaction.customId.startsWith('dmreply_')) {
             const subId = interaction.customId.replace('app_pass_', '');
             const { AppSubmission, AppForm } = require('./db');
             const sub = await AppSubmission.findById(subId);
-            if (!sub) return interaction.reply({ content: '❌ Submission not found.', ephemeral: true });
-            if (sub.status !== 'pending') return interaction.reply({ content: `❌ Already ${sub.status}.`, ephemeral: true });
+            if (!sub) return interaction.reply({ content: '❌ Submission not found.', flags: 64 });
+            if (sub.status !== 'pending') return interaction.reply({ content: `❌ Already ${sub.status}.`, flags: 64 });
 
             await AppSubmission.findByIdAndUpdate(subId, { status: 'passed', passedBy: interaction.user.id, passedAt: new Date() });
 
@@ -2702,17 +2702,17 @@ if (interaction.customId.startsWith('dmreply_')) {
                 }).catch(() => {});
             }
 
-            return interaction.reply({ content: '✅ Application passed. Applicant has been notified.', ephemeral: true });
+            return interaction.reply({ content: '✅ Application passed. Applicant has been notified.', flags: 64 });
         }
 
         if (interaction.customId.startsWith('app_ticket_')) {
             const subId = interaction.customId.replace('app_ticket_', '');
             const { AppSubmission, AppForm } = require('./db');
             const sub = await AppSubmission.findById(subId);
-            if (!sub) return interaction.reply({ content: '❌ Submission not found.', ephemeral: true });
+            if (!sub) return interaction.reply({ content: '❌ Submission not found.', flags: 64 });
 
             const form = await AppForm.findById(sub.formId);
-            if (!form) return interaction.reply({ content: '❌ Form not found.', ephemeral: true });
+            if (!form) return interaction.reply({ content: '❌ Form not found.', flags: 64 });
 
             // DM applicant with ticket channel link
             const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
@@ -2730,14 +2730,14 @@ if (interaction.customId.startsWith('dmreply_')) {
                 }).catch(() => {});
             }
 
-            await interaction.reply({ content: `✅ Applicant has been directed to open a ticket in **${form.ticketServerName}** → #${form.ticketChannelName}.`, ephemeral: true });
+            await interaction.reply({ content: `✅ Applicant has been directed to open a ticket in **${form.ticketServerName}** → #${form.ticketChannelName}.`, flags: 64 });
         }
 
         if (interaction.customId.startsWith('app_remind_')) {
             const subId = interaction.customId.replace('app_remind_', '');
             const { AppSubmission } = require('./db');
             const sub = await AppSubmission.findById(subId);
-            if (!sub) return interaction.reply({ content: '❌ Submission not found.', ephemeral: true });
+            if (!sub) return interaction.reply({ content: '❌ Submission not found.', flags: 64 });
 
             // DM the reviewer a reminder after 1 hour
             const reviewer = interaction.user;
@@ -2753,7 +2753,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                 } catch {}
             }, 60 * 60 * 1000); // 1 hour
 
-            return interaction.reply({ content: '🔔 I\'ll remind you about this application in **1 hour**.', ephemeral: true });
+            return interaction.reply({ content: '🔔 I\'ll remind you about this application in **1 hour**.', flags: 64 });
         }
 
         if (interaction.customId.startsWith('app_decline_')) {
@@ -2781,8 +2781,8 @@ if (interaction.customId.startsWith('dmreply_')) {
             const gwId = interaction.customId.replace('giveaway_enter_', '');
             const { activeGiveaways } = require('./commands/giveaway');
             const gw = activeGiveaways.get(gwId);
-            if (!gw || gw.ended) return interaction.reply({ content: '❌ This giveaway has ended.', ephemeral: true });
-            if (gw.participants.has(interaction.user.id)) return interaction.reply({ content: '✅ You\'re already entered! Good luck!', ephemeral: true });
+            if (!gw || gw.ended) return interaction.reply({ content: '❌ This giveaway has ended.', flags: 64 });
+            if (gw.participants.has(interaction.user.id)) return interaction.reply({ content: '✅ You\'re already entered! Good luck!', flags: 64 });
             gw.participants.set(interaction.user.id, 0);
             // Persist new participant to DB
             try {
@@ -2795,15 +2795,15 @@ if (interaction.customId.startsWith('dmreply_')) {
             const msgReq = gw.config.requiredMessages > 0
                 ? ` Send **${gw.config.requiredMessages} message${gw.config.requiredMessages !== 1 ? 's' : ''}** in <#${gw.config.channelId}> to qualify for the draw.`
                 : ' Good luck!';
-            return interaction.reply({ content: `🎉 You've entered the giveaway!${msgReq}`, ephemeral: true });
+            return interaction.reply({ content: `🎉 You've entered the giveaway!${msgReq}`, flags: 64 });
         }
 
         if (interaction.customId.startsWith('giveaway_leave_')) {
             const gwId = interaction.customId.replace('giveaway_leave_', '');
             const { activeGiveaways } = require('./commands/giveaway');
             const gw = activeGiveaways.get(gwId);
-            if (!gw || gw.ended) return interaction.reply({ content: '❌ This giveaway has ended.', ephemeral: true });
-            if (!gw.participants.has(interaction.user.id)) return interaction.reply({ content: "❌ You're not entered in this giveaway.", ephemeral: true });
+            if (!gw || gw.ended) return interaction.reply({ content: '❌ This giveaway has ended.', flags: 64 });
+            if (!gw.participants.has(interaction.user.id)) return interaction.reply({ content: "❌ You're not entered in this giveaway.", flags: 64 });
             gw.participants.delete(interaction.user.id);
             try {
                 const { Giveaway } = require('./db');
@@ -2812,18 +2812,18 @@ if (interaction.customId.startsWith('dmreply_')) {
                     { $pull: { participants: { userId: interaction.user.id } } }
                 );
             } catch (err) { console.error('[giveaway] DB leave error:', err); }
-            return interaction.reply({ content: '👋 You\'ve left the giveaway.', ephemeral: true });
+            return interaction.reply({ content: '👋 You\'ve left the giveaway.', flags: 64 });
         }
 
         if (interaction.customId.startsWith('giveaway_end_')) {
             const gwId = interaction.customId.replace('giveaway_end_', '');
             const { activeGiveaways, endGiveaway } = require('./commands/giveaway');
             const gw = activeGiveaways.get(gwId);
-            if (!gw || gw.ended) return interaction.reply({ content: '❌ Giveaway not found or already ended.', ephemeral: true });
+            if (!gw || gw.ended) return interaction.reply({ content: '❌ Giveaway not found or already ended.', flags: 64 });
             if (interaction.user.id !== gw.config.hostId && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-                return interaction.reply({ content: '❌ Only the host or staff can end this early.', ephemeral: true });
+                return interaction.reply({ content: '❌ Only the host or staff can end this early.', flags: 64 });
             }
-            await interaction.reply({ content: '⏹️ Ending giveaway...', ephemeral: true });
+            await interaction.reply({ content: '⏹️ Ending giveaway...', flags: 64 });
             await endGiveaway(interaction.client, gwId);
             return;
         }
@@ -2833,7 +2833,7 @@ if (interaction.customId.startsWith('dmreply_')) {
 
     if (interaction.isModalSubmit()) {
 if (interaction.customId.startsWith('dmreplymodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const targetUserId = interaction.customId.replace('dmreplymodal_', '');
                 const replyMessage = interaction.fields.getTextInputValue('replymessage');
@@ -2875,7 +2875,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('pay_robloxusername_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const paymentId = interaction.customId.replace('pay_robloxusername_', '');
                 const robloxUsername = interaction.fields.getTextInputValue('robloxusername').trim();
@@ -2895,7 +2895,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('pay_countermodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const paymentId = interaction.customId.replace('pay_countermodal_', '');
                 const payment = await Payment.findById(paymentId).catch(() => null);
@@ -2950,7 +2950,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
        if (interaction.customId.startsWith('pay_countermodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const paymentId = interaction.customId.replace('pay_countermodal_', '');
                 const payment = await Payment.findById(paymentId).catch(() => null);
@@ -2980,7 +2980,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('ts_newpanel_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const channelId = interaction.customId.replace('ts_newpanel_', '');
                 const title = interaction.fields.getTextInputValue('title');
@@ -3019,7 +3019,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('ts_editpanelmodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const panelId = interaction.customId.replace('ts_editpanelmodal_', '');
                 const title = interaction.fields.getTextInputValue('title');
@@ -3034,7 +3034,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('ts_addcatmodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const panelId = interaction.customId.replace('ts_addcatmodal_', '');
                 const name = interaction.fields.getTextInputValue('name');
@@ -3062,7 +3062,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('ts_editcatmodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const parts = interaction.customId.replace('ts_editcatmodal_', '').split('_');
                 const index = parseInt(parts[parts.length - 1]);
@@ -3090,7 +3090,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('ticket_reason_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const withoutPrefix = interaction.customId.replace('ticket_reason_', '');
                 const lastUnderscoreIndex = withoutPrefix.lastIndexOf('_');
@@ -3190,7 +3190,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('ticket_closemodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const caseId = interaction.customId.replace('ticket_closemodal_', '');
                 const reason = interaction.fields.getTextInputValue('closereason');
@@ -3203,7 +3203,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('st_ageverif_denymodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const userId = interaction.customId.replace('st_ageverif_denymodal_', '');
                 const reason = interaction.fields.getTextInputValue('denyreason');
@@ -3229,7 +3229,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('sesdeclinemodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const sessionId = interaction.customId.replace('sesdeclinemodal_', '');
                 const reason = interaction.fields.getTextInputValue('declinereason');
@@ -3245,7 +3245,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('loa_formmodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const parts = interaction.customId.replace('loa_formmodal_', '').split('_');
                 const logChannelId = parts[parts.length - 1];
@@ -3345,7 +3345,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('loa_denymodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const loaId = interaction.customId.replace('loa_denymodal_', '');
                 const reason = interaction.fields.getTextInputValue('denyreason');
@@ -3379,7 +3379,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('loa_moreinfomodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const loaId = interaction.customId.replace('loa_moreinfomodal_', '');
                 const moreInfo = interaction.fields.getTextInputValue('moreinfo');
@@ -3413,7 +3413,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         }
 
         if (interaction.customId.startsWith('loa_extendmodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const loaId = interaction.customId.replace('loa_extendmodal_', '');
                 const extendTime = interaction.fields.getTextInputValue('extendtime');
@@ -3472,8 +3472,8 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             const loaId = parts.slice(0, -1).join('_');
             try {
                 const loa = await LOA.findById(loaId);
-                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', flags: 64 });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission.', flags: 64 });
                 const newDateParsed = new Date(newReturnDate.split('/').reverse().join('-'));
                 await LOA.findByIdAndUpdate(loaId, { status: 'approved', returnDate: newReturnDate, returnDateParsed: newDateParsed, returnReminderSent: false });
                 const updatedLoa = await LOA.findById(loaId);
@@ -3500,7 +3500,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                         .setTimestamp()
                     ]});
                 }
-            } catch (err) { console.error('Error approving LOA extension:', err); try { await interaction.reply({ content: '❌ Error approving extension.', ephemeral: true }); } catch {} }
+            } catch (err) { console.error('Error approving LOA extension:', err); try { await interaction.reply({ content: '❌ Error approving extension.', flags: 64 }); } catch {} }
             return;
         }
 
@@ -3508,8 +3508,8 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             const loaId = interaction.customId.replace('loa_extdeny_', '');
             try {
                 const loa = await LOA.findById(loaId);
-                if (!loa) return interaction.reply({ content: '❌ LOA not found.', ephemeral: true });
-                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission.', ephemeral: true });
+                if (!loa) return interaction.reply({ content: '❌ LOA not found.', flags: 64 });
+                if (!await hasStaffRole(interaction.user.id, loa.department)) return interaction.reply({ content: '❌ You do not have permission.', flags: 64 });
                 try { await interaction.message.delete(); } catch {}
                 const user = await client.users.fetch(loa.userId);
                 await user.send({ embeds: [new EmbedBuilder()
@@ -3532,8 +3532,8 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                         .setTimestamp()
                     ]});
                 }
-                await interaction.reply({ content: '✅ Extension denied and user notified.', ephemeral: true });
-            } catch (err) { console.error('Error denying LOA extension:', err); try { await interaction.reply({ content: '❌ Error denying extension.', ephemeral: true }); } catch {} }
+                await interaction.reply({ content: '✅ Extension denied and user notified.', flags: 64 });
+            } catch (err) { console.error('Error denying LOA extension:', err); try { await interaction.reply({ content: '❌ Error denying extension.', flags: 64 }); } catch {} }
             return;
         }
 
@@ -3569,7 +3569,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
 
         // ========== APPLICATION DECLINE MODAL ==========
         if (interaction.customId.startsWith('app_declinemodal_')) {
-            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
                 const subId = interaction.customId.replace('app_declinemodal_', '');
                 const reason = interaction.fields.getTextInputValue('reason');

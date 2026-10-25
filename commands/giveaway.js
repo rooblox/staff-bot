@@ -315,7 +315,7 @@ module.exports = {
 
             await interaction.reply({
                 content: `✅ Giveaway started in ${targetChannel}! Ends <t:${Math.floor(endAt.getTime() / 1000)}:R>.`,
-                ephemeral: true
+                flags: 64
             });
         }
 
@@ -325,7 +325,7 @@ module.exports = {
 
             const active = activeGiveaways.get(giveawayId);
             if (active && !active.ended) {
-                return interaction.reply({ content: `⚠️ That giveaway is still running! End it first.`, ephemeral: true });
+                return interaction.reply({ content: `⚠️ That giveaway is still running! End it first.`, flags: 64 });
             }
 
             // Check in-memory first, then DB
@@ -350,7 +350,7 @@ module.exports = {
             if (!ended) {
                 return interaction.reply({
                     content: `❌ Giveaway \`${giveawayId}\` not found.\n\nThe ID is in the footer of the original giveaway message.`,
-                    ephemeral: true
+                    flags: 64
                 });
             }
 
@@ -359,7 +359,7 @@ module.exports = {
             const winners = pickWinners(qualified, count, config.weighted);
 
             if (winners.length === 0) {
-                return interaction.reply({ content: `❌ No eligible participants to reroll from.`, ephemeral: true });
+                return interaction.reply({ content: `❌ No eligible participants to reroll from.`, flags: 64 });
             }
 
             const winnerMentions = winners.map(id => `<@${id}>`).join(', ');

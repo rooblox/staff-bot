@@ -103,7 +103,7 @@ async function sendSetupStep(interaction, session, isUpdate = false) {
         ));
     }
 
-    const payload = { embeds: [embed], components, ephemeral: true };
+    const payload = { embeds: [embed], components, flags: 64 };
     if (isUpdate) return interaction.update(payload);
     return interaction.reply(payload);
 }
@@ -160,7 +160,7 @@ function questionsModal(name, round = 1, customId = 'app_setup_questions_1') {
     const req   = round === 1;
     const modal = new ModalBuilder()
         .setCustomId(customId)
-        .setTitle(`Questions ${base + 1}–${base + 5}: ${name.slice(0, 30)}`);
+        .setTitle(`Q${base + 1}–${base + 5}: ${name.slice(0, 38)}`);
     for (let i = 1; i <= 5; i++) {
         const num      = base + i;
         const required = req && i <= 2; // first round needs at least 2
@@ -209,7 +209,7 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
         const { AppForm } = require('../db');
         const forms = await AppForm.find().sort({ createdAt: -1 }).limit(25);
         if (!forms.length) {
-            const msg = { content: '❌ No forms yet. Use `/application setup` first.', ephemeral: true };
+            const msg = { content: '❌ No forms yet. Use `/application setup` first.', flags: 64 };
             return isUpdate ? interaction.update(msg) : interaction.reply(msg);
         }
         const totalSteps = client.guilds.cache.size > 1 ? 3 : 2;
@@ -262,7 +262,7 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
         ));
     }
 
-    const payload = { embeds: [embed], components, ephemeral: true };
+    const payload = { embeds: [embed], components, flags: 64 };
     if (isUpdate) return interaction.update(payload);
     return interaction.reply(payload);
 }
@@ -397,7 +397,7 @@ module.exports = {
 
         } catch (err) {
             console.error('[application execute error]', err);
-            const msg = { content: '❌ Something went wrong. Check the bot logs.', ephemeral: true };
+            const msg = { content: '❌ Something went wrong. Check the bot logs.', flags: 64 };
             if (interaction.deferred || interaction.replied) await interaction.editReply(msg).catch(() => {});
             else await interaction.reply(msg).catch(() => {});
         }
@@ -486,7 +486,7 @@ module.exports = {
         try {
             const uid     = interaction.user.id;
             const session = pendingSetups.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', flags: 64 });
 
             const parts   = interaction.customId.split('_'); // appsetup_manualch_log/ticket_uid
             const field   = parts[2]; // 'log' or 'ticket'
@@ -519,7 +519,7 @@ module.exports = {
 
         } catch (err) {
             console.error('[appsetup manualch error]', err);
-            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', flags: 64 }).catch(() => {});
         }
     },
 
@@ -529,7 +529,7 @@ module.exports = {
         try {
             const uid     = interaction.user.id;
             const session = pendingSetups.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', flags: 64 });
 
             session.name        = interaction.fields.getTextInputValue('form_name').trim();
             session.department  = interaction.fields.getTextInputValue('form_department').trim() || 'General';
@@ -539,7 +539,7 @@ module.exports = {
             // Game-link forms don't need questions — save immediately
             if (session.gameLink) {
                 return interaction.reply({
-                    ephemeral: true,
+                    flags: 64,
                     content: `✅ Details saved!\n**Name:** ${session.name}\n**Department:** ${session.department}\n**Game Link:** ${session.gameLink}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nThis form links directly to the game — no questions needed. Click to save.`,
                     components: [new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
@@ -552,7 +552,7 @@ module.exports = {
 
             // Can't chain modal→modal in Discord — reply with a button to open questions
             return interaction.reply({
-                ephemeral: true,
+                flags: 64,
                 content: `✅ Details saved!\n**Name:** ${session.name}\n**Department:** ${session.department}${session.description ? `\n**Description:** ${session.description.slice(0, 100)}${session.description.length > 100 ? '…' : ''}` : ''}\n\nNow click below to add your questions.`,
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
@@ -563,7 +563,7 @@ module.exports = {
             });
         } catch (err) {
             console.error('[app_setup_details error]', err);
-            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', flags: 64 }).catch(() => {});
         }
     },
 
@@ -574,7 +574,7 @@ module.exports = {
             const { AppForm } = require('../db');
             const uid     = interaction.user.id;
             const session = pendingSetups.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', flags: 64 });
 
             const round = parseInt(interaction.customId.slice(-1)); // 1, 2, or 3
             const base  = (round - 1) * 5;
@@ -589,7 +589,7 @@ module.exports = {
             // Round 1: must have at least 2
             if (round === 1 && session.questions.length < 2) {
                 session.questions = [];
-                return interaction.reply({ content: '❌ Please fill in at least 2 questions.', ephemeral: true });
+                return interaction.reply({ content: '❌ Please fill in at least 2 questions.', flags: 64 });
             }
 
             // If under 15 and not on round 3, offer to add more
@@ -603,7 +603,7 @@ module.exports = {
                     .setLabel('✅ Done — save form')
                     .setStyle(ButtonStyle.Success);
                 return interaction.reply({
-                    ephemeral: true,
+                    flags: 64,
                     content: `Got **${session.questions.length}** question(s) so far. Add more or save now.`,
                     components: [new ActionRowBuilder().addComponents(addMoreBtn, doneBtn)]
                 });
@@ -614,7 +614,7 @@ module.exports = {
 
         } catch (err) {
             console.error('[app_setup_questions modal error]', err);
-            await interaction.reply({ content: '❌ Failed to save the form. Check the bot logs.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ Failed to save the form. Check the bot logs.', flags: 64 }).catch(() => {});
         }
     },
 
@@ -747,13 +747,13 @@ module.exports = {
         try {
             const uid     = interaction.user.id;
             const session = pendingOpens.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', flags: 64 });
             const chId   = interaction.fields.getTextInputValue('channel_id').trim();
             const client = interaction.client;
             await finishOpen(interaction, session, chId, client);
         } catch (err) {
             console.error('[appopen manual error]', err);
-            await interaction.reply({ content: '❌ Something went wrong.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
         }
     },
 
@@ -763,7 +763,7 @@ module.exports = {
         try {
             const uid     = interaction.user.id;
             const session = pendingOpens.get(uid);
-            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', ephemeral: true });
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', flags: 64 });
             const chId  = interaction.fields.getTextInputValue('channel_id').trim();
             const msgId = interaction.fields.getTextInputValue('message_id').trim();
             session.messageId = msgId;
@@ -771,7 +771,7 @@ module.exports = {
             await finishOpen(interaction, session, chId, client);
         } catch (err) {
             console.error('[appopen attach error]', err);
-            await interaction.reply({ content: '❌ Something went wrong.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
         }
     }
 };
@@ -884,7 +884,7 @@ async function saveForm(interaction, session) {
 
     const questions = session.questions || [];
     if (!session.gameLink && questions.length < 2) {
-        const msg = { content: '❌ Need at least 2 questions.', ephemeral: true };
+        const msg = { content: '❌ Need at least 2 questions.', flags: 64 };
         return interaction.replied || interaction.deferred ? interaction.editReply(msg) : interaction.reply(msg);
     }
 
@@ -922,7 +922,7 @@ async function saveForm(interaction, session) {
         )
         .setFooter({ text: 'Use /application open to post the Apply button' });
 
-    const payload = { embeds: [embed], content: null, components: [], ephemeral: true };
+    const payload = { embeds: [embed], content: null, components: [], flags: 64 };
     if (interaction.deferred) return interaction.editReply(payload);
     if (interaction.replied) return interaction.followUp(payload);
     return interaction.reply(payload);
@@ -936,7 +936,7 @@ async function finishOpen(interaction, session, channelId, client) {
 
     // Helper: reply works for both select menus (update) and modal submits (reply/editReply)
     const replyOrUpdate = (payload) => {
-        if (interaction.isModalSubmit()) return interaction.reply({ ...payload, ephemeral: true });
+        if (interaction.isModalSubmit()) return interaction.reply({ ...payload, flags: 64 });
         return interaction.update(payload);
     };
 
