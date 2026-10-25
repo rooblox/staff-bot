@@ -1101,6 +1101,12 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ========== APPLICATION CLOSE DROPDOWN ==========
+        if (interaction.customId.startsWith('appclose_form_')) {
+            await require('./commands/application').handleCloseSelect(interaction);
+            return;
+        }
+
         // ========== APPLICATION SEND — form picker dropdown ==========
         if (interaction.customId.startsWith('appsend_pick_')) {
             await require('./commands/application').handleSendPick(interaction);
@@ -1278,6 +1284,37 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         if (interaction.customId.startsWith('appopen_channel_manual_') ||
             interaction.customId.startsWith('appopen_attach_')) {
             await require('./commands/application').handleOpenSelect(interaction);
+            return;
+        }
+
+        // ========== APPLICATION SETUP — "Continue Form Details" button (after notify role modal) ==========
+        if (interaction.customId.startsWith('appsetup_opendetails_')) {
+            await require('./commands/application').handleSetupSelect(interaction);
+            return;
+        }
+
+        // ========== PR TICKET — alliance Yes/No buttons (posted inside the ticket after it opens) ==========
+        if (interaction.customId.startsWith('ticket_pr_alliance_yes_')) {
+            await interaction.update({
+                embeds: [new EmbedBuilder()
+                    .setColor(0x2ECC71)
+                    .setTitle('🤝 Alliance Application')
+                    .setDescription('Great! Please check that your group meets the requirements above.\n\nOnce you\'re ready, a staff member will send you the application form.')
+                ],
+                components: []
+            });
+            return;
+        }
+
+        if (interaction.customId.startsWith('ticket_pr_alliance_no_')) {
+            await interaction.update({
+                embeds: [new EmbedBuilder()
+                    .setColor(0x5865F2)
+                    .setTitle('📋 Public Relations Ticket')
+                    .setDescription('No problem! Someone from our team will be with you shortly.')
+                ],
+                components: []
+            });
             return;
         }
 
@@ -3486,6 +3523,30 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 scheduleTicketReping(ticket, panel, guild);
                 scheduleTicketInactivity(ticket, guild);
                 await interaction.editReply({ content: `✅ Your ticket has been created! <#${ticketChannel.id}>` });
+
+                // ── Public Relations: ask if this is an alliance application ──
+                if (category === 'Public Relations') {
+                    await ticketChannel.send({
+                        embeds: [new EmbedBuilder()
+                            .setColor(0x5865F2)
+                            .setTitle('🤝 Alliance Application?')
+                            .setDescription(
+                                `Hey <@${interaction.user.id}>! Are you opening this ticket to **apply for an alliance** with Kavià Café?\n\n` +
+                                `Please let us know below so we can get you to the right place.`
+                            )
+                        ],
+                        components: [new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`ticket_pr_alliance_yes_${caseId}`)
+                                .setLabel('✅ Yes — Alliance Application')
+                                .setStyle(ButtonStyle.Success),
+                            new ButtonBuilder()
+                                .setCustomId(`ticket_pr_alliance_no_${caseId}`)
+                                .setLabel('❌ No — Other Reason')
+                                .setStyle(ButtonStyle.Secondary)
+                        )]
+                    });
+                }
 
                 // ── Application ticket watch: if this user was sent to ticket, alert staff ──
                 try {

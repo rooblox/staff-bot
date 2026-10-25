@@ -27,9 +27,10 @@ async function channelOptions(client, guildId) {
 }
 
 // ─── In-memory sessions ──────────────────────────────────────────────────────
-const pendingDMs    = new Map(); // userId -> DM application flow
-const pendingSetups = new Map(); // userId -> setup wizard session
-const pendingOpens  = new Map(); // userId -> open wizard session
+const pendingDMs     = new Map(); // userId -> DM application flow
+const pendingSetups  = new Map(); // userId -> setup wizard session
+const pendingOpens   = new Map(); // userId -> open wizard session
+const pendingCloses  = new Map(); // userId -> close wizard session
 
 // ─── Step renderer for setup wizard ─────────────────────────────────────────
 
@@ -277,12 +278,46 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
     return interaction.reply(payload);
 }
 
+// ─── Close wizard step renderer ──────────────────────────────────────────────
+
+async function sendCloseStep(interaction, session, isUpdate = false) {
+    const uid = interaction.user.id;
+    const { AppForm } = require('../db');
+
+    const forms = await AppForm.find({ open: true }).sort({ createdAt: -1 }).limit(25);
+    if (!forms.length) {
+        const msg = { content: '❌ No open forms right now. Nothing to close.', flags: 64 };
+        return isUpdate ? interaction.update(msg) : interaction.reply(msg);
+    }
+
+    const embed = new EmbedBuilder()
+        .setColor(0xE74C3C)
+        .setTitle('Close a Form')
+        .setDescription('Pick the form you want to close. Its Apply button will be removed.');
+
+    const components = [new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId(`appclose_form_${uid}`)
+            .setPlaceholder('Select a form to close…')
+            .addOptions(forms.map(f => ({
+                label: f.name.slice(0, 100),
+                value: String(f._id),
+                description: `${f.department || 'General'} · ${f.questions.length} question${f.questions.length !== 1 ? 's' : ''} · 🟢 Open`
+                    .slice(0, 100)
+            })))
+    )];
+
+    const payload = { embeds: [embed], components, flags: 64 };
+    return isUpdate ? interaction.update(payload) : interaction.reply(payload);
+}
+
 // ─── Module ──────────────────────────────────────────────────────────────────
 
 module.exports = {
     pendingDMs,
     pendingSetups,
     pendingOpens,
+    pendingCloses,
     refreshStatusBoard,
     parseQuestion,
 
@@ -307,7 +342,6 @@ module.exports = {
         .addSubcommand(sub => sub
             .setName('close')
             .setDescription('Close a form and remove its Apply button')
-            .addStringOption(o => o.setName('form_search').setDescription('Part of the form name').setRequired(true).setMaxLength(80))
         )
         .addSubcommand(sub => sub
             .setName('delete')
@@ -361,22 +395,9 @@ module.exports = {
             }
 
             if (sub === 'close') {
-                const q      = interaction.options.getString('form_search').toLowerCase().trim();
-                const forms  = await AppForm.find();
-                const matched = forms.filter(f => f.name.toLowerCase().includes(q));
-                if (!matched.length) return interaction.editReply({ content: `❌ No form found matching "${q}".\n\nAvailable:\n${forms.map(f => `• **${f.name}**`).join('\n') || 'None'}` });
-                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches:\n${matched.map(f => `• **${f.name}**`).join('\n')}` });
-                const form = matched[0];
-                await AppForm.findByIdAndUpdate(form._id, { open: false });
-                if (form.openMessageId && form.openChannelId) {
-                    try {
-                        const ch  = await client.channels.fetch(form.openChannelId);
-                        const msg = await ch.messages.fetch(form.openMessageId);
-                        if (msg.author.id === client.user.id) await msg.edit({ components: [] });
-                    } catch {}
-                }
-                await refreshStatusBoard(client);
-                return interaction.editReply({ content: `✅ **${form.name}** closed. Apply button removed.` });
+                const session = {};
+                pendingCloses.set(interaction.user.id, session);
+                return sendCloseStep(interaction, session, false);
             }
 
             if (sub === 'delete') {
@@ -616,7 +637,7 @@ module.exports = {
             // Can't chain modal→modal — reply with a button to open form details instead
             return interaction.reply({
                 flags: 64,
-                content: `✅ Notify role set to <@&${roleId}>. Click below to continue.`,
+                content: `✅ Notify role saved (\`${roleId}\`). Click below to continue.`,
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
                         .setCustomId(`appsetup_opendetails_${interaction.user.id}`)
@@ -879,6 +900,38 @@ module.exports = {
         } catch (err) {
             console.error('[appopen attach error]', err);
             await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
+        }
+    },
+
+    // ── Close wizard form select ─────────────────────────────────────────────
+    // index.js: if (interaction.customId.startsWith('appclose_form_')) { await require('./commands/application').handleCloseSelect(interaction); return; }
+    async handleCloseSelect(interaction) {
+        try {
+            const uid    = interaction.user.id;
+            const client = interaction.client;
+            if (!interaction.customId.endsWith(uid)) return interaction.reply({ content: '❌ This menu is not for you.', flags: 64 });
+
+            const formId = interaction.values[0];
+            const { AppForm } = require('../db');
+            const form = await AppForm.findById(formId);
+            if (!form) return interaction.update({ content: '❌ Form not found.', embeds: [], components: [] });
+
+            await AppForm.findByIdAndUpdate(form._id, { open: false });
+
+            if (form.openMessageId && form.openChannelId) {
+                try {
+                    const ch  = await client.channels.fetch(form.openChannelId);
+                    const msg = await ch.messages.fetch(form.openMessageId);
+                    if (msg.author.id === client.user.id) await msg.edit({ components: [] });
+                } catch {}
+            }
+
+            await refreshStatusBoard(client);
+            pendingCloses.delete(uid);
+            return interaction.update({ content: `✅ **${form.name}** is now closed. The Apply button has been removed.`, embeds: [], components: [] });
+        } catch (err) {
+            console.error('[appclose select error]', err);
+            await interaction.update({ content: '❌ Something went wrong. Try `/application close` again.', embeds: [], components: [] }).catch(() => {});
         }
     },
 
