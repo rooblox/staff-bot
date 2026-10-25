@@ -429,11 +429,13 @@ async function scheduleSession(session) {
     const finishCheckDelay = fireAt + 25 * 60 * 1000 - now;
 
     if (!session.preSessionReminderSent && reminderDelay > 0) {
-        await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
         setTimeout(async () => {
             try {
                 const latestSession = await Session.findById(session._id);
                 if (!latestSession || latestSession.status !== 'approved') return;
+                // Double-fire guard: if already sent (e.g. another instance beat us) skip
+                if (latestSession.preSessionReminderSent) return;
+                await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
                 const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ses_stillhosting_${session._id}`).setLabel('✅ Yes, I am still hosting').setStyle(ButtonStyle.Success),
@@ -493,7 +495,11 @@ async function postAnnouncement(session) {
         const announcementContent = session.shiftType === 'Training'
             ? `Hello <@&${TRAINING_PING_ROLE_ID}> !\n‼️ Get ready! I'm excited to announce that I'll be hosting a training at ${session.time} alongside my co-host, ${cohostText}!\n📈 If you're an LR aiming for promotion, this is your moment to step up and shine.\nDon't miss your chance!\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`
            : `## 🚀 | Shift Commencement\n\n<@&${SHIFT_PING_ROLE_ID}>\n\n**‼️ | We are excited to announce that a shift is now being hosted at our lovely café!**\n\n💼 | Hosted by: <@${session.hostId}>\n\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Game Link](https://www.roblox.com/games/109860649571330/Kavi-Cafe)`;
-        const msg = await announcementChannel.send({ content: announcementContent });
+        const sessionButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`ses_checkin_${session._id}`).setLabel('✅ Check In').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`ses_requestcohost_${session._id}`).setLabel('🤝 Request Co-Host').setStyle(ButtonStyle.Primary)
+        );
+        const msg = await announcementChannel.send({ content: announcementContent, components: [sessionButtons] });
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, { announcementMessageId: msg.id, announcementChannelId: ANNOUNCEMENT_CHANNEL_ID, sessionStarted: true, status: 'active', autoDeleteAt });
         scheduleAutoDelete(session._id, msg.id, 24 * 60 * 60 * 1000);
@@ -1720,6 +1726,97 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        if (interaction.customId.startsWith('ses_checkin_')) {
+            const sessionId = interaction.customId.replace('ses_checkin_', '');
+            const session = await Session.findById(sessionId);
+            if (!session || session.status !== 'active') return interaction.reply({ content: '❌ This session is no longer active.', flags: 64 });
+            if (session.attendees && session.attendees.includes(interaction.user.id)) return interaction.reply({ content: '✅ You are already checked in!', flags: 64 });
+            await Session.findByIdAndUpdate(sessionId, { $addToSet: { attendees: interaction.user.id } });
+            return interaction.reply({ content: `✅ You've been checked in to **${session.shiftType}**!`, flags: 64 });
+        }
+
+        if (interaction.customId.startsWith('ses_requestcohost_')) {
+            const sessionId = interaction.customId.replace('ses_requestcohost_', '');
+            const session = await Session.findById(sessionId);
+            if (!session || session.status !== 'active') return interaction.reply({ content: '❌ This session is no longer active.', flags: 64 });
+            if (interaction.user.id === session.hostId) return interaction.reply({ content: '❌ You are the host — you cannot request to co-host your own session.', flags: 64 });
+            if (session.coHostId) return interaction.reply({ content: '❌ This session already has a co-host.', flags: 64 });
+            if (session.coHostRequesterId) return interaction.reply({ content: '❌ A co-host request is already pending for this session.', flags: 64 });
+            await Session.findByIdAndUpdate(sessionId, { coHostRequesterId: interaction.user.id });
+            // DM the host with accept/decline buttons
+            try {
+                const host = await client.users.fetch(session.hostId);
+                const coHostRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`ses_cohostaccept_${sessionId}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`ses_cohostdecline_${sessionId}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
+                );
+                await host.send({
+                    embeds: [new EmbedBuilder()
+                        .setTitle('🤝 Co-Host Request')
+                        .setDescription(`**${interaction.user.tag}** (<@${interaction.user.id}>) wants to co-host your **${session.shiftType}** session!\n\nDo you accept?`)
+                        .setColor(0x3498DB)
+                        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+                        .setTimestamp()
+                    ],
+                    components: [coHostRow]
+                });
+                return interaction.reply({ content: `✅ Co-host request sent to the host! You'll receive a DM with the result.`, flags: 64 });
+            } catch {
+                // Host DMs closed — post in request channel instead
+                const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
+                if (requestChannel?.isTextBased()) {
+                    const coHostRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`ses_cohostaccept_${sessionId}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`ses_cohostdecline_${sessionId}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
+                    );
+                    await requestChannel.send({
+                        content: `<@${session.hostId}>`,
+                        embeds: [new EmbedBuilder()
+                            .setTitle('🤝 Co-Host Request')
+                            .setDescription(`**${interaction.user.tag}** (<@${interaction.user.id}>) wants to co-host your **${session.shiftType}**. Accept or decline?`)
+                            .setColor(0x3498DB)
+                            .setTimestamp()
+                        ],
+                        components: [coHostRow]
+                    });
+                }
+                return interaction.reply({ content: `✅ Co-host request sent!`, flags: 64 });
+            }
+        }
+
+        if (interaction.customId.startsWith('ses_cohostaccept_')) {
+            const sessionId = interaction.customId.replace('ses_cohostaccept_', '');
+            const session = await Session.findById(sessionId);
+            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can accept co-host requests.', flags: 64 });
+            if (!session.coHostRequesterId) return interaction.reply({ content: '❌ No pending co-host request.', flags: 64 });
+            await interaction.update({ components: [] });
+            const requesterId = session.coHostRequesterId;
+            await Session.findByIdAndUpdate(sessionId, { coHostId: requesterId, coHostRequesterId: null });
+            // Notify the requester
+            try {
+                const requester = await client.users.fetch(requesterId);
+                await requester.send({ embeds: [new EmbedBuilder().setTitle('✅ Co-Host Request Accepted').setDescription(`Your request to co-host **${session.shiftType}** has been **accepted** by the host! Welcome aboard.`).setColor(0x2ECC71).setTimestamp()] });
+            } catch {}
+            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
+            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('🤝 Co-Host Added').setDescription(`<@${requesterId}> has been accepted as co-host for <@${session.hostId}>'s **${session.shiftType}**.`).setColor(0x2ECC71).setTimestamp()] });
+            return;
+        }
+
+        if (interaction.customId.startsWith('ses_cohostdecline_')) {
+            const sessionId = interaction.customId.replace('ses_cohostdecline_', '');
+            const session = await Session.findById(sessionId);
+            if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can decline co-host requests.', flags: 64 });
+            if (!session.coHostRequesterId) return interaction.reply({ content: '❌ No pending co-host request.', flags: 64 });
+            await interaction.update({ components: [] });
+            const requesterId = session.coHostRequesterId;
+            await Session.findByIdAndUpdate(sessionId, { coHostRequesterId: null });
+            try {
+                const requester = await client.users.fetch(requesterId);
+                await requester.send({ embeds: [new EmbedBuilder().setTitle('❌ Co-Host Request Declined').setDescription(`Your request to co-host **${session.shiftType}** has been **declined** by the host.`).setColor(0xE74C3C).setTimestamp()] });
+            } catch {}
+            return;
+        }
+
         if (interaction.customId.startsWith('ses_finished_')) {
             const sessionId = interaction.customId.replace('ses_finished_', '');
             const session = await Session.findById(sessionId);
@@ -1728,7 +1825,21 @@ if (interaction.customId.startsWith('dmreply_')) {
             await Session.findByIdAndUpdate(sessionId, { status: 'finished' });
             try { const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID); const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID); const msg = await announcementChannel.messages.fetch(session.announcementMessageId).catch(() => null); if (msg) await msg.delete().catch(() => {}); } catch (err) { console.error('Error deleting announcement:', err); }
             const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Session Finished').setDescription(`<@${session.hostId}>'s **${session.shiftType}** has been marked as finished. Great job!`).setColor(0x2ECC71).setTimestamp()] });
+            // Build attendance summary
+            const attendees = session.attendees || [];
+            let attendanceLine = 'No check-ins recorded.';
+            if (attendees.length > 0) {
+                attendanceLine = attendees.map(id => `<@${id}>`).join(', ') + ` (${attendees.length} total)`;
+            }
+            const coHostLine = session.coHostId ? `<@${session.coHostId}>` : 'None';
+            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder()
+                .setTitle('✅ Session Finished')
+                .setDescription(`<@${session.hostId}>'s **${session.shiftType}** has been marked as finished. Great job!`)
+                .addFields(
+                    { name: '🤝 Co-Host', value: coHostLine, inline: true },
+                    { name: `👥 Attendance (${attendees.length})`, value: attendanceLine, inline: false }
+                )
+                .setColor(0x2ECC71).setTimestamp()] });
             return;
         }
 

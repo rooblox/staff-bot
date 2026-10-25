@@ -78,7 +78,9 @@ const sessionSchema = new mongoose.Schema({
     createdAt: Date,
     approvedAt: Date,
     sessionFireAt: Date,
-    autoDeleteAt: Date
+    autoDeleteAt: Date,
+    attendees: { type: [String], default: [] },
+    coHostRequesterId: { type: String, default: null }
 }, { versionKey: false });
 
 const loaSchema = new mongoose.Schema({
@@ -193,6 +195,7 @@ const paymentSchema = new mongoose.Schema({
         note: String
     }]
 }, { versionKey: false });
+
 const checklistSchema = new mongoose.Schema({
     _id: String,
     scope: String,
@@ -204,7 +207,6 @@ const checklistSchema = new mongoose.Schema({
         addedBy: String
     }]
 }, { versionKey: false });
-
 
 const appFormSchema = new mongoose.Schema({
     name: String,
