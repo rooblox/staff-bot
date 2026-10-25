@@ -1465,6 +1465,19 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
                     .addFields({ name: '✅ Approved By', value: `<@${interaction.user.id}>`, inline: true });
                 await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
 
+                // DM the applicant
+                const applicantUser = await client.users.fetch(userId).catch(() => null);
+                if (applicantUser) {
+                    applicantUser.send({
+                        embeds: [new EmbedBuilder()
+                            .setColor(0x57F287)
+                            .setTitle('✅ Alliance Exemption Approved!')
+                            .setDescription(`Hey ${applicantUser.username}! Great news — your exemption request has been **approved** by the Kavià Café team! 🎉\n\nPlease check your ticket for next steps.`)
+                            .setFooter({ text: 'Kavià Café • Alliance System' })
+                        ]
+                    }).catch(() => {}); // DMs may be closed
+                }
+
                 // Post approval message in their PR ticket if we found it
                 if (prTicket?.channelId) {
                     const guild   = interaction.guild ?? await client.guilds.fetch(prTicket.guildId).catch(() => null);
@@ -1477,20 +1490,27 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
                             embeds: [new EmbedBuilder()
                                 .setColor(0x57F287)
                                 .setTitle('✅ Exemption Approved!')
-                                .setDescription(`Hey <@${userId}>! Our team has reviewed your server and **approved your exemption**.\n\nYou may now proceed with the alliance application below.`)
+                                .setDescription(
+                                    `Hey <@${userId}>! Our team has reviewed your server and **approved your exemption**! 🎉\n\n` +
+                                    `You're all cleared to fill out the full alliance application below. Let us know if you have any questions!`
+                                )
                                 .setFooter({ text: 'Kavià Café • Alliance System' })
                             ],
-                            components: form ? [new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
+                            components: [new ActionRowBuilder().addComponents(
+                                ...(form ? [new ButtonBuilder()
                                     .setCustomId(`app_apply_${String(form._id)}`)
                                     .setLabel('Apply Now 📝')
-                                    .setStyle(ButtonStyle.Primary)
-                            )] : []
+                                    .setStyle(ButtonStyle.Primary)] : []),
+                                new ButtonBuilder()
+                                    .setCustomId(`ticket_closerequest_${prTicket.caseId}`)
+                                    .setLabel('🔒 Close Ticket')
+                                    .setStyle(ButtonStyle.Secondary)
+                            )]
                         });
                     }
                 }
 
-                await interaction.editReply({ content: `✅ Exemption approved. ${prTicket?.channelId ? `Posted the Apply Now button in <#${prTicket.channelId}>.` : `Couldn't find an open PR ticket to post in — notify the applicant manually.`}` });
+                await interaction.editReply({ content: `✅ Exemption approved. ${prTicket?.channelId ? `Posted next steps in <#${prTicket.channelId}>.` : `Couldn't find an open PR ticket to post in — notify the applicant manually.`}` });
             } catch (err) {
                 console.error('[exempt_approve error]', err);
                 await interaction.editReply({ content: '❌ Something went wrong processing the approval.' }).catch(() => {});
@@ -1525,18 +1545,48 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
                     .addFields({ name: '❌ Declined By', value: `<@${interaction.user.id}>`, inline: true });
                 await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
 
+                // DM the applicant
+                const applicantUser = await client.users.fetch(userId).catch(() => null);
+                if (applicantUser) {
+                    applicantUser.send({
+                        embeds: [new EmbedBuilder()
+                            .setColor(0xED4245)
+                            .setTitle('❌ Alliance Exemption Declined')
+                            .setDescription(`Hey ${applicantUser.username}, unfortunately your exemption request has been **declined** by the Kavià Café team at this time.\n\nPlease check your ticket for more details.`)
+                            .setFooter({ text: 'Kavià Café • Alliance System' })
+                        ]
+                    }).catch(() => {}); // DMs may be closed
+                }
+
                 // Post decline message in their PR ticket if found
                 if (prTicket?.channelId) {
                     const guild   = interaction.guild ?? await client.guilds.fetch(prTicket.guildId).catch(() => null);
                     const channel = guild ? await guild.channels.fetch(prTicket.channelId).catch(() => null) : null;
                     if (channel?.isTextBased()) {
+                        // Check if the alliance form exists so we can offer retake
+                        const { AppForm } = require('./db');
+                        const form = await AppForm.findOne({ name: /kavià cafe alliance requests/i }).catch(() => null);
                         await channel.send({
                             embeds: [new EmbedBuilder()
                                 .setColor(0xED4245)
                                 .setTitle('❌ Exemption Declined')
-                                .setDescription(`Hey <@${userId}>, unfortunately our team has **declined your exemption request** at this time.\n\nIf you have any questions, please let us know here in this ticket.`)
+                                .setDescription(
+                                    `Hey <@${userId}>, unfortunately our team has **declined your exemption request** at this time.\n\n` +
+                                    `If you believe your group now meets the standard requirements (**200 Discord members, 150 Roblox members, active announcements**), you're welcome to submit the full application.\n\n` +
+                                    `If you have any questions, feel free to ask here before closing!`
+                                )
                                 .setFooter({ text: 'Kavià Café • Alliance System' })
-                            ]
+                            ],
+                            components: [new ActionRowBuilder().addComponents(
+                                ...(form ? [new ButtonBuilder()
+                                    .setCustomId(`app_apply_${String(form._id)}`)
+                                    .setLabel('📝 Retake Application')
+                                    .setStyle(ButtonStyle.Primary)] : []),
+                                new ButtonBuilder()
+                                    .setCustomId(`ticket_closerequest_${prTicket.caseId}`)
+                                    .setLabel('✅ I Understand, Close Ticket')
+                                    .setStyle(ButtonStyle.Secondary)
+                            )]
                         });
                     }
                 }
