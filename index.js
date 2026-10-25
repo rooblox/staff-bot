@@ -2672,7 +2672,8 @@ if (interaction.customId.startsWith('dmreply_')) {
                 });
 
                 return interaction.reply({ content: '📬 Check your DMs! I\'ve sent you the application questions.', flags: 64 });
-            } catch {
+            } catch (err) {
+                console.error('[app_apply DM error]', err);
                 return interaction.reply({ content: '❌ I couldn\'t DM you. Please enable DMs from server members and try again.', flags: 64 });
             }
         }
