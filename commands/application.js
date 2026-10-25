@@ -313,13 +313,6 @@ module.exports = {
             const sub    = interaction.options.getSubcommand();
             const client = interaction.client;
 
-            // Defer upfront for all subcommands that do async DB work,
-            // so we never miss Discord's 3-second interaction window.
-            const deferredSubs = ['list', 'close', 'delete', 'statusboard'];
-            if (deferredSubs.includes(sub)) {
-                await interaction.deferReply({ flags: 64 }); // 64 = ephemeral
-            }
-
             const { AppForm } = require('../db');
 
             if (sub === 'setup') {

@@ -268,6 +268,10 @@ module.exports = {
                     .setLabel('Enter Giveaway 🎉')
                     .setStyle(ButtonStyle.Success),
                 new ButtonBuilder()
+                    .setCustomId(`giveaway_leave_${giveawayId}`)
+                    .setLabel('Leave Giveaway')
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
                     .setCustomId(`giveaway_end_${giveawayId}`)
                     .setLabel('End Early')
                     .setStyle(ButtonStyle.Danger)

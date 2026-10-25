@@ -1033,6 +1033,18 @@ client.on('interactionCreate', async interaction => {
         const command = client.commands.get(interaction.commandName);
         if (!command) return;
         try {
+            // Pre-emptively defer for slash commands that do DB work,
+            // so Discord's 3-second window is met before any async work starts.
+            // Commands that reply/update themselves (setup, open) are excluded.
+            const DEFER_COMMANDS = {
+                application: ['list', 'close', 'delete', 'statusboard'],
+                giveaway: ['reroll'],
+            };
+            const sub = interaction.isChatInputCommand() ? interaction.options.getSubcommand(false) : null;
+            const deferSubs = DEFER_COMMANDS[interaction.commandName];
+            if (deferSubs && sub && deferSubs.includes(sub) && !interaction.deferred && !interaction.replied) {
+                await interaction.deferReply({ flags: 64 });
+            }
             await command.execute(interaction, client);
         } catch (error) {
             console.error(`❌ Command error [/${interaction.commandName}]`, error);
@@ -2784,6 +2796,23 @@ if (interaction.customId.startsWith('dmreply_')) {
                 ? ` Send **${gw.config.requiredMessages} message${gw.config.requiredMessages !== 1 ? 's' : ''}** in <#${gw.config.channelId}> to qualify for the draw.`
                 : ' Good luck!';
             return interaction.reply({ content: `🎉 You've entered the giveaway!${msgReq}`, ephemeral: true });
+        }
+
+        if (interaction.customId.startsWith('giveaway_leave_')) {
+            const gwId = interaction.customId.replace('giveaway_leave_', '');
+            const { activeGiveaways } = require('./commands/giveaway');
+            const gw = activeGiveaways.get(gwId);
+            if (!gw || gw.ended) return interaction.reply({ content: '❌ This giveaway has ended.', ephemeral: true });
+            if (!gw.participants.has(interaction.user.id)) return interaction.reply({ content: "❌ You're not entered in this giveaway.", ephemeral: true });
+            gw.participants.delete(interaction.user.id);
+            try {
+                const { Giveaway } = require('./db');
+                await Giveaway.findOneAndUpdate(
+                    { giveawayId: gwId },
+                    { $pull: { participants: { userId: interaction.user.id } } }
+                );
+            } catch (err) { console.error('[giveaway] DB leave error:', err); }
+            return interaction.reply({ content: '👋 You\'ve left the giveaway.', ephemeral: true });
         }
 
         if (interaction.customId.startsWith('giveaway_end_')) {
