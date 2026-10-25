@@ -196,8 +196,6 @@ function parseQuestion(raw) {
     return { type: 'text', display: raw, choices: [] };
 }
 
-module.exports.parseQuestion = parseQuestion;
-
 // ─── Open wizard step renderer ───────────────────────────────────────────────
 
 async function sendOpenStep(interaction, session, isUpdate = false) {
@@ -274,6 +272,7 @@ module.exports = {
     pendingSetups,
     pendingOpens,
     refreshStatusBoard,
+    parseQuestion,
 
     data: new SlashCommandBuilder()
         .setName('application')
