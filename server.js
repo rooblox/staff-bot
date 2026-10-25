@@ -184,7 +184,9 @@ function createServer(client) {
             const allowedTo = ALLOWED_PROMOTIONS[parseInt(fromRoleId)];
             if (!allowedTo || allowedTo !== parseInt(toRoleId)) {
                 console.warn(`[/staff-promote] Not allowed: ${fromRoleId} → ${toRoleId}`);
-                return res.status(200).json({ success: false, error: 'not_allowed' });
+                res.status(200).json({ success: false, error: 'not_allowed' });
+                await postPromoteLog(client, { userId, username, displayName, fromRank, toRank, xp, outcome: `⛔ Invalid promotion pair — fromRoleId \`${fromRoleId}\` → toRoleId \`${toRoleId}\` is not in ALLOWED_PROMOTIONS. **Manual rank may be needed.**`, color: 0xE74C3C });
+                return;
             }
 
             // Verify current group rank matches fromRoleId before ranking
@@ -194,7 +196,9 @@ function createServer(client) {
                 currentRole = await getUserRankInGroup(GROUP_ID, userId);
             } catch (err) {
                 console.error(`[/staff-promote] getUserRankInGroup failed for ${userId}:`, err);
-                return res.status(200).json({ success: false, error: 'rank_check_failed' });
+                res.status(200).json({ success: false, error: 'rank_check_failed' });
+                await postPromoteLog(client, { userId, username, displayName, fromRank, toRank, xp, outcome: `⚠️ Roblox API error during rank check — player will retry. If this keeps appearing, **rank manually.**`, color: 0xE67E22 });
+                return;
             }
 
             if (!currentRole) {
