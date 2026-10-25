@@ -310,9 +310,17 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            const { AppForm } = require('../db');
             const sub    = interaction.options.getSubcommand();
             const client = interaction.client;
+
+            // Defer upfront for all subcommands that do async DB work,
+            // so we never miss Discord's 3-second interaction window.
+            const deferredSubs = ['list', 'close', 'delete', 'statusboard'];
+            if (deferredSubs.includes(sub)) {
+                await interaction.deferReply({ flags: 64 }); // 64 = ephemeral
+            }
+
+            const { AppForm } = require('../db');
 
             if (sub === 'setup') {
                 const session = {
@@ -328,14 +336,14 @@ module.exports = {
 
             if (sub === 'list') {
                 const forms = await AppForm.find().sort({ createdAt: -1 }).limit(20);
-                if (!forms.length) return interaction.reply({ content: '❌ No application forms yet. Use `/application setup` to create one.', ephemeral: true });
+                if (!forms.length) return interaction.editReply({ content: '❌ No application forms yet. Use `/application setup` to create one.' });
                 const embed = new EmbedBuilder()
                     .setTitle('📋 Application Forms')
                     .setColor(0x5865f2)
                     .setDescription(forms.map(f =>
                         `**${f.name}**\n${f.questions.length} questions · Log: #${f.logChannelName} in ${f.logServerName} · ${f.open ? '🟢 Open' : '🔴 Closed'}`
                     ).join('\n\n'));
-                return interaction.reply({ embeds: [embed], ephemeral: true });
+                return interaction.editReply({ embeds: [embed] });
             }
 
             if (sub === 'open') {
@@ -345,7 +353,6 @@ module.exports = {
             }
 
             if (sub === 'close') {
-                await interaction.deferReply({ ephemeral: true });
                 const q      = interaction.options.getString('form_search').toLowerCase().trim();
                 const forms  = await AppForm.find();
                 const matched = forms.filter(f => f.name.toLowerCase().includes(q));
@@ -365,7 +372,6 @@ module.exports = {
             }
 
             if (sub === 'delete') {
-                await interaction.deferReply({ ephemeral: true });
                 const q      = interaction.options.getString('form_search').toLowerCase().trim();
                 const forms  = await AppForm.find();
                 const matched = forms.filter(f => f.name.toLowerCase().includes(q));
@@ -378,7 +384,6 @@ module.exports = {
 
             if (sub === 'statusboard') {
                 const { AppStatusBoard } = require('../db');
-                await interaction.deferReply({ ephemeral: true });
 
                 // Post a placeholder, then immediately fill it via refreshStatusBoard
                 // so there is only ONE place that builds the embed/buttons
