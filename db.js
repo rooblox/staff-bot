@@ -225,7 +225,8 @@ const appFormSchema = new mongoose.Schema({
     createdAt: Date,
     open: { type: Boolean, default: false },
     openMessageId: String,
-    openChannelId: String
+    openChannelId: String,
+    notifyRoleId: String
 }, { versionKey: false });
 
 // Tracks the pinned status board message(s) that auto-update on open/close
@@ -252,6 +253,19 @@ const appSubmissionSchema = new mongoose.Schema({
     logMessageId: String,
     logChannelId: String,
     submittedAt: Date
+}, { versionKey: false });
+
+// Watches for a ticket opened by an applicant who was sent to ticket flow
+const appTicketWatchSchema = new mongoose.Schema({
+    userId:        String,   // applicant's Discord user ID
+    submissionId:  String,   // AppSubmission _id (string)
+    formId:        String,
+    formName:      String,
+    logChannelId:  String,   // where to post the update
+    logMessageId:  String,   // the original submission log message ID (for jump link)
+    staffId:       String,   // who clicked "Send to Ticket"
+    expiresAt:     Date,     // now + 48h
+    triggered:     { type: Boolean, default: false }  // true once a ticket is linked
 }, { versionKey: false });
 
 const giveawaySchema = new mongoose.Schema({
@@ -322,6 +336,7 @@ const MessageLog = mongoose.model('MessageLog', messageLogSchema);
 const AppForm = mongoose.model('AppForm', appFormSchema);
 const AppSubmission = mongoose.model('AppSubmission', appSubmissionSchema);
 const AppStatusBoard = mongoose.model('AppStatusBoard', appStatusBoardSchema);
+const AppTicketWatch = mongoose.model('AppTicketWatch', appTicketWatchSchema);
 const Giveaway = mongoose.model('Giveaway', giveawaySchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, Giveaway };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway };

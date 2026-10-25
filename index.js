@@ -1095,6 +1095,12 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ========== APPLICATION SEND — form picker dropdown ==========
+        if (interaction.customId.startsWith('appsend_pick_')) {
+            await require('./commands/application').handleSendPick(interaction);
+            return;
+        }
+
         if (interaction.customId.startsWith('loa_selectdept_')) {
             const logChannelId = interaction.customId.replace('loa_selectdept_', '');
             const department = interaction.values[0];
@@ -1241,7 +1247,9 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
 
         // ========== APPLICATION SETUP — manual channel ID buttons ==========
         if (interaction.customId.startsWith('appsetup_logchannel_manual_') ||
-            interaction.customId.startsWith('appsetup_ticketchannel_manual_')) {
+            interaction.customId.startsWith('appsetup_ticketchannel_manual_') ||
+            interaction.customId.startsWith('appsetup_notifyrole_manual_') ||
+            interaction.customId.startsWith('appsetup_notifyrole_skip_')) {
             await require('./commands/application').handleSetupSelect(interaction);
             return;
         }
@@ -2603,7 +2611,11 @@ if (interaction.customId.startsWith('dmreply_')) {
                             new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Send to Ticket').setStyle(ButtonStyle.Primary),
                             new ButtonBuilder().setCustomId(`app_decline_${submission._id}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
                         );
-                        await logChannel.send({ embeds: [logEmbed], components: [logRow] });
+                        const logMsg = await logChannel.send({ embeds: [logEmbed], components: [logRow] });
+                        await AppSubmission.findByIdAndUpdate(submission._id, { logMessageId: logMsg.id, logChannelId: form.logChannelId });
+                        // Ping notify role
+                        const notifyRoleId = form.notifyRoleId || '1480839573390233702';
+                        await logChannel.send({ content: `<@&${notifyRoleId}> — new application from <@${interaction.user.id}>` }).catch(() => {});
                     }
                 } catch (err) {
                     console.error('[app DM button submit error]', err);
@@ -2615,15 +2627,18 @@ if (interaction.customId.startsWith('dmreply_')) {
 
         // ========== APPLICATION BUTTONS ==========
         if (interaction.customId.startsWith('app_apply_')) {
+            // Defer immediately — DB queries below would exceed the 3-second window
+            await interaction.deferReply({ flags: 64 });
+
             const formId = interaction.customId.replace('app_apply_', '');
             const { AppForm, AppSubmission } = require('./db');
             const form = await AppForm.findById(formId).catch(() => null);
-            if (!form) return interaction.reply({ content: '❌ This application form no longer exists.', flags: 64 });
-            if (!form.open) return interaction.reply({ content: '❌ Applications are currently closed.', flags: 64 });
+            if (!form) return interaction.editReply({ content: '❌ This application form no longer exists.' });
+            if (!form.open) return interaction.editReply({ content: '❌ Applications are currently closed.' });
 
             // Check if already pending
             const existing = await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'pending' });
-            if (existing) return interaction.reply({ content: '⏳ You already have a pending application for this form.', flags: 64 });
+            if (existing) return interaction.editReply({ content: '⏳ You already have a pending application for this form.' });
 
             const { pendingDMs } = require('./commands/application');
             const isResubmit = !!(await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'declined' }));
@@ -2671,10 +2686,11 @@ if (interaction.customId.startsWith('dmreply_')) {
                     questions: form.questions
                 });
 
-                return interaction.reply({ content: '📬 Check your DMs! I\'ve sent you the application questions.', flags: 64 });
+                return interaction.editReply({ content: '📬 Check your DMs! I\'ve sent you the application questions.' });
             } catch (err) {
+                if (err.code === 40060) return; // already replied (shouldn't happen now, but just in case)
                 console.error('[app_apply DM error]', err);
-                return interaction.reply({ content: '❌ I couldn\'t DM you. Please enable DMs from server members and try again.', flags: 64 });
+                return interaction.editReply({ content: '❌ I couldn\'t DM you. Please enable DMs from server members and try again.' }).catch(() => {});
             }
         }
 
@@ -2710,7 +2726,7 @@ if (interaction.customId.startsWith('dmreply_')) {
 
         if (interaction.customId.startsWith('app_ticket_')) {
             const subId = interaction.customId.replace('app_ticket_', '');
-            const { AppSubmission, AppForm } = require('./db');
+            const { AppSubmission, AppForm, AppTicketWatch } = require('./db');
             const sub = await AppSubmission.findById(subId);
             if (!sub) return interaction.reply({ content: '❌ Submission not found.', flags: 64 });
 
@@ -2733,7 +2749,23 @@ if (interaction.customId.startsWith('dmreply_')) {
                 }).catch(() => {});
             }
 
-            await interaction.reply({ content: `✅ Applicant has been directed to open a ticket in **${form.ticketServerName}** → #${form.ticketChannelName}.`, flags: 64 });
+            // Update submission status to reflect ticket was requested
+            await AppSubmission.findByIdAndUpdate(subId, { status: 'ticket_sent' }).catch(() => {});
+
+            // Save a 48-hour watch so we can detect if they open a ticket
+            await AppTicketWatch.create({
+                userId:       sub.userId,
+                submissionId: String(sub._id),
+                formId:       sub.formId,
+                formName:     sub.formName,
+                logChannelId: sub.logChannelId || form.logChannelId,
+                logMessageId: sub.logMessageId || null,
+                staffId:      interaction.user.id,
+                expiresAt:    new Date(Date.now() + 48 * 60 * 60 * 1000),
+                triggered:    false
+            }).catch(() => {});
+
+            await interaction.reply({ content: `✅ Applicant has been directed to open a ticket in **${form.ticketServerName}** → #${form.ticketChannelName}.\n📋 I'll watch for their ticket over the next **48 hours** and let you know when they open one.`, flags: 64 });
         }
 
         if (interaction.customId.startsWith('app_remind_')) {
@@ -2757,6 +2789,52 @@ if (interaction.customId.startsWith('dmreply_')) {
             }, 60 * 60 * 1000); // 1 hour
 
             return interaction.reply({ content: '🔔 I\'ll remind you about this application in **1 hour**.', flags: 64 });
+        }
+
+        // ========== APPLICATION WATCH — ticket link confirm ==========
+        if (interaction.customId.startsWith('appwatch_yes_') || interaction.customId.startsWith('appwatch_no_')) {
+            const isYes   = interaction.customId.startsWith('appwatch_yes_');
+            const watchId = interaction.customId.replace(isYes ? 'appwatch_yes_' : 'appwatch_no_', '');
+            const { AppTicketWatch, AppSubmission } = require('./db');
+            const watch = await AppTicketWatch.findById(watchId).catch(() => null);
+
+            if (!watch) return interaction.update({ content: '❌ Watch record not found or already handled.', components: [], embeds: [] });
+
+            if (isYes) {
+                // Post in the submission log channel that the ticket was opened
+                try {
+                    const logCh = await client.channels.fetch(watch.logChannelId).catch(() => null);
+                    if (logCh) {
+                        // Build jump link to this ticket channel
+                        const ticketJumpUrl = `https://discord.com/channels/${interaction.guildId}/${interaction.channelId}`;
+                        const updateEmbed = new EmbedBuilder()
+                            .setTitle('🎫 Ticket Opened')
+                            .setDescription(`<@${watch.userId}> has opened a ticket for their **${watch.formName}** application.\n\n[**Click to go to their ticket**](${ticketJumpUrl})`)
+                            .setColor(0x57f287)
+                            .setTimestamp();
+
+                        if (watch.logMessageId) {
+                            // Reply to the original submission log message
+                            const logMsg = await logCh.messages.fetch(watch.logMessageId).catch(() => null);
+                            if (logMsg) await logMsg.reply({ embeds: [updateEmbed] }).catch(() => logCh.send({ embeds: [updateEmbed] }));
+                            else await logCh.send({ embeds: [updateEmbed] });
+                        } else {
+                            await logCh.send({ embeds: [updateEmbed] });
+                        }
+                    }
+                    await AppSubmission.findByIdAndUpdate(watch.submissionId, { status: 'ticket_opened' }).catch(() => {});
+                } catch (err) { console.error('[appwatch yes]', err); }
+
+                await interaction.update({ content: `✅ Noted — the submission log has been updated with a link to this ticket.`, components: [], embeds: [] });
+            } else {
+                // No — unrelated ticket, untrigger so it can still match a future ticket
+                await AppTicketWatch.findByIdAndUpdate(watchId, { triggered: false }).catch(() => {});
+                return interaction.update({ content: `Got it — marked as unrelated. Still watching for their application ticket.`, components: [], embeds: [] });
+            }
+
+            // Only reached on Yes — clean up the watch
+            await AppTicketWatch.findByIdAndDelete(watchId).catch(() => {});
+            return;
         }
 
         if (interaction.customId.startsWith('app_decline_')) {
@@ -3191,6 +3269,35 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 scheduleTicketInactivity(ticket, guild);
                 await interaction.editReply({ content: `✅ Your ticket has been created! <#${ticketChannel.id}>` });
 
+                // ── Application ticket watch: if this user was sent to ticket, alert staff ──
+                try {
+                    const { AppTicketWatch } = require('./db');
+                    const watch = await AppTicketWatch.findOne({ userId: interaction.user.id, triggered: false, expiresAt: { $gt: new Date() } });
+                    if (watch) {
+                        await AppTicketWatch.findByIdAndUpdate(watch._id, { triggered: true });
+                        // Post in the ticket channel asking staff to confirm
+                        const confirmRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`appwatch_yes_${watch._id}`)
+                                .setLabel('✅ Yes — this ticket is about their application')
+                                .setStyle(ButtonStyle.Success),
+                            new ButtonBuilder()
+                                .setCustomId(`appwatch_no_${watch._id}`)
+                                .setLabel('❌ No — unrelated ticket')
+                                .setStyle(ButtonStyle.Danger)
+                        );
+                        await ticketChannel.send({
+                            content: `<@${watch.staffId}>`,
+                            embeds: [new EmbedBuilder()
+                                .setTitle('📋 Application Ticket?')
+                                .setDescription(`<@${interaction.user.id}> applied for **${watch.formName}** and was sent to open a ticket.\n\nIs this ticket about that application?`)
+                                .setColor(0xf1c40f)
+                                .setTimestamp()],
+                            components: [confirmRow]
+                        });
+                    }
+                } catch (watchErr) { console.error('[appwatch] Error checking ticket watch:', watchErr); }
+
             } catch (err) { console.error('Error creating ticket:', err); try { await interaction.editReply({ content: '❌ Error creating ticket.' }); } catch {} }
             return;
         }
@@ -3561,6 +3668,12 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
+        // ========== APPLICATION SETUP — notify role ID modal ==========
+        if (interaction.customId.startsWith('appsetup_notifyrole_id_')) {
+            await require('./commands/application').handleNotifyRoleModal(interaction);
+            return;
+        }
+
         // ========== APPLICATION OPEN — manual channel ID modal ==========
         if (interaction.customId.startsWith('appopen_manualch_')) {
             await require('./commands/application').handleOpenManualChannel(interaction);
@@ -3820,6 +3933,9 @@ client.on('messageCreate', async message => {
 
                         const logMsg = await logChannel.send({ embeds: [logEmbed], components: [row] });
                         await AppSubmission.findByIdAndUpdate(submission._id, { logMessageId: logMsg.id, logChannelId: form.logChannelId });
+                        // Ping notify role
+                        const notifyRoleId = form.notifyRoleId || '1480839573390233702';
+                        await logChannel.send({ content: `<@&${notifyRoleId}> — new application from <@${message.author.id}>` }).catch(() => {});
                     }
 
                     await message.reply({
@@ -3973,6 +4089,48 @@ client.once('ready', async () => {
     // Restore giveaways (re-schedule timers, end any that expired during downtime)
     const { restoreGiveaways } = require('./commands/giveaway');
     await restoreGiveaways(client);
+
+    // ========== APP TICKET WATCH — 48h expiry check ==========
+    // Runs every 30 minutes; alerts staff if an applicant never opened a ticket
+    async function checkExpiredTicketWatches() {
+        try {
+            const { AppTicketWatch } = require('./db');
+            const expired = await AppTicketWatch.find({
+                triggered: false,
+                expiresAt: { $lt: new Date() }
+            });
+            for (const watch of expired) {
+                try {
+                    const logCh = await client.channels.fetch(watch.logChannelId).catch(() => null);
+                    if (logCh) {
+                        const alertEmbed = new EmbedBuilder()
+                            .setTitle('⚠️ Application Ticket — No Ticket Opened')
+                            .setDescription(
+                                `<@${watch.userId}> was sent to open a ticket for their **${watch.formName}** application **48 hours ago** but never opened one.\n\n` +
+                                `**Recommendation:** Consider declining this application.\n\n` +
+                                `Sent to ticket by: <@${watch.staffId}>`
+                            )
+                            .setColor(0xe74c3c)
+                            .setTimestamp();
+
+                        if (watch.logMessageId) {
+                            const logMsg = await logCh.messages.fetch(watch.logMessageId).catch(() => null);
+                            if (logMsg) await logMsg.reply({ embeds: [alertEmbed] }).catch(() => logCh.send({ embeds: [alertEmbed] }));
+                            else await logCh.send({ embeds: [alertEmbed] });
+                        } else {
+                            await logCh.send({ embeds: [alertEmbed] });
+                        }
+                    }
+                } catch (err) { console.error('[appwatch expiry] Error alerting for watch', watch._id, err); }
+                // Delete the watch so it doesn't fire again
+                await AppTicketWatch.findByIdAndDelete(watch._id).catch(() => {});
+            }
+            if (expired.length > 0) console.log(`[appwatch] Processed ${expired.length} expired ticket watch(es).`);
+        } catch (err) { console.error('[appwatch expiry check]', err); }
+    }
+    // Run immediately on startup, then every 30 minutes
+    checkExpiredTicketWatches();
+    setInterval(checkExpiredTicketWatches, 30 * 60 * 1000);
 });
 
 

@@ -87,7 +87,7 @@ async function sendSetupStep(interaction, session, isUpdate = false) {
 
     } else if (session.step === 'ticket_channel') {
         const opts = await channelOptions(client, session.ticketServerId);
-        embed = stepEmbed('Step 4 of 4 — Ticket Channel',
+        embed = stepEmbed('Step 4 of 5 — Ticket Channel',
             `Which channel in **${session.ticketServerName}** should applicants open tickets in?\n${opts.length < 2 ? '\n⚠️ Few channels visible — use the button below to enter a channel ID manually.' : ''}`);
         components = [];
         if (opts.length) {
@@ -101,6 +101,17 @@ async function sendSetupStep(interaction, session, isUpdate = false) {
         components.push(new ActionRowBuilder().addComponents(
             manualIdButton(`appsetup_ticketchannel_manual_${uid}`, '📋 Enter channel ID manually')
         ));
+
+    } else if (session.step === 'notify_role') {
+        embed = stepEmbed('Step 5 of 5 — Notify Role',
+            `Log: **#${session.logChannelName}** ✅  Tickets: **#${session.ticketChannelName}** ✅\n\nWhich role should be pinged when a new application comes in?\n\nPing the role in chat (e.g. \`@HR Team\`) **or** paste a role ID, then click **Enter Role ID** below.\nClick **Skip (use default)** to use the server's default notification role.`);
+        components = [new ActionRowBuilder().addComponents(
+            manualIdButton(`appsetup_notifyrole_manual_${uid}`, '📋 Enter Role ID'),
+            new ButtonBuilder()
+                .setCustomId(`appsetup_notifyrole_skip_${uid}`)
+                .setLabel('⏭️ Skip (use default)')
+                .setStyle(ButtonStyle.Secondary)
+        )];
     }
 
     const payload = { embeds: [embed], components, flags: 64 };
@@ -173,8 +184,9 @@ function questionsModal(name, round = 1, customId = 'app_setup_questions_1') {
                 .setMaxLength(200)
                 .setPlaceholder(
                     num === 1 ? 'e.g. What is your Roblox username?' :
-                    num === 2 ? '[SCALE] How active are you? OR [CHOICE: Yes|No|Maybe]' :
-                    num === 3 ? 'Tip: use [SCALE] for 1-10 or [CHOICE: A|B|C] for buttons' : ''
+                    num === 2 ? '[SCALE] How would you rate your experience? (1–10)' :
+                    num === 3 ? '[CHOICE: Yes|No|Maybe] Are you 13 or older?' :
+                    num === 4 ? 'Prefix [SCALE] for 1–10 slider, [CHOICE: A|B|C] for buttons' : ''
                 )
         ));
     }
@@ -305,6 +317,10 @@ module.exports = {
         .addSubcommand(sub => sub
             .setName('statusboard')
             .setDescription('Post a live status board that auto-updates when forms open or close')
+        )
+        .addSubcommand(sub => sub
+            .setName('send')
+            .setDescription('Send an application link directly into this channel (e.g. inside a ticket)')
         ),
 
     async execute(interaction) {
@@ -394,6 +410,31 @@ module.exports = {
                 return interaction.editReply({ content: `✅ Status board posted! It will automatically update whenever forms are opened or closed.` });
             }
 
+            if (sub === 'send') {
+                // Show staff a dropdown of all forms — they pick one and the bot posts
+                // a one-time Apply button directly in this channel (e.g. inside a ticket)
+                const forms = await AppForm.find().sort({ createdAt: -1 }).limit(25);
+                if (!forms.length) return interaction.editReply({ content: '❌ No application forms exist yet. Use `/application setup` to create one first.' });
+
+                const options = forms.map(f => ({
+                    label: f.name.slice(0, 100),
+                    description: `${f.open ? '🟢 Open' : '🔴 Closed'} · ${f.questions.length} question${f.questions.length !== 1 ? 's' : ''}`,
+                    value: String(f._id)
+                }));
+
+                const selectRow = new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(`appsend_pick_${interaction.user.id}`)
+                        .setPlaceholder('Which application do you want to send here?')
+                        .addOptions(options)
+                );
+
+                return interaction.editReply({
+                    content: '📋 Pick the application you want to drop into this channel:',
+                    components: [selectRow]
+                });
+            }
+
         } catch (err) {
             console.error('[application execute error]', err);
             const msg = { content: '❌ Something went wrong. Check the bot logs.', flags: 64 };
@@ -418,6 +459,29 @@ module.exports = {
                 // "Add Questions" button shown after form details modal
                 if (id === `appsetup_startquestions_${uid}`) {
                     return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
+                }
+
+                // Notify role: enter role ID manually
+                if (id === `appsetup_notifyrole_manual_${uid}`) {
+                    const modal = new ModalBuilder()
+                        .setCustomId(`appsetup_notifyrole_id_${uid}`)
+                        .setTitle('Notify Role ID');
+                    modal.addComponents(new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('role_id')
+                            .setLabel('Paste the role ID (or leave blank for default)')
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(false)
+                            .setMinLength(0).setMaxLength(20)
+                            .setPlaceholder('e.g. 1480839573390233702')
+                    ));
+                    return interaction.showModal(modal);
+                }
+
+                // Notify role: skip — use default
+                if (id === `appsetup_notifyrole_skip_${uid}`) {
+                    session.notifyRoleId = '1480839573390233702';
+                    return interaction.showModal(formDetailsModal(session.name));
                 }
 
                 let step, field;
@@ -470,6 +534,13 @@ module.exports = {
                 const ch    = guild ? guild.channels.cache.get(value) : null;
                 session.ticketChannelId   = value;
                 session.ticketChannelName = ch ? ch.name : value;
+                session.step = 'notify_role';
+                return sendSetupStep(interaction, session, true);
+            }
+
+            // Notify role: skip button sets default role ID and moves to details
+            if (id === `appsetup_notifyrole_skip_${uid}`) {
+                session.notifyRoleId = '1480839573390233702';
                 return interaction.showModal(formDetailsModal(session.name));
             }
 
@@ -509,8 +580,9 @@ module.exports = {
             }
 
             if (field === 'ticket') {
-                // Done — show form details modal (name + description) before questions
-                return interaction.showModal(formDetailsModal(session.name));
+                // Move to notify_role step
+                session.step = 'notify_role';
+                return sendSetupStep(interaction, session, false);
             }
 
             // Continue to next step
@@ -518,6 +590,26 @@ module.exports = {
 
         } catch (err) {
             console.error('[appsetup manualch error]', err);
+            await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', flags: 64 }).catch(() => {});
+        }
+    },
+
+    // ── Notify role ID modal submit ──────────────────────────────────────────────
+    // index.js: if (interaction.customId.startsWith('appsetup_notifyrole_id_')) { await require('./commands/application').handleNotifyRoleModal(interaction); return; }
+    async handleNotifyRoleModal(interaction) {
+        try {
+            const uid     = interaction.user.id;
+            const session = pendingSetups.get(uid);
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application setup` again.', flags: 64 });
+
+            const raw    = interaction.fields.getTextInputValue('role_id').trim();
+            // Accept a role mention like <@&12345> or a raw ID
+            const roleId = raw.replace(/[^0-9]/g, '') || '1480839573390233702';
+            session.notifyRoleId = roleId;
+
+            return interaction.showModal(formDetailsModal(session.name));
+        } catch (err) {
+            console.error('[appsetup notifyrole modal error]', err);
             await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', flags: 64 }).catch(() => {});
         }
     },
@@ -772,6 +864,45 @@ module.exports = {
             console.error('[appopen attach error]', err);
             await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
         }
+    },
+
+    // ── /application send — drop an Apply button directly into this channel ──
+    // index.js: if (interaction.customId.startsWith('appsend_pick_')) { await require('./commands/application').handleSendPick(interaction); return; }
+    async handleSendPick(interaction) {
+        try {
+            const uid    = interaction.user.id;
+            // Only the person who ran the command can use the select
+            if (!interaction.customId.endsWith(uid)) {
+                return interaction.reply({ content: '❌ This menu is not for you.', flags: 64 });
+            }
+
+            const formId = interaction.values[0];
+            const { AppForm } = require('../db');
+            const form = await AppForm.findById(formId).catch(() => null);
+            if (!form) return interaction.update({ content: '❌ Form not found.', components: [] });
+
+            const applyRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`app_apply_${String(form._id)}`)
+                    .setLabel('Apply Now 📝')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+            // Post the Apply button in this channel (visible to everyone)
+            await interaction.channel.send({
+                content: `> 📝 **${form.name}**${form.description ? ` — ${form.description}` : ''}\n> Click below to apply. Make sure your DMs are open!`,
+                components: [applyRow]
+            });
+
+            // Confirm to the staff member (ephemeral — just them)
+            return interaction.update({
+                content: `✅ **${form.name}** apply button posted in this channel!`,
+                components: []
+            });
+        } catch (err) {
+            console.error('[appsend pick error]', err);
+            await interaction.update({ content: '❌ Something went wrong.', components: [] }).catch(() => {});
+        }
     }
 };
 
@@ -896,6 +1027,7 @@ async function saveForm(interaction, session) {
         logChannelId: session.logChannelId, logChannelName: session.logChannelName,
         ticketServerId: session.ticketServerId, ticketServerName: session.ticketServerName,
         ticketChannelId: session.ticketChannelId, ticketChannelName: session.ticketChannelName,
+        notifyRoleId: session.notifyRoleId || '1480839573390233702',
         createdAt: new Date(), open: false
     });
 
@@ -917,7 +1049,8 @@ async function saveForm(interaction, session) {
             { name: 'Department', value: form.department || 'General', inline: true },
             ...qChunks.map((c, i) => ({ name: i === 0 ? 'Questions' : '​', value: c })),
             { name: 'Log Channel', value: `#${form.logChannelName} in **${form.logServerName}**`, inline: true },
-            { name: 'Ticket Channel', value: `#${form.ticketChannelName} in **${form.ticketServerName}**`, inline: true }
+            { name: 'Ticket Channel', value: `#${form.ticketChannelName} in **${form.ticketServerName}**`, inline: true },
+            { name: 'Notify Role', value: `<@&${form.notifyRoleId}>`, inline: true }
         )
         .setFooter({ text: 'Use /application open to post the Apply button' });
 
