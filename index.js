@@ -1438,6 +1438,117 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ── Exemption: Approve ──
+        if (interaction.customId.startsWith('exempt_approve_')) {
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
+            try {
+                // customId: exempt_approve_{userId}_{caseId}
+                const rest    = interaction.customId.replace('exempt_approve_', '');
+                const sepIdx  = rest.indexOf('_');
+                const userId  = rest.slice(0, sepIdx);
+                const caseId  = rest.slice(sepIdx + 1);
+
+                // Look up their PR ticket
+                const prTicket = await Ticket.findOne({ userId, category: 'Public Relations', status: { $in: ['open', 'claimed'] } }).catch(() => null);
+
+                // Disable buttons on the log message
+                const disabled = ActionRowBuilder.from(interaction.message.components[0]).setComponents(
+                    interaction.message.components[0].components.map(c =>
+                        ButtonBuilder.from(c).setDisabled(true)
+                    )
+                );
+                await interaction.message.edit({ components: [disabled] }).catch(() => {});
+
+                // Stamp the log embed with who approved
+                const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                    .setColor(0x57F287)
+                    .addFields({ name: '✅ Approved By', value: `<@${interaction.user.id}>`, inline: true });
+                await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
+
+                // Post approval message in their PR ticket if we found it
+                if (prTicket?.channelId) {
+                    const guild   = interaction.guild ?? await client.guilds.fetch(prTicket.guildId).catch(() => null);
+                    const channel = guild ? await guild.channels.fetch(prTicket.channelId).catch(() => null) : null;
+                    if (channel?.isTextBased()) {
+                        // Look up the alliance form to post the Apply Now button
+                        const { AppForm } = require('./db');
+                        const form = await AppForm.findOne({ name: /kavià cafe alliance requests/i }).catch(() => null);
+                        await channel.send({
+                            embeds: [new EmbedBuilder()
+                                .setColor(0x57F287)
+                                .setTitle('✅ Exemption Approved!')
+                                .setDescription(`Hey <@${userId}>! Our team has reviewed your server and **approved your exemption**.\n\nYou may now proceed with the alliance application below.`)
+                                .setFooter({ text: 'Kavià Café • Alliance System' })
+                            ],
+                            components: form ? [new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`app_apply_${String(form._id)}`)
+                                    .setLabel('Apply Now 📝')
+                                    .setStyle(ButtonStyle.Primary)
+                            )] : []
+                        });
+                    }
+                }
+
+                await interaction.editReply({ content: `✅ Exemption approved. ${prTicket?.channelId ? `Posted the Apply Now button in <#${prTicket.channelId}>.` : `Couldn't find an open PR ticket to post in — notify the applicant manually.`}` });
+            } catch (err) {
+                console.error('[exempt_approve error]', err);
+                await interaction.editReply({ content: '❌ Something went wrong processing the approval.' }).catch(() => {});
+            }
+            return;
+        }
+
+        // ── Exemption: Decline ──
+        if (interaction.customId.startsWith('exempt_decline_')) {
+            await interaction.deferReply({ flags: 64 }).catch(() => {});
+            try {
+                // customId: exempt_decline_{userId}_{caseId}
+                const rest   = interaction.customId.replace('exempt_decline_', '');
+                const sepIdx = rest.indexOf('_');
+                const userId = rest.slice(0, sepIdx);
+                const caseId = rest.slice(sepIdx + 1);
+
+                // Look up their PR ticket
+                const prTicket = await Ticket.findOne({ userId, category: 'Public Relations', status: { $in: ['open', 'claimed'] } }).catch(() => null);
+
+                // Disable buttons on the log message
+                const disabled = ActionRowBuilder.from(interaction.message.components[0]).setComponents(
+                    interaction.message.components[0].components.map(c =>
+                        ButtonBuilder.from(c).setDisabled(true)
+                    )
+                );
+                await interaction.message.edit({ components: [disabled] }).catch(() => {});
+
+                // Stamp the log embed with who declined
+                const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+                    .setColor(0xED4245)
+                    .addFields({ name: '❌ Declined By', value: `<@${interaction.user.id}>`, inline: true });
+                await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
+
+                // Post decline message in their PR ticket if found
+                if (prTicket?.channelId) {
+                    const guild   = interaction.guild ?? await client.guilds.fetch(prTicket.guildId).catch(() => null);
+                    const channel = guild ? await guild.channels.fetch(prTicket.channelId).catch(() => null) : null;
+                    if (channel?.isTextBased()) {
+                        await channel.send({
+                            embeds: [new EmbedBuilder()
+                                .setColor(0xED4245)
+                                .setTitle('❌ Exemption Declined')
+                                .setDescription(`Hey <@${userId}>, unfortunately our team has **declined your exemption request** at this time.\n\nIf you have any questions, please let us know here in this ticket.`)
+                                .setFooter({ text: 'Kavià Café • Alliance System' })
+                            ]
+                        });
+                    }
+                }
+
+                await interaction.editReply({ content: `❌ Exemption declined. ${prTicket?.channelId ? `Posted the decline message in <#${prTicket.channelId}>.` : `Couldn't find an open PR ticket — notify the applicant manually.`}` });
+            } catch (err) {
+                console.error('[exempt_decline error]', err);
+                await interaction.editReply({ content: '❌ Something went wrong processing the decline.' }).catch(() => {});
+            }
+            return;
+        }
+
         // ========== TICKET SETUP BUTTONS ==========
         if (interaction.customId.startsWith('ts_editpanel_')) {
             const panelId = interaction.customId.replace('ts_editpanel_', '');
@@ -3002,6 +3113,12 @@ if (interaction.customId.startsWith('dmreply_')) {
                 // Post to log channel
                 const logChannel = await client.channels.fetch(form.logChannelId).catch(() => null);
                 if (logChannel) {
+                    // For alliance forms: check if they already have an open PR ticket
+                    const isAllianceForm = /alliance/i.test(form.name);
+                    const existingPRTicket = isAllianceForm
+                        ? await Ticket.findOne({ userId: interaction.user.id, category: 'Public Relations', status: { $in: ['open', 'claimed'] } }).catch(() => null)
+                        : null;
+
                     const logEmbed = new EmbedBuilder()
                         .setTitle(`📋 New Application${appSession.isResubmit ? ' (Resubmission ⚠️)' : ''} — ${form.name}`)
                         .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
@@ -3010,6 +3127,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                             { name: '👤 Applicant', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
                             { name: '🆔 User ID', value: interaction.user.id, inline: true },
                             { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
+                            ...(existingPRTicket ? [{ name: '📂 Open PR Ticket', value: `<#${existingPRTicket.channelId}> (Case #${existingPRTicket.caseId})`, inline: false }] : []),
                             ...form.questions.map((q, i) => ({
                                 name: `Q${i + 1}: ${q.length > 80 ? q.slice(0, 77) + '...' : q}`,
                                 value: appSession.answers[i] || '*No answer*'
@@ -3017,12 +3135,14 @@ if (interaction.customId.startsWith('dmreply_')) {
                         )
                         .setFooter({ text: `Submission ID: ${submission._id}` })
                         .setTimestamp();
-                    const logRow = new ActionRowBuilder().addComponents(
+
+                    const logButtons = [
                         new ButtonBuilder().setCustomId(`app_pass_${submission._id}`).setLabel('✅ Pass').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Send to Ticket').setStyle(ButtonStyle.Primary),
+                        ...(!existingPRTicket ? [new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Send to Ticket').setStyle(ButtonStyle.Primary)] : []),
                         new ButtonBuilder().setCustomId(`app_decline_${submission._id}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger),
                         new ButtonBuilder().setCustomId(`app_remind_${submission._id}`).setLabel('🔔 Remind Me').setStyle(ButtonStyle.Secondary)
-                    );
+                    ];
+                    const logRow = new ActionRowBuilder().addComponents(logButtons);
                     const logMsg = await logChannel.send({ embeds: [logEmbed], components: [logRow] });
                     await AppSubmission.findByIdAndUpdate(submission._id, { logMessageId: logMsg.id, logChannelId: form.logChannelId });
                     const notifyRoleId = form.notifyRoleId || '1480839573390233702';
@@ -3108,7 +3228,35 @@ if (interaction.customId.startsWith('dmreply_')) {
             const form = await AppForm.findById(sub.formId);
             if (!form) return interaction.reply({ content: '❌ Form not found.', flags: 64 });
 
-            // DM applicant with ticket channel link
+            const isAllianceForm = /alliance/i.test(sub.formName);
+
+            // ── For alliance forms: check if applicant already has an open PR ticket ──
+            if (isAllianceForm) {
+                const existingTicket = await Ticket.findOne({ userId: sub.userId, category: 'Public Relations', status: { $in: ['open', 'claimed'] } }).catch(() => null);
+                if (existingTicket) {
+                    const ticketChannel = await client.channels.fetch(existingTicket.channelId).catch(() => null);
+                    if (ticketChannel) {
+                        await ticketChannel.send({
+                            embeds: [new EmbedBuilder()
+                                .setColor(0x2ECC71)
+                                .setTitle('✅ Alliance Application Approved to Proceed')
+                                .setDescription(
+                                    `<@${sub.userId}> — a staff member has reviewed your application and would like to move forward!\n\n` +
+                                    `A member of the alliance team will be with you shortly.`
+                                )
+                                .setFooter({ text: `Reviewed by ${interaction.user.tag}` })
+                                .setTimestamp()
+                            ]
+                        }).catch(() => {});
+                        await AppSubmission.findByIdAndUpdate(subId, { status: 'ticket_sent' }).catch(() => {});
+                        const embed = EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x57f287).setFooter({ text: `🎫 Sent to ticket by ${interaction.user.tag}` });
+                        await interaction.message.edit({ embeds: [embed], components: [] }).catch(() => {});
+                        return interaction.reply({ content: `✅ Posted directly in their existing PR ticket <#${existingTicket.channelId}>.`, flags: 64 });
+                    }
+                }
+            }
+
+            // ── Default: DM applicant to open a ticket ──
             const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
             if (user) {
                 await user.send({
@@ -3315,12 +3463,24 @@ if (interaction.customId.startsWith('dmreply_')) {
                     const allianceGuild = await client.guilds.fetch(ALLIANCE_GUILD_ID);
                     const logChannel    = await allianceGuild.channels.fetch(ALLIANCE_LOG_CHANNEL_ID);
                     if (logChannel?.isTextBased()) {
+                        // Look up applicant's open PR ticket for the channel link
+                        const { Ticket } = require('./db');
+                        const prTicket = await Ticket.findOne({
+                            userId: interaction.user.id,
+                            category: 'Public Relations',
+                            status: { $in: ['open', 'claimed'] }
+                        }).catch(() => null);
+
+                        const ticketField = prTicket?.channelId
+                            ? { name: '📂 PR Ticket', value: `<#${prTicket.channelId}>`, inline: true }
+                            : { name: 'Ticket', value: `#${caseId}`, inline: true };
+
                         const logEmbed = new EmbedBuilder()
                             .setColor(0xE67E22)
                             .setTitle('⚠️ Alliance Exemption Request')
                             .addFields(
                                 { name: 'Applicant', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
-                                { name: 'Ticket', value: `#${caseId}`, inline: true },
+                                ticketField,
                                 { name: 'Discord Invite', value: discordInvite },
                                 { name: 'Discord Members', value: discordMembers, inline: true },
                                 { name: 'Roblox Members', value: robloxMembers, inline: true },
@@ -3328,9 +3488,23 @@ if (interaction.customId.startsWith('dmreply_')) {
                             )
                             .setFooter({ text: 'Kavià Café • Alliance System' })
                             .setTimestamp();
+
+                        // Action buttons for staff — encode userId so handlers can DM/act
+                        const exemptButtons = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`exempt_approve_${interaction.user.id}_${caseId}`)
+                                .setLabel('✅ Approve Exemption')
+                                .setStyle(ButtonStyle.Success),
+                            new ButtonBuilder()
+                                .setCustomId(`exempt_decline_${interaction.user.id}_${caseId}`)
+                                .setLabel('❌ Decline')
+                                .setStyle(ButtonStyle.Danger)
+                        );
+
                         await logChannel.send({
                             content: `<@&${ALLIANCE_PING_ROLE_ID}>`,
-                            embeds: [logEmbed]
+                            embeds: [logEmbed],
+                            components: [exemptButtons]
                         });
                     }
                 } catch (logErr) {
