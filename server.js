@@ -19,6 +19,29 @@ const ALLOWED_PROMOTIONS = {
     105241070: 105241078,
 };
 
+async function postPromoteLog(client, { userId, username, displayName, fromRank, toRank, xp, outcome, color }) {
+    try {
+        if (!STAFF_LOG_CHANNEL) return;
+        const logChannel = await client.channels.fetch(STAFF_LOG_CHANNEL);
+        if (!logChannel?.isTextBased()) return;
+        const embed = new EmbedBuilder()
+            .setTitle('⬆️ XP Promotion Attempt')
+            .setColor(color ?? 0x95A5A6)
+            .addFields(
+                { name: '👤 Player',        value: `${displayName || username} (\`${username}\`)`, inline: false },
+                { name: '🆔 Roblox ID',     value: `\`${userId}\``, inline: true },
+                { name: '📈 Promotion',     value: `${fromRank} → **${toRank}**`, inline: false },
+                { name: '✨ XP at Rank-Up', value: `${xp ?? 'N/A'}`, inline: true },
+                { name: '📋 Outcome',       value: outcome, inline: false }
+            )
+            .setFooter({ text: 'Kavià Café XP System • Auto Promotion' })
+            .setTimestamp();
+        await logChannel.send({ embeds: [embed] });
+    } catch (err) {
+        console.error('[postPromoteLog] Failed:', err);
+    }
+}
+
 function createServer(client) {
     const app = express();
     app.use(express.json());
@@ -175,45 +198,29 @@ function createServer(client) {
             }
 
             if (!currentRole) {
-                return res.status(200).json({ success: false, error: 'not_in_group' });
+                res.status(200).json({ success: false, error: 'not_in_group' });
+                await postPromoteLog(client, { userId, username, displayName, fromRank, toRank, xp, outcome: '❌ Not in group', color: 0xE74C3C });
+                return;
             }
 
             if (currentRole.id !== parseInt(fromRoleId)) {
-                // Their rank changed since Lua checked — likely already promoted or demoted
                 console.warn(`[/staff-promote] Rank mismatch for ${userId}: expected ${fromRoleId}, got ${currentRole.id}`);
-                return res.status(200).json({ success: false, error: 'rank_changed' });
+                res.status(200).json({ success: false, error: 'rank_changed' });
+                await postPromoteLog(client, { userId, username, displayName, fromRank, toRank, xp, outcome: '⚠️ Rank mismatch — already changed', color: 0xE67E22 });
+                return;
             }
 
             // Perform the rank-up
             const success = await setRank(GROUP_ID, userId, parseInt(toRoleId));
-            if (!success) {
-                return res.status(200).json({ success: false, error: 'rank_failed' });
-            }
 
             // Respond to Lua immediately — async log + DM won't block it
-            res.status(200).json({ success: true });
+            res.status(200).json({ success: success, error: success ? undefined : 'rank_failed' });
 
-            // ── Post promotion log embed ──
-            try {
-                if (STAFF_LOG_CHANNEL) {
-                    const logChannel = await client.channels.fetch(STAFF_LOG_CHANNEL);
-                    if (logChannel?.isTextBased()) {
-                        const embed = new EmbedBuilder()
-                            .setTitle('⬆️ XP Promotion')
-                            .setColor(0xF1C40F)
-                            .addFields(
-                                { name: '👤 Player',         value: `${displayName || username} (\`${username}\`)`, inline: false },
-                                { name: '🆔 Roblox ID',      value: `\`${userId}\``, inline: true },
-                                { name: '📈 Promotion',      value: `${fromRank} → **${toRank}**`, inline: false },
-                                { name: '✨ XP at Rank-Up',  value: `${xp ?? 'N/A'}`, inline: true }
-                            )
-                            .setFooter({ text: 'Kavià Café XP System • Auto Promotion' })
-                            .setTimestamp();
-                        await logChannel.send({ embeds: [embed] });
-                    }
-                }
-            } catch (logErr) {
-                console.error('[/staff-promote] Failed to post log embed:', logErr);
+            if (success) {
+                await postPromoteLog(client, { userId, username, displayName, fromRank, toRank, xp, outcome: '✅ Promoted successfully', color: 0xF1C40F });
+            } else {
+                await postPromoteLog(client, { userId, username, displayName, fromRank, toRank, xp, outcome: '❌ setRank failed — bot may lack permission', color: 0xE74C3C });
+                return;
             }
 
             // ── DM the player via RoVer if they're linked ──
