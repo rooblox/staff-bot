@@ -2572,55 +2572,27 @@ if (interaction.customId.startsWith('dmreply_')) {
                     .setFooter({ text: nextQ.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
                 await interaction.followUp({ embeds: [embed], components });
             } else {
-                // All done — submit
-                pendingDMs.delete(interaction.user.id);
-                try {
-                    const { AppForm, AppSubmission } = require('./db');
-                    const form = await AppForm.findById(appSession.formId);
-                    if (!form) { await interaction.followUp('❌ The application form no longer exists.'); return; }
+                // All questions answered — show review/confirm prompt
+                appSession.state = 'review';
+                pendingDMs.set(interaction.user.id, appSession);
 
-                    const submission = await AppSubmission.create({
-                        formId: appSession.formId,
-                        formName: appSession.formName,
-                        userId: interaction.user.id,
-                        userTag: interaction.user.tag,
-                        answers: appSession.answers,
-                        isResubmit: appSession.isResubmit,
-                        submittedAt: new Date()
-                    });
+                const reviewLines = appSession.questions.map((q, i) => {
+                    const { display } = parseQuestion(q);
+                    return `**Q${i + 1}:** ${display.slice(0, 80)}\n> ${appSession.answers[i] || '*(no answer)*'}`;
+                });
+                const reviewEmbed = new EmbedBuilder()
+                    .setTitle(`📋 Review Your Answers — ${appSession.formName}`)
+                    .setColor(0xf1c40f)
+                    .setDescription(reviewLines.join('\n\n'))
+                    .setFooter({ text: 'Submit when you\'re happy, Start Over to redo, or Never Mind to cancel.' });
 
-                    await interaction.followUp({ embeds: [new EmbedBuilder()
-                        .setTitle('✅ Application Submitted!')
-                        .setDescription('Your application has been submitted. You\'ll be notified of the outcome via DM.')
-                        .setColor(0x57f287).setTimestamp()] });
+                const reviewRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`app_dmsubmit_${interaction.user.id}`).setLabel('✅ Submit Application').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`app_dmrestart_${interaction.user.id}`).setLabel('🔄 Start Over').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`app_dmnvm_${interaction.user.id}`).setLabel('✖️ Never Mind').setStyle(ButtonStyle.Danger)
+                );
 
-                    // Post to log channel
-                    const logChannel = await client.channels.fetch(form.logChannelId).catch(() => null);
-                    if (logChannel) {
-                        const fields = appSession.questions.map((q, i) => {
-                            const { display } = parseQuestion(q);
-                            return { name: `Q${i + 1}: ${display.slice(0, 100)}`, value: appSession.answers[i] || '*(no answer)*' };
-                        });
-                        const logEmbed = new EmbedBuilder()
-                            .setTitle(`📋 New Application — ${appSession.formName}${appSession.isResubmit ? ' (Resubmit)' : ''}`)
-                            .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
-                            .addFields({ name: 'Applicant', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true }, ...fields)
-                            .setTimestamp();
-                        const logRow = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(`app_pass_${submission._id}`).setLabel('✅ Pass').setStyle(ButtonStyle.Success),
-                            new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Send to Ticket').setStyle(ButtonStyle.Primary),
-                            new ButtonBuilder().setCustomId(`app_decline_${submission._id}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
-                        );
-                        const logMsg = await logChannel.send({ embeds: [logEmbed], components: [logRow] });
-                        await AppSubmission.findByIdAndUpdate(submission._id, { logMessageId: logMsg.id, logChannelId: form.logChannelId });
-                        // Ping notify role
-                        const notifyRoleId = form.notifyRoleId || '1480839573390233702';
-                        await logChannel.send({ content: `<@&${notifyRoleId}> — new application from <@${interaction.user.id}>` }).catch(() => {});
-                    }
-                } catch (err) {
-                    console.error('[app DM button submit error]', err);
-                    await interaction.followUp('❌ Failed to submit your application. Please try again.').catch(() => {});
-                }
+                await interaction.followUp({ embeds: [reviewEmbed], components: [reviewRow] });
             }
             return;
         }
@@ -2636,62 +2608,197 @@ if (interaction.customId.startsWith('dmreply_')) {
             if (!form) return interaction.editReply({ content: '❌ This application form no longer exists.' });
             if (!form.open) return interaction.editReply({ content: '❌ Applications are currently closed.' });
 
-            // Check if already pending
             const existing = await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'pending' });
             if (existing) return interaction.editReply({ content: '⏳ You already have a pending application for this form.' });
 
             const { pendingDMs } = require('./commands/application');
             const isResubmit = !!(await AppSubmission.findOne({ formId, userId: interaction.user.id, status: 'declined' }));
 
-            // Try to DM
             try {
                 const dm = await interaction.user.createDM();
-                const { parseQuestion } = require('./commands/application');
-                const q0 = parseQuestion(form.questions[0]);
 
-                const introDesc =
-                    (isResubmit ? '> ⚠️ **This is a resubmission.** Please ensure your answers address any previous feedback.\n\n' : '') +
-                    (form.description ? form.description + '\n\n' : '') +
-                    `**Question 1 of ${form.questions.length}:**\n${q0.display}`;
-
-                const embed = new EmbedBuilder()
+                // Show intro/description first — let them decide to start or back out
+                const introEmbed = new EmbedBuilder()
                     .setTitle(`📝 ${form.name}${isResubmit ? ' (Resubmission)' : ''}`)
                     .setColor(isResubmit ? 0xe67e22 : 0x5865f2)
-                    .setDescription(introDesc)
-                    .setFooter({ text: q0.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
+                    .setDescription(
+                        (isResubmit ? '> ⚠️ **This is a resubmission.** Please ensure your answers address any previous feedback.\n\n' : '') +
+                        (form.description ? form.description + '\n\n' : '') +
+                        `This application has **${form.questions.length} question${form.questions.length !== 1 ? 's' : ''}**.\n\nWhen you're ready, click **Start Application** below.`
+                    )
+                    .setFooter({ text: 'You can cancel at any time by clicking Never Mind.' });
 
-                let components = [];
-                if (q0.type === 'scale') {
-                    const row1 = new ActionRowBuilder().addComponents(
-                        ...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))
-                    );
-                    const row2 = new ActionRowBuilder().addComponents(
-                        ...[6,7,8,9,10].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))
-                    );
-                    components = [row1, row2];
-                } else if (q0.type === 'choice') {
-                    components = [new ActionRowBuilder().addComponents(
-                        ...q0.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${interaction.user.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
-                    )];
-                }
+                const introRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`app_dmstart_${interaction.user.id}_${formId}`)
+                        .setLabel('▶️ Start Application')
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId(`app_dmnvm_${interaction.user.id}`)
+                        .setLabel('✖️ Never Mind')
+                        .setStyle(ButtonStyle.Secondary)
+                );
 
-                await dm.send({ embeds: [embed], components });
+                await dm.send({ embeds: [introEmbed], components: [introRow] });
 
+                // Store session in "intro" state — no questions started yet
                 pendingDMs.set(interaction.user.id, {
                     formId,
                     formName: form.name,
                     answers: [],
                     questionIndex: 0,
                     isResubmit,
-                    questions: form.questions
+                    questions: form.questions,
+                    state: 'intro'   // 'intro' | 'active' | 'review'
                 });
 
-                return interaction.editReply({ content: '📬 Check your DMs! I\'ve sent you the application questions.' });
+                return interaction.editReply({ content: '📬 Check your DMs! I\'ve sent you the application details.' });
             } catch (err) {
-                if (err.code === 40060) return; // already replied (shouldn't happen now, but just in case)
+                if (err.code === 40060) return;
                 console.error('[app_apply DM error]', err);
                 return interaction.editReply({ content: '❌ I couldn\'t DM you. Please enable DMs from server members and try again.' }).catch(() => {});
             }
+        }
+
+        // ===== APPLICATION DM — Start button =====
+        if (interaction.customId.startsWith('app_dmstart_')) {
+            const { pendingDMs, parseQuestion } = require('./commands/application');
+            const appSession = pendingDMs.get(interaction.user.id);
+            if (!appSession) return interaction.update({ content: '❌ Session expired. Please click Apply Now again.', components: [], embeds: [] });
+
+            appSession.state = 'active';
+            appSession.answers = [];
+            appSession.questionIndex = 0;
+            pendingDMs.set(interaction.user.id, appSession);
+
+            const q0 = parseQuestion(appSession.questions[0]);
+            let components = [];
+            if (q0.type === 'scale') {
+                components = [
+                    new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))),
+                    new ActionRowBuilder().addComponents(...[6,7,8,9,10].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary)))
+                ];
+            } else if (q0.type === 'choice') {
+                components = [new ActionRowBuilder().addComponents(
+                    ...q0.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${interaction.user.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
+                )];
+            }
+            const qEmbed = new EmbedBuilder()
+                .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
+                .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
+                .setDescription(`**Question 1 of ${appSession.questions.length}:**\n${q0.display}`)
+                .setFooter({ text: q0.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
+
+            await interaction.update({ components: [] }); // disable Start/Never Mind buttons
+            await interaction.followUp({ embeds: [qEmbed], components });
+            return;
+        }
+
+        // ===== APPLICATION DM — Never Mind (intro stage or review stage) =====
+        if (interaction.customId.startsWith('app_dmnvm_')) {
+            const { pendingDMs } = require('./commands/application');
+            pendingDMs.delete(interaction.user.id);
+            return interaction.update({ content: '❌ Application cancelled. You can always apply again later!', components: [], embeds: [] });
+        }
+
+        // ===== APPLICATION DM — Submit (review stage) =====
+        if (interaction.customId.startsWith('app_dmsubmit_')) {
+            const { pendingDMs, parseQuestion } = require('./commands/application');
+            const appSession = pendingDMs.get(interaction.user.id);
+            if (!appSession) return interaction.update({ content: '❌ Session expired.', components: [], embeds: [] });
+
+            pendingDMs.delete(interaction.user.id);
+            await interaction.update({ components: [] }); // disable the review buttons
+
+            try {
+                const { AppForm, AppSubmission } = require('./db');
+                const form = await AppForm.findById(appSession.formId);
+                if (!form) { await interaction.followUp('❌ The application form no longer exists.'); return; }
+
+                const submission = await AppSubmission.create({
+                    formId: appSession.formId,
+                    formName: appSession.formName,
+                    userId: interaction.user.id,
+                    userTag: interaction.user.tag,
+                    answers: appSession.answers,
+                    status: 'pending',
+                    isResubmit: appSession.isResubmit,
+                    submittedAt: new Date()
+                });
+
+                await interaction.followUp({ embeds: [new EmbedBuilder()
+                    .setTitle('✅ Application Submitted!')
+                    .setDescription(`Your application for **${form.name}** has been submitted. You'll receive a DM when it's been reviewed.`)
+                    .setColor(0x57f287).setTimestamp()] });
+
+                // Post to log channel
+                const logChannel = await client.channels.fetch(form.logChannelId).catch(() => null);
+                if (logChannel) {
+                    const logEmbed = new EmbedBuilder()
+                        .setTitle(`📋 New Application${appSession.isResubmit ? ' (Resubmission ⚠️)' : ''} — ${form.name}`)
+                        .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
+                        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+                        .addFields(
+                            { name: '👤 Applicant', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
+                            { name: '🆔 User ID', value: interaction.user.id, inline: true },
+                            { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
+                            ...form.questions.map((q, i) => ({
+                                name: `Q${i + 1}: ${q.length > 80 ? q.slice(0, 77) + '...' : q}`,
+                                value: appSession.answers[i] || '*No answer*'
+                            }))
+                        )
+                        .setFooter({ text: `Submission ID: ${submission._id}` })
+                        .setTimestamp();
+                    const logRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`app_pass_${submission._id}`).setLabel('✅ Pass').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Send to Ticket').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId(`app_decline_${submission._id}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId(`app_remind_${submission._id}`).setLabel('🔔 Remind Me').setStyle(ButtonStyle.Secondary)
+                    );
+                    const logMsg = await logChannel.send({ embeds: [logEmbed], components: [logRow] });
+                    await AppSubmission.findByIdAndUpdate(submission._id, { logMessageId: logMsg.id, logChannelId: form.logChannelId });
+                    const notifyRoleId = form.notifyRoleId || '1480839573390233702';
+                    await logChannel.send({ content: `<@&${notifyRoleId}> — new application from <@${interaction.user.id}>` }).catch(() => {});
+                }
+            } catch (err) {
+                console.error('[app_dmsubmit error]', err);
+                await interaction.followUp('❌ Failed to submit your application. Please try again.').catch(() => {});
+            }
+            return;
+        }
+
+        // ===== APPLICATION DM — Restart (review stage → back to Q1) =====
+        if (interaction.customId.startsWith('app_dmrestart_')) {
+            const { pendingDMs, parseQuestion } = require('./commands/application');
+            const appSession = pendingDMs.get(interaction.user.id);
+            if (!appSession) return interaction.update({ content: '❌ Session expired. Please click Apply Now again.', components: [], embeds: [] });
+
+            appSession.answers = [];
+            appSession.questionIndex = 0;
+            appSession.state = 'active';
+            pendingDMs.set(interaction.user.id, appSession);
+
+            const q0 = parseQuestion(appSession.questions[0]);
+            let components = [];
+            if (q0.type === 'scale') {
+                components = [
+                    new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary))),
+                    new ActionRowBuilder().addComponents(...[6,7,8,9,10].map(n => new ButtonBuilder().setCustomId(`app_dmscale_${interaction.user.id}_${n}`).setLabel(`${n}`).setStyle(ButtonStyle.Secondary)))
+                ];
+            } else if (q0.type === 'choice') {
+                components = [new ActionRowBuilder().addComponents(
+                    ...q0.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${interaction.user.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
+                )];
+            }
+            const qEmbed = new EmbedBuilder()
+                .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
+                .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
+                .setDescription(`🔄 Restarted!\n\n**Question 1 of ${appSession.questions.length}:**\n${q0.display}`)
+                .setFooter({ text: q0.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
+
+            await interaction.update({ components: [] });
+            await interaction.followUp({ embeds: [qEmbed], components });
+            return;
         }
 
         if (interaction.customId.startsWith('app_pass_')) {
@@ -3854,6 +3961,12 @@ client.on('messageCreate', async message => {
                 return;
             }
 
+            // Ignore typed messages when the session is waiting for a button click
+            if (appSession.state === 'intro' || appSession.state === 'review') {
+                await message.reply({ content: '👆 Please use the buttons above to continue.', allowedMentions: { repliedUser: false } });
+                return;
+            }
+
             // If current question is a button type, ignore typed messages
             const currentQ = parseQuestion(appSession.questions[appSession.questionIndex]);
             if (currentQ.type !== 'text') {
@@ -3887,68 +4000,27 @@ client.on('messageCreate', async message => {
                     .setFooter({ text: nextQ.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
                 await message.reply({ embeds: [embed], components });
             } else {
-                // All answered — submit
-                pendingDMs.delete(message.author.id);
-                try {
-                    const { AppForm, AppSubmission } = require('./db');
-                    const form = await AppForm.findById(appSession.formId);
-                    if (!form) { await message.reply('❌ The application form no longer exists.'); return; }
+                // All answered — show review/confirm prompt
+                appSession.state = 'review';
+                pendingDMs.set(message.author.id, appSession);
 
-                    const submission = await AppSubmission.create({
-                        formId: appSession.formId,
-                        formName: appSession.formName,
-                        userId: message.author.id,
-                        userTag: message.author.tag,
-                        answers: appSession.answers,
-                        status: 'pending',
-                        isResubmit: appSession.isResubmit,
-                        submittedAt: new Date()
-                    });
+                const reviewLines = appSession.questions.map((q, i) => {
+                    const { display } = parseQuestion(q);
+                    return `**Q${i + 1}:** ${display.slice(0, 80)}\n> ${appSession.answers[i] || '*(no answer)*'}`;
+                });
+                const reviewEmbed = new EmbedBuilder()
+                    .setTitle(`📋 Review Your Answers — ${appSession.formName}`)
+                    .setColor(0xf1c40f)
+                    .setDescription(reviewLines.join('\n\n'))
+                    .setFooter({ text: 'Submit when you\'re happy, Start Over to redo, or Never Mind to cancel.' });
 
-                    // Post to log channel
-                    const logChannel = await message.client.channels.fetch(form.logChannelId).catch(() => null);
-                    if (logChannel) {
-                        const logEmbed = new EmbedBuilder()
-                            .setTitle(`📋 New Application${appSession.isResubmit ? ' (Resubmission ⚠️)' : ''} — ${form.name}`)
-                            .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
-                            .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
-                            .addFields(
-                                { name: '👤 Applicant', value: `<@${message.author.id}> (${message.author.tag})`, inline: true },
-                                { name: '🆔 User ID', value: message.author.id, inline: true },
-                                { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
-                                ...form.questions.map((q, i) => ({
-                                    name: `Q${i + 1}: ${q.length > 80 ? q.slice(0, 77) + '...' : q}`,
-                                    value: appSession.answers[i] || '*No answer*'
-                                }))
-                            )
-                            .setFooter({ text: `Submission ID: ${submission._id}` })
-                            .setTimestamp();
+                const reviewRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`app_dmsubmit_${message.author.id}`).setLabel('✅ Submit Application').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`app_dmrestart_${message.author.id}`).setLabel('🔄 Start Over').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`app_dmnvm_${message.author.id}`).setLabel('✖️ Never Mind').setStyle(ButtonStyle.Danger)
+                );
 
-                        const row = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId(`app_pass_${submission._id}`).setLabel('✅ Pass').setStyle(ButtonStyle.Success),
-                            new ButtonBuilder().setCustomId(`app_decline_${submission._id}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger),
-                            new ButtonBuilder().setCustomId(`app_ticket_${submission._id}`).setLabel('🎫 Open Ticket').setStyle(ButtonStyle.Secondary),
-                            new ButtonBuilder().setCustomId(`app_remind_${submission._id}`).setLabel('🔔 Remind Me').setStyle(ButtonStyle.Secondary)
-                        );
-
-                        const logMsg = await logChannel.send({ embeds: [logEmbed], components: [row] });
-                        await AppSubmission.findByIdAndUpdate(submission._id, { logMessageId: logMsg.id, logChannelId: form.logChannelId });
-                        // Ping notify role
-                        const notifyRoleId = form.notifyRoleId || '1480839573390233702';
-                        await logChannel.send({ content: `<@&${notifyRoleId}> — new application from <@${message.author.id}>` }).catch(() => {});
-                    }
-
-                    await message.reply({
-                        embeds: [new EmbedBuilder()
-                            .setTitle('✅ Application Submitted!')
-                            .setDescription(`Your application for **${form.name}** has been submitted. You'll receive a DM when it's been reviewed.`)
-                            .setColor(0x57f287)
-                            .setTimestamp()]
-                    });
-                } catch (err) {
-                    console.error('Error submitting application:', err);
-                    await message.reply('❌ Something went wrong submitting your application. Please try again.');
-                }
+                await message.reply({ embeds: [reviewEmbed], components: [reviewRow] });
             }
             return;
         }
