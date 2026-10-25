@@ -3490,7 +3490,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                             .setTimestamp();
 
                         // Action buttons for staff — encode userId so handlers can DM/act
-                        const exemptButtons = new ActionRowBuilder().addComponents(
+                        const exemptButtonList = [
                             new ButtonBuilder()
                                 .setCustomId(`exempt_approve_${interaction.user.id}_${caseId}`)
                                 .setLabel('✅ Approve Exemption')
@@ -3499,7 +3499,18 @@ if (interaction.customId.startsWith('dmreply_')) {
                                 .setCustomId(`exempt_decline_${interaction.user.id}_${caseId}`)
                                 .setLabel('❌ Decline')
                                 .setStyle(ButtonStyle.Danger)
-                        );
+                        ];
+                        // If there's an open PR ticket, add a link button to jump to it
+                        if (prTicket?.channelId) {
+                            const ticketUrl = `https://discord.com/channels/${ALLIANCE_GUILD_ID}/${prTicket.channelId}`;
+                            exemptButtonList.push(
+                                new ButtonBuilder()
+                                    .setLabel('📂 Go to Ticket')
+                                    .setStyle(ButtonStyle.Link)
+                                    .setURL(ticketUrl)
+                            );
+                        }
+                        const exemptButtons = new ActionRowBuilder().addComponents(...exemptButtonList);
 
                         await logChannel.send({
                             content: `<@&${ALLIANCE_PING_ROLE_ID}>`,
