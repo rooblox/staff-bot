@@ -461,6 +461,12 @@ module.exports = {
                     return interaction.showModal(questionsModal(session.name, 1, 'app_setup_questions_1'));
                 }
 
+                // "Continue — Form Details" button shown after notify role modal submit
+                // (modal→modal not allowed in Discord; we reply with a button instead)
+                if (id === `appsetup_opendetails_${uid}`) {
+                    return interaction.showModal(formDetailsModal(session.name));
+                }
+
                 // Notify role: enter role ID manually
                 if (id === `appsetup_notifyrole_manual_${uid}`) {
                     const modal = new ModalBuilder()
@@ -607,7 +613,17 @@ module.exports = {
             const roleId = raw.replace(/[^0-9]/g, '') || '1480839573390233702';
             session.notifyRoleId = roleId;
 
-            return interaction.showModal(formDetailsModal(session.name));
+            // Can't chain modal→modal — reply with a button to open form details instead
+            return interaction.reply({
+                flags: 64,
+                content: `✅ Notify role set to <@&${roleId}>. Click below to continue.`,
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`appsetup_opendetails_${interaction.user.id}`)
+                        .setLabel('📝 Continue — Form Details')
+                        .setStyle(ButtonStyle.Primary)
+                )]
+            });
         } catch (err) {
             console.error('[appsetup notifyrole modal error]', err);
             await interaction.reply({ content: '❌ Something went wrong. Try `/application setup` again.', flags: 64 }).catch(() => {});
