@@ -1340,7 +1340,7 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             await interaction.deferUpdate().catch(() => {});
             try {
                 const { AppForm } = require('./db');
-                const form = await AppForm.findOne({ name: 'Kavià Cafe Alliance Requests' }).catch(() => null);
+                const form = await AppForm.findOne({ name: /kavià cafe alliance requests/i }).catch(() => null);
 
                 await interaction.editReply({
                     embeds: [new EmbedBuilder()
