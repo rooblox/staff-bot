@@ -954,8 +954,8 @@ async function refreshStatusBoard(client) {
             .setTimestamp();
 
         // Build Apply buttons grouped by dept — max 5 rows × 5 buttons = 25 total
-        // Each dept gets its own row; if a dept has more than 5 open forms they overflow to next row
-        const openForms = forms.filter(f => f.open);
+        // Each dept gets its own row; if a dept has more than 5 forms they overflow to next row
+        // Open forms get green/link buttons; closed forms get grey disabled buttons
         const components = [];
 
         // Hardcoded always-open Barista link
@@ -967,18 +967,28 @@ async function refreshStatusBoard(client) {
                 .setStyle(ButtonStyle.Link)
         ]);
 
-        for (const f of openForms) {
+        for (const f of forms) {
             const dept = f.department || 'General';
             if (!deptButtons.has(dept)) deptButtons.set(dept, []);
-            const btn = f.gameLink
-                ? new ButtonBuilder()
-                    .setURL(f.gameLink)
-                    .setLabel(`Apply — ${f.name}`)
-                    .setStyle(ButtonStyle.Link)
-                : new ButtonBuilder()
-                    .setCustomId(`app_apply_${f._id}`)
-                    .setLabel(`Apply — ${f.name}`)
-                    .setStyle(ButtonStyle.Success);
+            let btn;
+            if (f.open) {
+                btn = f.gameLink
+                    ? new ButtonBuilder()
+                        .setURL(f.gameLink)
+                        .setLabel(`Apply — ${f.name}`)
+                        .setStyle(ButtonStyle.Link)
+                    : new ButtonBuilder()
+                        .setCustomId(`app_apply_${f._id}`)
+                        .setLabel(`Apply — ${f.name}`)
+                        .setStyle(ButtonStyle.Success);
+            } else {
+                // Closed — show as disabled button so newly-created forms are visible on the board
+                btn = new ButtonBuilder()
+                    .setCustomId(`app_closed_${f._id}`)
+                    .setLabel(`${f.name} — Closed`)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setDisabled(true);
+            }
             deptButtons.get(dept).push(btn);
         }
 
@@ -1041,6 +1051,13 @@ async function saveForm(interaction, session) {
     }
     if (chunk) qChunks.push(chunk);
 
+    // Build a short tip showing any typed questions with their detected type
+    const typeTips = questions.map((q, i) => {
+        const { type, display } = parseQuestion(q);
+        const tag = type === 'scale' ? '`[SCALE]`' : type === 'choice' ? '`[CHOICE]`' : '`Text`';
+        return `${tag} **Q${i + 1}:** ${display.slice(0, 60)}${display.length > 60 ? '…' : ''}`;
+    }).join('\n');
+
     const embed = new EmbedBuilder()
         .setTitle('✅ Application Form Created')
         .setColor(0x57f287)
@@ -1048,6 +1065,7 @@ async function saveForm(interaction, session) {
             { name: 'Form Name', value: form.name, inline: true },
             { name: 'Department', value: form.department || 'General', inline: true },
             ...qChunks.map((c, i) => ({ name: i === 0 ? 'Questions' : '​', value: c })),
+            { name: '📌 Question Types Detected', value: typeTips || '*(none)*' },
             { name: 'Log Channel', value: `#${form.logChannelName} in **${form.logServerName}**`, inline: true },
             { name: 'Ticket Channel', value: `#${form.ticketChannelName} in **${form.ticketServerName}**`, inline: true },
             { name: 'Notify Role', value: `<@&${form.notifyRoleId}>`, inline: true }
