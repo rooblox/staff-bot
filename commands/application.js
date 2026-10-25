@@ -822,7 +822,7 @@ async function refreshStatusBoard(client) {
                 'Here you can find all Kavià Café applications, along with their current status — whether they are open or closed.\n\n' +
                 'Start your journey with Kavià Café today!\n\n' +
                 descSections.join('\n\n') +
-                '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket to get your results.\n\nWe look forward to our future applicants!'
+                '\n\n—\nIf you have any questions about your application or once you have submitted one, please open a support ticket in <#1370946382550011925> to get your results.\n\nWe look forward to our future applicants!'
             )
             .setColor(0x5865f2)
             .setThumbnail('https://cdn.discordapp.com/attachments/1420962537096351836/1428133141377187940/kaviacafe_single.png')
