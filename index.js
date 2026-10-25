@@ -1293,15 +1293,32 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
-        // ========== PR TICKET — alliance Yes/No buttons (posted inside the ticket after it opens) ==========
+        // ========== PR TICKET — alliance Yes/No (initial) ==========
         if (interaction.customId.startsWith('ticket_pr_alliance_yes_')) {
+            const caseId = interaction.customId.replace('ticket_pr_alliance_yes_', '');
             await interaction.update({
                 embeds: [new EmbedBuilder()
-                    .setColor(0x2ECC71)
-                    .setTitle('🤝 Alliance Application')
-                    .setDescription('Great! Please check that your group meets the requirements above.\n\nOnce you\'re ready, a staff member will send you the application form.')
+                    .setColor(0x5865F2)
+                    .setTitle('🤝 Alliance Requirements')
+                    .setDescription(
+                        `To apply for an alliance with **Kavià Café**, your group must meet the following requirements:\n\n` +
+                        `> **Discord Members:** 200+ (non-botted)\n` +
+                        `> **Roblox Community Members:** 150+ (non-botted)\n` +
+                        `> **Announcements:** Must be able to post announcements\n\n` +
+                        `*Exceptions may be made at staff discretion.*\n\n` +
+                        `Do you meet these requirements?`
+                    )
                 ],
-                components: []
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`ticket_pr_alliance_meets_${caseId}`)
+                        .setLabel('✅ I meet the requirements')
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId(`ticket_pr_alliance_nomeet_${caseId}`)
+                        .setLabel('❌ I don\'t meet the requirements')
+                        .setStyle(ButtonStyle.Danger)
+                )]
             });
             return;
         }
@@ -1315,6 +1332,110 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
                 ],
                 components: []
             });
+            return;
+        }
+
+        // ── Alliance: meets requirements → post the application form directly ──
+        if (interaction.customId.startsWith('ticket_pr_alliance_meets_')) {
+            await interaction.deferUpdate().catch(() => {});
+            try {
+                const { AppForm } = require('./db');
+                const form = await AppForm.findOne({ name: 'Kavià Cafe Alliance Requests' }).catch(() => null);
+
+                await interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0x2ECC71)
+                        .setTitle('✅ Great! Here\'s the application form')
+                        .setDescription('Click the button below to start your alliance application. Make sure your DMs are open!')
+                    ],
+                    components: form ? [new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`app_apply_${String(form._id)}`)
+                            .setLabel('Apply Now 📝')
+                            .setStyle(ButtonStyle.Primary)
+                    )] : []
+                });
+
+                if (!form) {
+                    await interaction.channel.send({ content: '⚠️ Staff: the alliance application form hasn\'t been set up yet. Use `/application send` to drop it in manually.' });
+                }
+            } catch (err) {
+                console.error('[alliance meets handler error]', err);
+            }
+            return;
+        }
+
+        // ── Alliance: doesn't meet requirements → exemption or close ──
+        if (interaction.customId.startsWith('ticket_pr_alliance_nomeet_')) {
+            const caseId = interaction.customId.replace('ticket_pr_alliance_nomeet_', '');
+            await interaction.update({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xE67E22)
+                    .setTitle('⚠️ Requirements Not Met')
+                    .setDescription(
+                        `No worries! You have two options:\n\n` +
+                        `**Apply for an Exemption** — Staff will review your group and may make an exception.\n\n` +
+                        `**Close this ticket** — If you\'d like to come back when your group meets the requirements.`
+                    )
+                ],
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`ticket_pr_alliance_exempt_${caseId}`)
+                        .setLabel('📝 Apply for Exemption')
+                        .setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder()
+                        .setCustomId(`ticket_pr_alliance_cancel_${caseId}`)
+                        .setLabel('🚪 Never mind, close ticket')
+                        .setStyle(ButtonStyle.Secondary)
+                )]
+            });
+            return;
+        }
+
+        // ── Alliance: apply for exemption → open info modal flagged ──
+        if (interaction.customId.startsWith('ticket_pr_alliance_exempt_')) {
+            const caseId = interaction.customId.replace('ticket_pr_alliance_exempt_', '');
+            const modal = new ModalBuilder()
+                .setCustomId(`ticket_pr_alliance_form_${caseId}_exemption`)
+                .setTitle('Alliance Exemption Request');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('discord_invite')
+                        .setLabel('Discord Server Invite Link')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setPlaceholder('https://discord.gg/...')
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('discord_members')
+                        .setLabel('Discord Member Count')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setPlaceholder('e.g. 80')
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('roblox_members')
+                        .setLabel('Roblox Community Member Count')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setPlaceholder('e.g. 60')
+                )
+            );
+            await interaction.showModal(modal);
+            return;
+        }
+
+        // ── Alliance: close ticket (user cancelled) ──
+        if (interaction.customId.startsWith('ticket_pr_alliance_cancel_')) {
+            const caseId = interaction.customId.replace('ticket_pr_alliance_cancel_', '');
+            await interaction.update({ embeds: [], components: [], content: '🔒 Closing ticket…' });
+            const ticket = await Ticket.findOne({ caseId }).catch(() => null);
+            if (ticket) {
+                await closeTicket(ticket, interaction.channel, { tag: 'System' }, 'User did not meet alliance requirements');
+            }
             return;
         }
 
@@ -3171,6 +3292,70 @@ if (interaction.customId.startsWith('dmreply_')) {
     } }
 
     if (interaction.isModalSubmit()) {
+
+        // ========== PR TICKET — alliance application form modal ==========
+        if (interaction.customId.startsWith('ticket_pr_alliance_form_')) {
+            await interaction.deferUpdate().catch(() => {});
+            try {
+                // customId format: ticket_pr_alliance_form_{caseId}_{type}
+                const parts    = interaction.customId.replace('ticket_pr_alliance_form_', '').split('_');
+                // customId format: ticket_pr_alliance_form_{caseId}_exemption
+                parts.pop(); // remove 'exemption'
+                const caseId = parts.join('_');
+
+                const discordInvite  = interaction.fields.getTextInputValue('discord_invite').trim();
+                const discordMembers = interaction.fields.getTextInputValue('discord_members').trim();
+                const robloxMembers  = interaction.fields.getTextInputValue('roblox_members').trim();
+
+                const ALLIANCE_LOG_CHANNEL_ID = '1485715416490836089';
+                const ALLIANCE_PING_ROLE_ID   = '1449021407282593937';
+                const ALLIANCE_GUILD_ID       = '1385081586285940796';
+
+                // ── Log to alliance channel ──
+                try {
+                    const allianceGuild = await client.guilds.fetch(ALLIANCE_GUILD_ID);
+                    const logChannel    = await allianceGuild.channels.fetch(ALLIANCE_LOG_CHANNEL_ID);
+                    if (logChannel?.isTextBased()) {
+                        const logEmbed = new EmbedBuilder()
+                            .setColor(0xE67E22)
+                            .setTitle('⚠️ Alliance Exemption Request')
+                            .addFields(
+                                { name: 'Applicant', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
+                                { name: 'Ticket', value: `#${caseId}`, inline: true },
+                                { name: 'Discord Invite', value: discordInvite },
+                                { name: 'Discord Members', value: discordMembers, inline: true },
+                                { name: 'Roblox Members', value: robloxMembers, inline: true },
+                                { name: 'Note', value: '⚠️ Does not meet standard requirements — requesting exemption', inline: false }
+                            )
+                            .setFooter({ text: 'Kavià Café • Alliance System' })
+                            .setTimestamp();
+                        await logChannel.send({
+                            content: `<@&${ALLIANCE_PING_ROLE_ID}>`,
+                            embeds: [logEmbed]
+                        });
+                    }
+                } catch (logErr) {
+                    console.error('[alliance log error]', logErr);
+                }
+
+                // ── Confirm in the ticket channel ──
+                await interaction.channel.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0xE67E22)
+                        .setTitle('📝 Exemption Request Submitted')
+                        .setDescription(
+                            `Your exemption request has been submitted to our staff team! They will review your group and get back to you shortly.\n\n**Please be patient** — we'll update you right here in this ticket.`
+                        )
+                    ]
+                });
+
+            } catch (err) {
+                console.error('[alliance form modal error]', err);
+                await interaction.channel.send({ content: '❌ Something went wrong processing your application. Please let staff know.' }).catch(() => {});
+            }
+            return;
+        }
+
 if (interaction.customId.startsWith('dmreplymodal_')) {
             await interaction.deferReply({ flags: 64 }).catch(() => {});
             try {
