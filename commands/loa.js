@@ -207,6 +207,29 @@ async function scheduleLoaAutoDelete(loaId, client, deptConfig, delay) {
                     if (mainGuild) await mainGuild.roles.delete(loa.loaRoleIdMain, 'LOA auto-ended').catch(() => {});
                 }
             } catch (err) { console.error('Error deleting LOA roles on auto-end:', err); }
+
+            // Notify staff in the log channel
+            try {
+                const loaGuild = await client.guilds.fetch(config.serverId).catch(() => null);
+                const logChannel = loaGuild ? await loaGuild.channels.fetch(config.loaLogChannelId).catch(() => null) : null;
+                if (logChannel?.isTextBased()) {
+                    const user = await client.users.fetch(loa.userId).catch(() => null);
+                    await logChannel.send({
+                        embeds: [new EmbedBuilder()
+                            .setTitle('⏰ LOA Auto-Ended')
+                            .setColor(0xE67E22)
+                            .addFields(
+                                { name: '👤 User', value: user ? `${user.tag} (${user.id})` : loa.userId },
+                                { name: '🏢 Department', value: loa.department },
+                                { name: '📅 Return Date', value: loa.returnDate },
+                                { name: 'ℹ️ Note', value: 'This staff member did not respond to their return reminder within 24 hours. Their LOA has been automatically closed and roles removed.' }
+                            )
+                            .setFooter({ text: `LOA ID: ${loaId}` })
+                            .setTimestamp()
+                        ]
+                    });
+                }
+            } catch (err) { console.error('Error sending LOA auto-end staff log:', err); }
         } catch (err) {
             console.error('Error auto deleting LOA:', err);
         }
