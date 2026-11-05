@@ -10,13 +10,14 @@ module.exports = {
         .setDescription('The user to view discipline for')
         .setRequired(true)
     ),
-
   async execute(interaction) {
-    const targetUser = interaction.options.getUser('user');
+    await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
+    const targetUser = interaction.options.getUser('user');
     const record = await StaffRecord.findById(targetUser.id);
+
     if (!record) {
-      return interaction.reply({ content: '❌ No discipline record found for this user.', ephemeral: true });
+      return interaction.editReply({ content: '❌ No discipline record found for this user.' });
     }
 
     const buildFields = (array, type) => {
@@ -37,7 +38,7 @@ module.exports = {
     ];
 
     if (allEntries.length === 0) {
-      return interaction.reply({ content: '❌ No discipline record found for this user.', ephemeral: true });
+      return interaction.editReply({ content: '❌ No discipline record found for this user.' });
     }
 
     const pageSize = 10;
@@ -68,7 +69,7 @@ module.exports = {
           .setDisabled(pages.length <= 1)
       );
 
-    const message = await interaction.reply({ embeds: [pages[currentPage]], components: [row], fetchReply: true, ephemeral: true });
+    const message = await interaction.editReply({ embeds: [pages[currentPage]], components: [row], fetchReply: true });
 
     if (pages.length <= 1) return;
 
@@ -76,7 +77,6 @@ module.exports = {
 
     collector.on('collect', async i => {
       if (i.user.id !== interaction.user.id) return i.reply({ content: '❌ Only the command user can navigate pages.', ephemeral: true });
-
       if (i.customId === 'next') currentPage++;
       else if (i.customId === 'prev') currentPage--;
 
