@@ -21,8 +21,15 @@ const {
     AttachmentBuilder
 } = require('discord.js');
 const { Session, SchedulePost } = require('../db');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const path = require('path');
+
+// Lazy-load canvas — if not installed the banner is silently skipped
+let _canvas = null;
+function getCanvas() {
+    if (_canvas) return _canvas;
+    try { _canvas = require('@napi-rs/canvas'); } catch { _canvas = false; }
+    return _canvas;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SCHEDULE_GUILD_ID    = '1434556801096876034';
@@ -245,6 +252,10 @@ function buildDayButtons() {
 // Returns an AttachmentBuilder (banner.png) for the weekly schedule post.
 // weekStartStr = 'YYYY-MM-DD' of Monday for the current week.
 async function generateScheduleBanner(weekStartStr) {
+    const cv = getCanvas();
+    if (!cv) return null; // canvas not installed — skip banner gracefully
+
+    const { createCanvas, loadImage } = cv;
     const W = 960, H = 200;
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
@@ -313,8 +324,30 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillStyle = gradBlueGlow;
     ctx.fillRect(0, H - 18, W, 16);
 
+    // ── Register fonts if available (Railway/Debian container paths) ─────────
+    const { registerFont } = cv;
+    const fontCandidates = [
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+        '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+        '/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf',
+    ];
+    const fontRegCandidates = [
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+        '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+        '/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf',
+    ];
+    const fs2 = require('fs');
+    for (const f of fontCandidates) {
+        if (fs2.existsSync(f)) { try { registerFont(f, { family: 'KaviaFont', weight: 'bold' }); } catch {} break; }
+    }
+    for (const f of fontRegCandidates) {
+        if (fs2.existsSync(f)) { try { registerFont(f, { family: 'KaviaFont', weight: 'normal' }); } catch {} break; }
+    }
+
     // ── Title: "KAVIA CAFÉ" ───────────────────────────────────────────────────
-    const titleFont = 'bold 64px sans-serif';
+    const titleFont = 'bold 64px KaviaFont, Arial, sans-serif';
     const titleY    = 95; // baseline
 
     ctx.font      = titleFont;
@@ -348,7 +381,7 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillText('KAVIA CAFÉ', W / 2 - 1, titleY - 1);
 
     // ── Subtitle: "SESSION SCHEDULE" ─────────────────────────────────────────
-    const subFont = 'bold 12px sans-serif';
+    const subFont = 'bold 12px KaviaFont, Arial, sans-serif';
     const subText = 'S E S S I O N   S C H E D U L E';
     const subY    = titleY + 24;
 
@@ -401,8 +434,8 @@ async function generateScheduleBanner(weekStartStr) {
     const dateRange  = `${monStr} – ${sunStr}`;
     const weekLabel  = 'WEEK OF';
 
-    const bigFont  = 'bold 17px sans-serif';
-    const smlFont  = '11px sans-serif';
+    const bigFont  = 'bold 17px KaviaFont, Arial, sans-serif';
+    const smlFont  = '11px KaviaFont, Arial, sans-serif';
 
     ctx.font = bigFont;
     const dateW = ctx.measureText(dateRange).width;
@@ -453,7 +486,9 @@ async function generateScheduleBanner(weekStartStr) {
 
     // ── Export as AttachmentBuilder ───────────────────────────────────────────
     const buffer = canvas.toBuffer('image/png');
-    return new AttachmentBuilder(buffer, { name: 'schedule-banner.png' });
+    // Return both the attachment and the attachment:// URL for embed.setImage()
+    const attachment = new AttachmentBuilder(buffer, { name: 'schedule-banner.png' });
+    return attachment;
 }
 
 // ─── Post (or refresh) the weekly schedule ────────────────────────────────────
@@ -467,17 +502,22 @@ async function postWeeklySchedule(client, forceNew = false) {
         const rows      = buildDayButtons();
 
         // Generate banner (gracefully skip if canvas fails)
+        // Banner is set as embed image (attachment://) so it appears BELOW the embed text
         let banner = null;
         try { banner = await generateScheduleBanner(weekStart); } catch (err) {
             console.warn('[sesschedule] Banner generation failed, posting without image:', err.message);
         }
+        if (banner) embed.setImage('attachment://schedule-banner.png');
 
         if (!forceNew && currentScheduleMessageId) {
             // Try to edit the existing message
             try {
                 const msg = await channel.messages.fetch(currentScheduleMessageId);
-                // Note: can only edit attachments on a fresh post; on edit we just update embed/components
-                await msg.edit({ embeds: [embed], components: rows });
+                await msg.edit({
+                    embeds: [embed],
+                    components: rows,
+                    ...(banner ? { files: [banner] } : {})
+                });
                 currentWeekStart = weekStart;
                 return msg;
             } catch {
@@ -485,7 +525,7 @@ async function postWeeklySchedule(client, forceNew = false) {
             }
         }
 
-        // Post fresh (includes banner image)
+        // Post fresh (includes banner image inside the embed)
         const sendPayload = { embeds: [embed], components: rows };
         if (banner) sendPayload.files = [banner];
         const msg = await channel.send(sendPayload);
