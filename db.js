@@ -15,6 +15,7 @@ const staffSchema = new mongoose.Schema({
     strikes: [{
         reason: String,
         date: String,
+        department: String,
         addedBy: { id: String, username: String },
         removed: Boolean,
         removedBy: String,
@@ -24,6 +25,7 @@ const staffSchema = new mongoose.Schema({
     terminations: [{
         reason: String,
         date: String,
+        department: String,
         addedBy: { id: String, username: String },
         proof: String,
         removed: Boolean,
@@ -34,14 +36,344 @@ const staffSchema = new mongoose.Schema({
     blacklists: [{
         reason: String,
         date: String,
+        department: String,
         addedBy: { id: String, username: String },
         removed: Boolean,
         removedBy: String,
         removedReason: String,
         removedAt: String
+    }],
+    notes: [{
+        note: String,
+        date: String,
+        department: String,
+        addedBy: { id: String, username: String }
     }]
 }, { versionKey: false });
 
-const StaffRecord = mongoose.model('StaffRecord', staffSchema);
+const reminderSchema = new mongoose.Schema({
+    userId: String,
+    message: String,
+    fireAt: Date,
+    createdAt: Date,
+    createdBy: String,
+    recurring: String,
+    recurringMs: Number
+}, { versionKey: false });
 
-module.exports = { connectDB, StaffRecord };
+const sessionSchema = new mongoose.Schema({
+    hostId: String,
+    coHostId: String,
+    shiftType: String,
+    time: String,
+    // Weekly schedule fields
+    scheduledDay: String,       // 'Monday', 'Tuesday', etc.
+    weekStart: String,          // 'YYYY-MM-DD' of Monday for this week
+    reminderType: String,       // '24h', '12h', or '10min'
+    scheduleMessageId: String,  // ID of the weekly schedule post
+    // Existing fields
+    announcementMessageId: String,
+    announcementChannelId: String,
+    requestMessageId: String,
+    requestChannelId: String,
+    status: String,
+    preSessionReminderSent: Boolean,
+    sessionStarted: Boolean,
+    finishCheckStarted: Boolean,
+    hostConfirmed: Boolean,
+    createdAt: Date,
+    approvedAt: Date,
+    sessionFireAt: Date,
+    autoDeleteAt: Date
+}, { versionKey: false });
+
+const loaSchema = new mongoose.Schema({
+    userId: String,
+    username: String,
+    department: String,
+    reason: String,
+    timeGone: String,
+    returnDate: String,
+    returnDateParsed: Date,
+    status: String,
+    messageId: String,
+    channelId: String,
+    logChannelId: String,
+    createdAt: Date,
+    approvedAt: Date,
+    returnReminderSent: Boolean,
+    autoDeleteAt: Date
+}, { versionKey: false });
+
+const completedTrainingsSchema = new mongoose.Schema({
+    _id: String,
+    completedTrainings: [String]
+}, { versionKey: false });
+
+const ticketSchema = new mongoose.Schema({
+    caseId: String,
+    userId: String,
+    category: String,
+    serverId: String,
+    channelId: String,
+    ticketCategoryId: String,
+    claimedBy: String,
+    claimedByTag: String,
+    status: String,
+    openReason: String,
+    pingRoleId: String,
+    pingRoleIds: [String],
+    logChannelId: String,
+    repingTimeout: String,
+    createdAt: Date,
+    claimedAt: Date,
+    closedAt: Date
+}, { versionKey: false });
+
+const reviewSchema = new mongoose.Schema({
+    staffId: String,
+    staffTag: String,
+    reviewerId: String,
+    reviewerTag: String,
+    rating: Number,
+    ticketCaseId: String,
+    serverId: String,
+    createdAt: Date
+}, { versionKey: false });
+
+const ticketPanelSchema = new mongoose.Schema({
+    serverId: String,
+    channelId: String,
+    logChannelId: String,
+    messageId: String,
+    title: String,
+    description: String,
+    categories: [{
+        name: String,
+        pingRoleId: String,
+        pingRoleIds: [String],
+        emoji: String,
+        description: String
+    }],
+    ticketCategoryId: String,
+    createdAt: Date
+}, { versionKey: false });
+
+const birthdaySchema = new mongoose.Schema({
+    _id: String,
+    month: Number,
+    day: Number,
+    lastAnnouncedYear: Number
+}, { versionKey: false });
+
+const paymentSchema = new mongoose.Schema({
+    offeredBy: String,
+    offeredByTag: String,
+    targetId: String,
+    targetTag: String,
+    targetDiscriminator: String,
+    targetCreatedAt: Date,
+    amount: Number,
+    currency: String,
+    description: String,
+    serverId: String,
+    serverName: String,
+    department: String,
+    logChannelId: String,
+    status: String,
+    counterAmount: Number,
+    agreementSigned: Boolean,
+    agreementSignedAt: Date,
+    paid: Boolean,
+    paidAt: Date,
+    paidBy: String,
+    paidByTag: String,
+    createdAt: Date,
+    robloxUsername: String,
+    history: [{
+        action: String,
+        by: String,
+        byTag: String,
+        amount: Number,
+        at: Date,
+        note: String
+    }]
+}, { versionKey: false });
+const checklistSchema = new mongoose.Schema({
+    _id: String,
+    scope: String,
+    serverId: String,
+    ownerId: String,
+    items: [{
+        text: String,
+        done: Boolean,
+        addedBy: String
+    }]
+}, { versionKey: false });
+
+
+const appFormSchema = new mongoose.Schema({
+    name: String,
+    description: String,
+    department: { type: String, default: 'General' },
+    gameLink: String,
+    questions: [String],
+    createdBy: String,
+    createdByTag: String,
+    logServerId: String,
+    logServerName: String,
+    logChannelId: String,
+    logChannelName: String,
+    ticketServerId: String,
+    ticketServerName: String,
+    ticketChannelId: String,
+    ticketChannelName: String,
+    createdAt: Date,
+    open: { type: Boolean, default: false },
+    openMessageId: String,
+    openChannelId: String,
+    notifyRoleId: String
+}, { versionKey: false });
+
+// Tracks the pinned status board message(s) that auto-update on open/close
+const appStatusBoardSchema = new mongoose.Schema({
+    guildId:   String,
+    channelId: String,
+    messageId: String,
+    updatedAt: Date
+}, { versionKey: false });
+
+const appSubmissionSchema = new mongoose.Schema({
+    formId: String,
+    formName: String,
+    userId: String,
+    userTag: String,
+    answers: [String],
+    status: { type: String, default: 'pending' }, // pending, passed, declined
+    isResubmit: { type: Boolean, default: false },
+    declineReason: String,
+    declinedBy: String,
+    declinedAt: Date,
+    passedBy: String,
+    passedAt: Date,
+    logMessageId: String,
+    logChannelId: String,
+    submittedAt: Date
+}, { versionKey: false });
+
+// Watches for a ticket opened by an applicant who was sent to ticket flow
+const appTicketWatchSchema = new mongoose.Schema({
+    userId:        String,   // applicant's Discord user ID
+    submissionId:  String,   // AppSubmission _id (string)
+    formId:        String,
+    formName:      String,
+    logChannelId:  String,   // where to post the update
+    logMessageId:  String,   // the original submission log message ID (for jump link)
+    staffId:       String,   // who clicked "Send to Ticket"
+    expiresAt:     Date,     // now + 48h
+    triggered:     { type: Boolean, default: false }  // true once a ticket is linked
+}, { versionKey: false });
+
+const giveawaySchema = new mongoose.Schema({
+    giveawayId: { type: String, required: true, unique: true },
+    status: { type: String, default: 'active' }, // 'active' | 'ended'
+    config: {
+        prize: String,
+        description: String,
+        winnersCount: Number,
+        requiredMessages: Number,
+        weighted: Boolean,
+        channelId: String,
+        messageId: String,
+        guildName: String,
+        guildId: String,
+        hostId: String,
+        endAt: Date
+    },
+    // Array of { userId, msgCount } — updated as people enter/chat
+    participants: [{ userId: String, msgCount: { type: Number, default: 0 } }],
+    endAt: Date,
+    createdAt: Date,
+    endedAt: Date,
+    winners: [String],
+    qualifiedCount: Number,
+    rerolledBy: String,
+    rerolledAt: Date
+}, { versionKey: false });
+
+const messageLogSchema = new mongoose.Schema({
+    userId: String,
+    userTag: String,
+    guildId: String,
+    weeklyCount: { type: Number, default: 0 },
+    lastWeekCount: { type: Number, default: 0 },
+    allTimeCount: { type: Number, default: 0 },
+    lastActiveAt: Date,
+    weekStartDate: Date
+}, { versionKey: false });
+
+const weeklyStatsSchema = new mongoose.Schema({
+    _id: { type: String, default: 'singleton' },
+    weeklyDiscordJoins: { type: Number, default: 0 },
+    weeklyDiscordLeaves: { type: Number, default: 0 },
+    lastWeekDiscordJoins: { type: Number, default: 0 },
+    lastWeekDiscordLeaves: { type: Number, default: 0 },
+    weeklyTotalMessages: { type: Number, default: 0 },
+    lastWeekTotalMessages: { type: Number, default: 0 },
+    lastWeekRobloxCount: { type: Number, default: 3947 },
+    weekStartRobloxCount: { type: Number, default: 3947 },
+    updatedAt: { type: Date, default: Date.now }
+}, { versionKey: false });
+
+// Persists auto-created channel IDs per department so they aren't recreated on restart
+const deptConfigCacheSchema = new mongoose.Schema({
+    _id: String,          // department key e.g. "Kavià Café"
+    resignLogChannelId: String
+}, { versionKey: false });
+const DeptConfigCache = mongoose.model('DeptConfigCache', deptConfigCacheSchema);
+
+const resignSchema = new mongoose.Schema({
+    userId: String,
+    userTag: String,
+    department: String,
+    resignedBy: String,       // staff member who logged it
+    resignedByTag: String,
+    reason: String,
+    lastDay: String,
+    logChannelId: String,
+    logMessageId: String,
+    createdAt: Date
+}, { versionKey: false });
+const Resignation = mongoose.model('Resignation', resignSchema);
+
+const StaffRecord = mongoose.model('StaffRecord', staffSchema);
+const Reminder = mongoose.model('Reminder', reminderSchema);
+const Session = mongoose.model('Session', sessionSchema);
+const LOA = mongoose.model('LOA', loaSchema);
+const CompletedTrainings = mongoose.model('CompletedTrainings', completedTrainingsSchema);
+const Ticket = mongoose.model('Ticket', ticketSchema);
+const Review = mongoose.model('Review', reviewSchema);
+const TicketPanel = mongoose.model('TicketPanel', ticketPanelSchema);
+const Birthday = mongoose.model('Birthday', birthdaySchema);
+const Checklist = mongoose.model('Checklist', checklistSchema);
+const Payment = mongoose.model('Payment', paymentSchema);
+
+const WeeklyStats = mongoose.model('WeeklyStats', weeklyStatsSchema);
+const MessageLog = mongoose.model('MessageLog', messageLogSchema);
+const AppForm = mongoose.model('AppForm', appFormSchema);
+const AppSubmission = mongoose.model('AppSubmission', appSubmissionSchema);
+const AppStatusBoard = mongoose.model('AppStatusBoard', appStatusBoardSchema);
+const AppTicketWatch = mongoose.model('AppTicketWatch', appTicketWatchSchema);
+const Giveaway = mongoose.model('Giveaway', giveawaySchema);
+
+// Persists the weekly session schedule post message ID so restarts don't re-post
+const schedulePostSchema = new mongoose.Schema({
+    _id:       { type: String, default: 'singleton' },
+    weekStart: String,   // 'YYYY-MM-DD' — which week this message belongs to
+    messageId: String,   // Discord message ID of the schedule post
+    channelId: String,
+    updatedAt: Date
+}, { versionKey: false });
+const SchedulePost = mongoose.model('SchedulePost', schedulePostSchema);
+
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost };
