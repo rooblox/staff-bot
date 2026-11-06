@@ -455,6 +455,14 @@ async function buildSessionInfoEmbed() {
                 inline: false
             },
             {
+                name: '🕐  Available Session Times',
+                value:
+                    '`12:00 AM` · `2:00 AM` · `4:00 AM` · `6:00 AM` · `8:00 AM` · `10:00 AM`\n' +
+                    '`12:00 PM` · `2:00 PM` · `4:00 PM` · `6:00 PM` · `8:00 PM` · `10:00 PM`\n' +
+                    '-# All times in EST · CET is +6 hrs · PT is −3 hrs\n​',
+                inline: false
+            },
+            {
                 name: '📅  Next Scheduled Session',
                 value: nextLine + '\n​',
                 inline: false
