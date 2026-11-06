@@ -439,7 +439,7 @@ function createServer(client) {
                 if (!s.scheduledDay || !s.time) continue;
                 const sessionUTC = sessionTimeToUTC(s.time, s.scheduledDay, s.weekStart || weekStart);
                 const minutesUntil = (sessionUTC - now) / 60000;
-                if (minutesUntil < -20 || minutesUntil > 1440) continue;
+                if (minutesUntil < -60 || minutesUntil > 1440) continue;
                 const link = await RobloxLink.findOne({ discordId: s.hostDiscordId });
                 if (!link) continue;
                 result.push({
@@ -520,6 +520,16 @@ function createServer(client) {
             console.error('[roblox-api] /status error:', err);
             res.status(500).json({ error: 'Internal server error' });
         }
+    });
+
+    // ========== DEBUG (remove after testing) ==========
+    app.get('/api/debug/sessions', async (req, res) => {
+        try {
+            const weekStart = getCurrentWeekStart();
+            const sessions = await Session.find({ weekStart, status: { $in: ['pending', 'approved'] } });
+            const links = await RobloxLink.find({});
+            res.json({ weekStart, sessionCount: sessions.length, sessions: sessions.map(s => ({ id: s._id, hostDiscordId: s.hostDiscordId, hostName: s.hostName, day: s.scheduledDay, time: s.time, status: s.status })), links });
+        } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
     // ========== HEALTH CHECK ==========
