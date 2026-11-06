@@ -433,7 +433,7 @@ function createServer(client) {
         try {
             const weekStart = getCurrentWeekStart();
             const now = new Date();
-            const sessions = await Session.find({ weekStart, status: { $in: ['pending', 'approved'] } });
+            const sessions = await Session.find({ weekStart, status: { $in: ['pending', 'approved', 'active'] } });
             const result = [];
             for (const s of sessions) {
                 if (!s.scheduledDay || !s.time) continue;
@@ -526,7 +526,7 @@ function createServer(client) {
     app.get('/api/debug/sessions', async (req, res) => {
         try {
             const weekStart = getCurrentWeekStart();
-            const sessions = await Session.find({ weekStart, status: { $in: ['pending', 'approved'] } });
+            const sessions = await Session.find({ weekStart, status: { $in: ['pending', 'approved', 'active'] } });
             const links = await RobloxLink.find({});
             res.json({ weekStart, sessionCount: sessions.length, sessions: sessions.map(s => ({ id: s._id, hostDiscordId: s.hostDiscordId, hostName: s.hostName, day: s.scheduledDay, time: s.time, status: s.status })), links });
         } catch (err) { res.status(500).json({ error: err.message }); }
