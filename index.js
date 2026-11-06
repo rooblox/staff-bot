@@ -8,6 +8,8 @@ const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } =
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
+const SESSION_LOG_CHANNEL_ID = '1568027695718080552'; // attendance, confirmations, status posts
+const SESSION_INFO_MESSAGE_KEY = 'session_info_panel'; // key stored in SchedulePost singleton
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
 const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
 const MAIN_GUILD_ID = '1370892833182974035';
@@ -425,6 +427,84 @@ function scheduleTicketInactivity(ticket, guild) {
     client.ticketInactivityTimeouts.set(ticket.caseId, timeout);
 }
 
+// ========== SESSION INFO PANEL ==========
+// Builds the embed that sits pinned in the sessions channel.
+// Shows next scheduled session (or "None scheduled") + ping role buttons.
+async function buildSessionInfoEmbed() {
+    const now = new Date();
+    // Find the soonest future approved/pending session
+    const upcoming = await Session.find({ status: { $in: ['pending', 'approved'] }, sessionFireAt: { $gt: now } })
+        .sort({ sessionFireAt: 1 }).limit(1);
+    const next = upcoming[0] || null;
+
+    let nextLine = '> No sessions are currently scheduled.';
+    if (next) {
+        const ts = Math.floor(new Date(next.sessionFireAt).getTime() / 1000);
+        nextLine = `> **${next.shiftType || 'Regular Shift'}** — <t:${ts}:F> (<t:${ts}:R>)\n> Hosted by <@${next.hostId}>`;
+    }
+
+    return new EmbedBuilder()
+        .setColor(0x2b2d31)
+        .setImage(PANEL_IMAGE)
+        .addFields(
+            {
+                name: '☕  Session Information',
+                value:
+                    'Here you will find sessions hosted by our High Rank team. Sessions are scheduled solely based on staff availability — please do not request or pressure staff to host.\n​',
+                inline: false
+            },
+            {
+                name: '📅  Next Scheduled Session',
+                value: nextLine + '\n​',
+                inline: false
+            }
+        )
+        .setFooter({ text: 'Kavià Café • Use the buttons below to manage your session pings' });
+}
+
+const SESSION_INFO_CHANNEL_ID = '1385105286926172160'; // the channel the panel lives in
+
+async function postOrUpdateSessionInfoPanel() {
+    try {
+        const { SchedulePost } = require('./db');
+        const guild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID).catch(() => null);
+        if (!guild) return;
+        const channel = await guild.channels.fetch(SESSION_INFO_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased()) return;
+
+        const embed = await buildSessionInfoEmbed();
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('ses_addping')
+                .setLabel('🔔  Get Session Pings')
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId('ses_removeping')
+                .setLabel('🔕  Remove Session Pings')
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        // Try to edit existing panel message stored in DB
+        const record = await SchedulePost.findOne({ _id: SESSION_INFO_MESSAGE_KEY }).catch(() => null);
+        if (record?.messageId) {
+            const existing = await channel.messages.fetch(record.messageId).catch(() => null);
+            if (existing) {
+                await existing.edit({ embeds: [embed], components: [row] });
+                return;
+            }
+        }
+
+        // Post fresh and pin it
+        const msg = await channel.send({ embeds: [embed], components: [row] });
+        await msg.pin().catch(() => {});
+        await SchedulePost.findOneAndUpdate(
+            { _id: SESSION_INFO_MESSAGE_KEY },
+            { messageId: msg.id, channelId: channel.id, updatedAt: new Date() },
+            { upsert: true }
+        );
+    } catch (err) { console.error('[sessionInfoPanel] Error:', err); }
+}
+
 // ========== SESSION SCHEDULING ==========
 async function scheduleSession(session) {
     const fireAt = new Date(session.sessionFireAt).getTime();
@@ -441,18 +521,17 @@ async function scheduleSession(session) {
                 // Double-fire guard: if already sent (e.g. another instance beat us) skip
                 if (latestSession.preSessionReminderSent) return;
                 await Session.findByIdAndUpdate(session._id, { preSessionReminderSent: true });
-                const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ses_stillhosting_${session._id}`).setLabel('✅ Yes, I am still hosting').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId(`ses_canthost_${session._id}`).setLabel('❌ No, I cannot make it').setStyle(ButtonStyle.Danger)
                 );
-                if (requestChannel?.isTextBased()) {
-                    await requestChannel.send({
-                        content: `<@${latestSession.hostId}>`,
-                        embeds: [new EmbedBuilder().setTitle('⏰ Session Starting Soon!').setDescription(`<@${latestSession.hostId}>, your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host? You have **8 minutes** to respond or your session will be automatically cancelled.\n\n*Only you can click these buttons.*`).setColor(0xF39C12).setTimestamp()],
+                try {
+                    const hostUser = await client.users.fetch(latestSession.hostId);
+                    await hostUser.send({
+                        embeds: [new EmbedBuilder().setTitle('⏰ Session Starting Soon!').setDescription(`Your **${latestSession.shiftType}** is starting in **10 minutes** at ${latestSession.time}!\n\nAre you still able to host? You have **8 minutes** to respond or your session will be automatically cancelled.\n\n*Only you can click these buttons.*`).setColor(0xF39C12).setTimestamp()],
                         components: [row]
                     });
-                }
+                } catch { console.warn('[scheduleSession] Could not DM host for pre-session reminder:', latestSession.hostId); }
                 setTimeout(async () => {
                     try {
                         const checkSession = await Session.findById(session._id);
@@ -462,7 +541,7 @@ async function scheduleSession(session) {
                             const host = await client.users.fetch(latestSession.hostId);
                             await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
                         } catch {}
-                        if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setColor(0xE74C3C).setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response.`).setTimestamp()] });
+                        try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setColor(0xE74C3C).setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response.`).setTimestamp()] }); } catch {}
                     } catch (err) { console.error('Error auto cancelling session:', err); }
                 }, 8 * 60 * 1000);
             } catch (err) { console.error('Error sending pre-session reminder:', err); }
@@ -508,6 +587,7 @@ async function postAnnouncement(session) {
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, { announcementMessageId: msg.id, announcementChannelId: ANNOUNCEMENT_CHANNEL_ID, sessionStarted: true, status: 'active', autoDeleteAt });
         scheduleAutoDelete(session._id, msg.id, 24 * 60 * 60 * 1000);
+        postOrUpdateSessionInfoPanel().catch(() => {}); // refresh panel — session is now active
     } catch (err) { console.error('Error posting announcement:', err); }
 }
 
@@ -515,18 +595,17 @@ async function sendFinishCheck(sessionId) {
     try {
         const latestSession = await Session.findById(sessionId);
         if (!latestSession || latestSession.status === 'finished' || latestSession.status === 'cancelled') return;
-        const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`ses_finished_${sessionId}`).setLabel('✅ Yes, session is finished').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`ses_notfinished_${sessionId}`).setLabel('❌ No, still going').setStyle(ButtonStyle.Danger)
         );
-        if (requestChannel?.isTextBased()) {
-            await requestChannel.send({
-                content: `<@${latestSession.hostId}>`,
-                embeds: [new EmbedBuilder().setTitle('🏁 Is your session finished?').setDescription(`<@${latestSession.hostId}>, it's been 25 minutes since your **${latestSession.shiftType}** started. Is it finished?\n\n*Only you can click these buttons.*`).setColor(0x3498DB).setTimestamp()],
+        try {
+            const hostUser = await client.users.fetch(latestSession.hostId);
+            await hostUser.send({
+                embeds: [new EmbedBuilder().setTitle('🏁 Is your session finished?').setDescription(`It's been 25 minutes since your **${latestSession.shiftType}** started. Is it finished?\n\n*Only you can click these buttons.*`).setColor(0x3498DB).setTimestamp()],
                 components: [row]
             });
-        }
+        } catch { console.warn('[sendFinishCheck] Could not DM host:', latestSession.hostId); }
     } catch (err) { console.error('Error sending finish check:', err); }
 }
 
@@ -2021,6 +2100,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                 await interaction.update({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` })], components: [] });
                 session.status = 'approved';
                 await scheduleSession(session);
+                postOrUpdateSessionInfoPanel().catch(() => {}); // refresh panel — new session approved
             } catch (err) { console.error('Error accepting session:', err); await interaction.reply({ content: '❌ Error accepting request.', flags: 64 }); }
             return;
         }
@@ -2036,14 +2116,42 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        // ── Session ping role self-service ────────────────────────────────────────
+        if (interaction.customId === 'ses_addping') {
+            try {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                if (member.roles.cache.has(SHIFT_PING_ROLE_ID)) {
+                    return interaction.reply({ content: '✅ You already have session pings!', flags: 64 });
+                }
+                await member.roles.add(SHIFT_PING_ROLE_ID);
+                return interaction.reply({ content: '🔔 Done! You\'ll now be pinged when sessions start.', flags: 64 });
+            } catch (err) {
+                console.error('[ses_addping]', err);
+                return interaction.reply({ content: '❌ Could not add the role. Make sure the bot has permission.', flags: 64 });
+            }
+        }
+
+        if (interaction.customId === 'ses_removeping') {
+            try {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                if (!member.roles.cache.has(SHIFT_PING_ROLE_ID)) {
+                    return interaction.reply({ content: '✅ You don\'t have session pings — nothing to remove.', flags: 64 });
+                }
+                await member.roles.remove(SHIFT_PING_ROLE_ID);
+                return interaction.reply({ content: '🔕 Removed. You won\'t be pinged for sessions anymore.', flags: 64 });
+            } catch (err) {
+                console.error('[ses_removeping]', err);
+                return interaction.reply({ content: '❌ Could not remove the role. Make sure the bot has permission.', flags: 64 });
+            }
+        }
+
         if (interaction.customId.startsWith('ses_stillhosting_')) {
             const sessionId = interaction.customId.replace('ses_stillhosting_', '');
             const session = await Session.findById(sessionId);
             if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { hostConfirmed: true });
-            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('✅ Host Confirmed').setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**. The announcement will be posted at the scheduled time!`).setColor(0x2ECC71).setTimestamp()] });
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('✅ Host Confirmed').setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**. The announcement will be posted at the scheduled time!`).setColor(0x2ECC71).setTimestamp()] }); } catch {}
             return;
         }
 
@@ -2054,8 +2162,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
             try { const host = await client.users.fetch(session.hostId); await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Cancelled').setDescription('Your session has been cancelled. Please let a staff member know if you need to reschedule.').setColor(0xE74C3C).setTimestamp()] }); } catch {}
-            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Cancelled').setColor(0xE74C3C).setDescription(`<@${session.hostId}> is no longer able to host their **${session.shiftType}** at ${session.time}.`).setTimestamp()] });
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Cancelled').setColor(0xE74C3C).setDescription(`<@${session.hostId}> is no longer able to host their **${session.shiftType}** at ${session.time}.`).setTimestamp()] }); } catch {}
             return;
         }
 
@@ -2095,24 +2202,26 @@ if (interaction.customId.startsWith('dmreply_')) {
                 });
                 return interaction.reply({ content: `✅ Co-host request sent to the host! You'll receive a DM with the result.`, flags: 64 });
             } catch {
-                // Host DMs closed — post in request channel instead
-                const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-                if (requestChannel?.isTextBased()) {
-                    const coHostRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId(`ses_cohostaccept_${sessionId}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId(`ses_cohostdecline_${sessionId}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
-                    );
-                    await requestChannel.send({
-                        content: `<@${session.hostId}>`,
-                        embeds: [new EmbedBuilder()
-                            .setTitle('🤝 Co-Host Request')
-                            .setDescription(`**${interaction.user.tag}** (<@${interaction.user.id}>) wants to co-host your **${session.shiftType}**. Accept or decline?`)
-                            .setColor(0x3498DB)
-                            .setTimestamp()
-                        ],
-                        components: [coHostRow]
-                    });
-                }
+                // Host DMs closed — post in session log channel instead
+                try {
+                    const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID);
+                    if (logCh?.isTextBased()) {
+                        const coHostRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId(`ses_cohostaccept_${sessionId}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
+                            new ButtonBuilder().setCustomId(`ses_cohostdecline_${sessionId}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
+                        );
+                        await logCh.send({
+                            content: `<@${session.hostId}>`,
+                            embeds: [new EmbedBuilder()
+                                .setTitle('🤝 Co-Host Request')
+                                .setDescription(`**${interaction.user.tag}** (<@${interaction.user.id}>) wants to co-host your **${session.shiftType}**. Accept or decline?`)
+                                .setColor(0x3498DB)
+                                .setTimestamp()
+                            ],
+                            components: [coHostRow]
+                        });
+                    }
+                } catch {}
                 return interaction.reply({ content: `✅ Co-host request sent!`, flags: 64 });
             }
         }
@@ -2130,8 +2239,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                 const requester = await client.users.fetch(requesterId);
                 await requester.send({ embeds: [new EmbedBuilder().setTitle('✅ Co-Host Request Accepted').setDescription(`Your request to co-host **${session.shiftType}** has been **accepted** by the host! Welcome aboard.`).setColor(0x2ECC71).setTimestamp()] });
             } catch {}
-            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('🤝 Co-Host Added').setDescription(`<@${requesterId}> has been accepted as co-host for <@${session.hostId}>'s **${session.shiftType}**.`).setColor(0x2ECC71).setTimestamp()] });
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('🤝 Co-Host Added').setDescription(`<@${requesterId}> has been accepted as co-host for <@${session.hostId}>'s **${session.shiftType}**.`).setColor(0x2ECC71).setTimestamp()] }); } catch {}
             return;
         }
 
@@ -2157,22 +2265,22 @@ if (interaction.customId.startsWith('dmreply_')) {
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { status: 'finished' });
             try { const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID); const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID); const msg = await announcementChannel.messages.fetch(session.announcementMessageId).catch(() => null); if (msg) await msg.delete().catch(() => {}); } catch (err) { console.error('Error deleting announcement:', err); }
-            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            // Build attendance summary
+            // Build attendance summary and post to session log channel
             const attendees = session.attendees || [];
             let attendanceLine = 'No check-ins recorded.';
             if (attendees.length > 0) {
                 attendanceLine = attendees.map(id => `<@${id}>`).join(', ') + ` (${attendees.length} total)`;
             }
             const coHostLine = session.coHostId ? `<@${session.coHostId}>` : 'None';
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder()
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder()
                 .setTitle('✅ Session Finished')
                 .setDescription(`<@${session.hostId}>'s **${session.shiftType}** has been marked as finished. Great job!`)
                 .addFields(
                     { name: '🤝 Co-Host', value: coHostLine, inline: true },
                     { name: `👥 Attendance (${attendees.length})`, value: attendanceLine, inline: false }
                 )
-                .setColor(0x2ECC71).setTimestamp()] });
+                .setColor(0x2ECC71).setTimestamp()] }); } catch {}
+            postOrUpdateSessionInfoPanel().catch(() => {}); // refresh panel — session ended
             return;
         }
 
@@ -2181,8 +2289,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             const session = await Session.findById(sessionId);
             if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
-            const requestChannel = await client.channels.fetch(REQUEST_CHANNEL_ID);
-            if (requestChannel?.isTextBased()) await requestChannel.send({ embeds: [new EmbedBuilder().setTitle('⏳ Session Still Going').setDescription(`<@${session.hostId}>'s **${session.shiftType}** is still in progress. We'll check back in another 25 minutes.`).setColor(0xF39C12).setTimestamp()] });
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('⏳ Session Still Going').setDescription(`<@${session.hostId}>'s **${session.shiftType}** is still in progress. We'll check back in another 25 minutes.`).setColor(0xF39C12).setTimestamp()] }); } catch {}
             setTimeout(async () => { await sendFinishCheck(sessionId); }, 25 * 60 * 1000);
             return;
         }
@@ -4892,6 +4999,7 @@ client.once('ready', async () => {
     await restoreSessions();
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
+    await postOrUpdateSessionInfoPanel(); // post/refresh session info panel on startup
 
     // Session schedule reminders (24h / 12h / 10min DM reminders for claimed slots)
     setInterval(() => checkAndSendReminders(client).catch(err =>
