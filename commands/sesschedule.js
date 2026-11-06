@@ -324,27 +324,12 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillStyle = gradBlueGlow;
     ctx.fillRect(0, H - 18, W, 16);
 
-    // ── Register fonts if available (Railway/Debian container paths) ─────────
+    // ── Register bundled fonts (shipped in commands/ folder) ─────────────────
     const { registerFont } = cv;
-    const fontCandidates = [
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
-        '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
-        '/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf',
-    ];
-    const fontRegCandidates = [
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
-        '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
-        '/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf',
-    ];
-    const fs2 = require('fs');
-    for (const f of fontCandidates) {
-        if (fs2.existsSync(f)) { try { registerFont(f, { family: 'KaviaFont', weight: 'bold' }); } catch {} break; }
-    }
-    for (const f of fontRegCandidates) {
-        if (fs2.existsSync(f)) { try { registerFont(f, { family: 'KaviaFont', weight: 'normal' }); } catch {} break; }
-    }
+    const boldFontPath = path.join(__dirname, 'banner-font-bold.ttf');
+    const regFontPath  = path.join(__dirname, 'banner-font-regular.ttf');
+    try { registerFont(boldFontPath,  { family: 'KaviaFont', weight: 'bold'   }); } catch {}
+    try { registerFont(regFontPath,   { family: 'KaviaFont', weight: 'normal' }); } catch {}
 
     // ── Title: "KAVIA CAFÉ" ───────────────────────────────────────────────────
     const titleFont = 'bold 64px KaviaFont, Arial, sans-serif';
