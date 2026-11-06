@@ -255,7 +255,7 @@ async function generateScheduleBanner(weekStartStr) {
     const cv = getCanvas();
     if (!cv) return null; // canvas not installed — skip banner gracefully
 
-    const { createCanvas, loadImage } = cv;
+    const { createCanvas, loadImage, GlobalFonts } = cv;
     const W = 960, H = 200;
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
@@ -266,11 +266,15 @@ async function generateScheduleBanner(weekStartStr) {
     const srcW   = bg.width, srcH = bg.height;
 
     // Crop: maintain W:H ratio, shift left so palm tree pillar is in frame
-    const cropH = srcH;
-    const cropW = Math.min(Math.floor(cropH * W / H), srcW);
-    const cropX = Math.floor((srcW - cropW) * 0.08); // 8% from left edge
-    const cropY = Math.floor((srcH - cropH) * 0.3);
-    ctx.drawImage(bg, cropX, cropY, cropW, cropH, 0, 0, W, H);
+    const cropW = Math.min(Math.floor(srcH * W / H), srcW);
+    const cropX = Math.floor((srcW - cropW) * 0.08);
+    ctx.drawImage(bg, cropX, 0, cropW, srcH, 0, 0, W, H);
+
+    // Soft blur via downscale/upscale
+    const tmpC = createCanvas(W / 4, H / 4);
+    const tmpX = tmpC.getContext('2d');
+    tmpX.drawImage(canvas, 0, 0, W / 4, H / 4);
+    ctx.drawImage(tmpC, 0, 0, W, H);
 
     // ── Brightness / color boost (simulate Pillow enhance) ───────────────────
     // Darken slightly via semi-transparent overlay then draw image brighter using globalAlpha
@@ -325,14 +329,13 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillRect(0, H - 18, W, 16);
 
     // ── Register bundled fonts (shipped in commands/ folder) ─────────────────
-    const { registerFont } = cv;
     const boldFontPath = path.join(__dirname, 'banner-font-bold.ttf');
     const regFontPath  = path.join(__dirname, 'banner-font-regular.ttf');
-    try { registerFont(boldFontPath,  { family: 'KaviaFont', weight: 'bold'   }); } catch {}
-    try { registerFont(regFontPath,   { family: 'KaviaFont', weight: 'normal' }); } catch {}
+    try { GlobalFonts.registerFromPath(boldFontPath, 'KaviaFont');    } catch {}
+    try { GlobalFonts.registerFromPath(regFontPath,  'KaviaFontReg'); } catch {}
 
     // ── Title: "KAVIA CAFÉ" ───────────────────────────────────────────────────
-    const titleFont = 'bold 64px KaviaFont, Arial, sans-serif';
+    const titleFont = 'bold 64px KaviaFont';
     const titleY    = 95; // baseline
 
     ctx.font      = titleFont;
@@ -366,19 +369,22 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillText('KAVIA CAFÉ', W / 2 - 1, titleY - 1);
 
     // ── Subtitle: "SESSION SCHEDULE" ─────────────────────────────────────────
-    const subFont = 'bold 12px KaviaFont, Arial, sans-serif';
+    const subFont = 'bold 14px KaviaFont';
     const subText = 'S E S S I O N   S C H E D U L E';
     const subY    = titleY + 24;
 
     ctx.font      = subFont;
     ctx.textAlign = 'center';
 
-    // Shadow
-    ctx.fillStyle = 'rgba(10,5,30,0.8)';
+    // Dark shadow passes for readability
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 10;
+    ctx.fillStyle = 'rgba(10,5,30,0.95)';
     ctx.fillText(subText, W / 2 + 1, subY + 1);
+    ctx.fillText(subText, W / 2 - 1, subY + 1);
+    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
 
     // Pink text
-    ctx.fillStyle = 'rgb(210,120,190)';
+    ctx.fillStyle = 'rgb(240,150,220)';
     ctx.fillText(subText, W / 2, subY);
 
     // Measure for divider lines
@@ -419,8 +425,8 @@ async function generateScheduleBanner(weekStartStr) {
     const dateRange  = `${monStr} – ${sunStr}`;
     const weekLabel  = 'WEEK OF';
 
-    const bigFont  = 'bold 17px KaviaFont, Arial, sans-serif';
-    const smlFont  = '11px KaviaFont, Arial, sans-serif';
+    const bigFont  = 'bold 17px KaviaFont';
+    const smlFont  = '11px KaviaFontReg';
 
     ctx.font = bigFont;
     const dateW = ctx.measureText(dateRange).width;
