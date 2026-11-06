@@ -376,6 +376,18 @@ const schedulePostSchema = new mongoose.Schema({
 }, { versionKey: false });
 const SchedulePost = mongoose.model('SchedulePost', schedulePostSchema);
 
+// ── Session reminders (Remind Me button on the info panel) ───────────────────
+const sessionReminderSchema = new mongoose.Schema({
+    userId:    String,   // Discord user ID who requested the reminder
+    sessionId: String,   // Session _id
+    when:      String,   // '24h' | '12h' | 'ontime'
+    how:       String,   // 'dm' | 'channel'
+    fireAt:    Date,     // exact timestamp to fire
+    fired:     { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+}, { versionKey: false });
+const SessionReminder = mongoose.model('SessionReminder', sessionReminderSchema);
+
 // ── Roblox account link ───────────────────────────────────────────────────────
 const robloxLinkSchema = new mongoose.Schema({
     discordId:      { type: String, required: true, unique: true },
@@ -385,4 +397,4 @@ const robloxLinkSchema = new mongoose.Schema({
 });
 const RobloxLink = mongoose.model('RobloxLink', robloxLinkSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost, RobloxLink };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost, RobloxLink, SessionReminder };

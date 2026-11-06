@@ -2,13 +2,14 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink, SessionReminder } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
 const SESSION_LOG_CHANNEL_ID = '1568027695718080552'; // attendance, confirmations, status posts
+const SESSION_REMINDER_CHANNEL_ID = '1543622130816655422'; // channel pings for Remind Me
 const SESSION_INFO_MESSAGE_KEY = 'session_info_panel'; // key stored in SchedulePost singleton
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
 const ANNOUNCEMENT_GUILD_ID = '1370892833182974035';
@@ -22,7 +23,7 @@ const TRAINING_LINK = 'https://docs.google.com/document/d/1BW5Nmy14butcEscy9PMOT
 const SHIFT_LINK = 'https://docs.google.com/document/d/12MhP5KnwSqvpiP7w6l7iqgFuJwWkoMNpKYQCdtp3vfA/edit?usp=drivesdk';
 const LOA_STAFF_ROLE_ID = '1434623628078743584';
 const TICKET_IMAGE = 'https://media.galaxybot.app/server/1370892833182974035/001854df-a22e-4f51-aa3a-784de10a309f.png';
-const PANEL_IMAGE = 'https://images-ext-1.discordapp.net/external/BRbAFEkp6sgftr5ZZdkP1qB0t_VrQJxkENCKXh76XG4/https/media.galaxybot.app/server/1370892833182974035/d00d856a-6931-405b-a916-b875c51eeee3.jpeg?format=webp';
+const PANEL_IMAGE = 'https://i.imgur.com/kcXvLI0.png';
 
 const ALLOWED_GUILD_IDS = new Set([
     '1370892833182974035', // Kavià Cafe (main)
@@ -481,7 +482,11 @@ async function postOrUpdateSessionInfoPanel() {
             new ButtonBuilder()
                 .setCustomId('ses_removeping')
                 .setLabel('🔕  Remove Session Pings')
-                .setStyle(ButtonStyle.Secondary)
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId('ses_remindme')
+                .setLabel('⏰  Remind Me')
+                .setStyle(ButtonStyle.Primary)
         );
 
         // Try to edit existing panel message stored in DB
@@ -2143,6 +2148,78 @@ if (interaction.customId.startsWith('dmreply_')) {
                 console.error('[ses_removeping]', err);
                 return interaction.reply({ content: '❌ Could not remove the role. Make sure the bot has permission.', flags: 64 });
             }
+        }
+
+        // ── Remind Me — step 1: pick WHEN ────────────────────────────────────────
+        if (interaction.customId === 'ses_remindme') {
+            const now = new Date();
+            const next = await Session.findOne({ status: { $in: ['pending', 'approved'] }, sessionFireAt: { $gt: now } }).sort({ sessionFireAt: 1 });
+            if (!next) return interaction.reply({ content: '📅 There are no upcoming sessions to set a reminder for right now.', flags: 64 });
+            const ts = Math.floor(new Date(next.sessionFireAt).getTime() / 1000);
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`ses_remind_when_24h_${next._id}`).setLabel('24 hours before').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`ses_remind_when_12h_${next._id}`).setLabel('12 hours before').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`ses_remind_when_ontime_${next._id}`).setLabel('When it starts').setStyle(ButtonStyle.Secondary)
+            );
+            return interaction.reply({
+                content: `⏰ **When would you like to be reminded?**\nNext session: **${next.shiftType || 'Regular Shift'}** — <t:${ts}:F>`,
+                components: [row],
+                flags: 64
+            });
+        }
+
+        // ── Remind Me — step 2: pick HOW ─────────────────────────────────────────
+        if (interaction.customId.startsWith('ses_remind_when_')) {
+            const parts = interaction.customId.replace('ses_remind_when_', '').split('_');
+            // format: <when>_<sessionId>  — but sessionId may contain underscores so rejoin
+            const when = parts[0]; // '24h', '12h', 'ontime'
+            const sessionId = parts.slice(1).join('_');
+            const session = await Session.findById(sessionId);
+            if (!session) return interaction.reply({ content: '❌ That session no longer exists.', flags: 64 });
+            const ts = Math.floor(new Date(session.sessionFireAt).getTime() / 1000);
+            const whenLabel = when === '24h' ? '24 hours before' : when === '12h' ? '12 hours before' : 'when it starts';
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`ses_remind_how_dm_${when}_${sessionId}`).setLabel('📩 DM me').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(`ses_remind_how_channel_${when}_${sessionId}`).setLabel('📣 Ping me in the sessions channel').setStyle(ButtonStyle.Secondary)
+            );
+            return interaction.reply({
+                content: `✅ Got it — reminding you **${whenLabel}**.\n\nHow would you like to be notified?`,
+                components: [row],
+                flags: 64
+            });
+        }
+
+        // ── Remind Me — step 3: save & confirm ───────────────────────────────────
+        if (interaction.customId.startsWith('ses_remind_how_')) {
+            const inner = interaction.customId.replace('ses_remind_how_', ''); // dm_24h_<id> or channel_12h_<id>
+            const [how, when, ...idParts] = inner.split('_');
+            const sessionId = idParts.join('_');
+            const session = await Session.findById(sessionId);
+            if (!session) return interaction.reply({ content: '❌ That session no longer exists.', flags: 64 });
+
+            const fireAt = new Date(session.sessionFireAt);
+            if (when === '24h') fireAt.setHours(fireAt.getHours() - 24);
+            else if (when === '12h') fireAt.setHours(fireAt.getHours() - 12);
+            // 'ontime' fires exactly at session start
+
+            if (fireAt <= new Date()) {
+                return interaction.reply({ content: '⚠️ That reminder time has already passed for this session!', flags: 64 });
+            }
+
+            // Upsert: one reminder per user per session (overwrite if they click again)
+            await SessionReminder.findOneAndUpdate(
+                { userId: interaction.user.id, sessionId },
+                { userId: interaction.user.id, sessionId, when, how, fireAt, fired: false, createdAt: new Date() },
+                { upsert: true }
+            );
+
+            const ts = Math.floor(new Date(session.sessionFireAt).getTime() / 1000);
+            const whenLabel = when === '24h' ? '24 hours before' : when === '12h' ? '12 hours before' : 'when it starts';
+            const howLabel = how === 'dm' ? 'DM' : 'a ping in the sessions channel';
+            return interaction.reply({
+                content: `🔔 Done! I'll send you ${howLabel} **${whenLabel}** the next session (<t:${ts}:F>).`,
+                flags: 64
+            });
         }
 
         if (interaction.customId.startsWith('ses_stillhosting_')) {
@@ -5000,6 +5077,34 @@ client.once('ready', async () => {
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
     await postOrUpdateSessionInfoPanel(); // post/refresh session info panel on startup
+
+    // ── Fire pending session Remind Me reminders every minute ────────────────
+    async function fireSessionReminders() {
+        try {
+            const due = await SessionReminder.find({ fired: false, fireAt: { $lte: new Date() } });
+            for (const r of due) {
+                await SessionReminder.findByIdAndUpdate(r._id, { fired: true });
+                const session = await Session.findById(r.sessionId).catch(() => null);
+                if (!session) continue;
+                const ts = Math.floor(new Date(session.sessionFireAt).getTime() / 1000);
+                const whenLabel = r.when === '24h' ? '24 hours' : r.when === '12h' ? '12 hours' : 'now';
+                const msg = r.when === 'ontime'
+                    ? `⏰ <@${r.userId}> Your session reminder — **${session.shiftType || 'Regular Shift'}** is starting **now**! <t:${ts}:R>`
+                    : `⏰ <@${r.userId}> Reminder — **${session.shiftType || 'Regular Shift'}** starts in **${whenLabel}**! (<t:${ts}:F>)`;
+                try {
+                    if (r.how === 'dm') {
+                        const user = await client.users.fetch(r.userId);
+                        await user.send(msg);
+                    } else {
+                        const ch = await client.channels.fetch(SESSION_REMINDER_CHANNEL_ID);
+                        if (ch?.isTextBased()) await ch.send(msg);
+                    }
+                } catch (e) { console.warn('[sessionReminder] Could not deliver reminder:', e.message); }
+            }
+        } catch (e) { console.error('[sessionReminders] Error:', e); }
+    }
+    await fireSessionReminders();
+    setInterval(fireSessionReminders, 60 * 1000);
 
     // Session schedule reminders (24h / 12h / 10min DM reminders for claimed slots)
     setInterval(() => checkAndSendReminders(client).catch(err =>
