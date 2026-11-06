@@ -447,7 +447,6 @@ function createServer(client) {
                     robloxUserId:   link.robloxUserId,
                     robloxUsername: link.robloxUsername,
                     hostDiscordId:  s.hostId,
-                    hostName:       s.hostName,
                     sessionTime:    sessionUTC.toISOString(),
                     day:            s.scheduledDay,
                     timeLabel:      s.time.split('|')[0].trim(),
@@ -480,22 +479,10 @@ function createServer(client) {
                 } catch {}
             }
 
-            async function getAnnounceCh() {
-                try {
-                    const g = await client.guilds.fetch('1370892833182974035');
-                    return await g.channels.fetch('1385105286926172160');
-                } catch { return null; }
-            }
-
-            if (action === 'ready') {
+if (action === 'ready') {
                 session.status = 'active';
                 await session.save();
-                await dmHost({ color: 0x57F287, title: '🟢 Session Marked Active', description: `Your **${session.shiftType || 'Regular Shift'}** is now active!`, fields: [{ name: 'Time', value: timeLabel, inline: true }], footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() });
-                const ch = await getAnnounceCh();
-                if (ch) {
-                    const pingRole = session.shiftType === 'Recruitment Shift' ? '1371568736569659442' : '1371568661592019044';
-                    await ch.send({ content: `<@&${pingRole}>`, embeds: [{ color: 0x57F287, title: '🟢 Session Starting Now', description: `**${session.hostName}** is hosting a **${session.shiftType || 'Regular Shift'}**!\n\nJoin the game now to participate.`, fields: [{ name: 'Scheduled Time', value: timeLabel, inline: true }], footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() }] });
-                }
+                await dmHost({ color: 0x57F287, title: '🟢 Session Confirmed', description: `You confirmed ready in-game! Your **${session.shiftType || 'Regular Shift'}** is now active.`, fields: [{ name: 'Time', value: timeLabel, inline: true }], footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() });
                 return res.json({ ok: true });
             }
 
@@ -510,9 +497,19 @@ function createServer(client) {
                 session.status = 'cancelled';
                 await session.save();
                 await dmHost({ color: 0xED4245, title: '❌ Session Cancelled', description: `Your session at **${timeLabel}** has been cancelled.`, footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() });
-                const ch = await getAnnounceCh();
-                if (ch) await ch.send({ embeds: [{ color: 0xED4245, title: '❌ Session Cancelled', description: `**${session.hostName}**'s session at **${timeLabel}** has been cancelled.`, footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() }] });
                 return res.json({ ok: true });
+            }
+
+            if (action === 'finish') {
+                // Mark finished and trigger the same flow as ses_finished_ button in Discord
+                await Session.findByIdAndUpdate(req.params.id, { status: 'finished' });
+                await dmHost({ color: 0x57F287, title: '🏁 Session Finished', description: `Your **${session.shiftType || 'Regular Shift'}** at **${timeLabel}** has been marked as finished. Great job!`, footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() });
+                return res.json({ ok: true });
+            }
+
+            if (action === 'extend') {
+                // Host is still going — do nothing, bot will re-check in 25 min via sendFinishCheck
+                return res.json({ ok: true, message: 'Session extended' });
             }
 
             return res.status(400).json({ error: 'Unknown action' });
