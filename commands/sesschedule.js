@@ -911,7 +911,7 @@ async function handleScheduleInteraction(interaction, client) {
     return false;
 }
 
-// ─── Helper: get available times for a day (excluding taken/pending) ──────────
+// ─── Helper: get available times for a day (excluding taken/pending + past times today) ──
 async function getAvailableTimesForDay(day, weekStart) {
     const taken = await Session.find({
         scheduledDay: day,
@@ -919,7 +919,34 @@ async function getAvailableTimesForDay(day, weekStart) {
         status: { $in: ['pending', 'approved', 'active'] }
     });
     const takenValues = new Set(taken.map(s => s.time));
-    return SHIFT_TIMES.filter(t => !takenValues.has(t.value));
+
+    // For today's day, also filter out times already past in ET
+    const now = new Date();
+    const etOffset = getEasternOffsetHours(now);
+    const etNow = new Date(now.getTime() - etOffset * 3600 * 1000);
+    const etTodayStr = `${etNow.getUTCFullYear()}-${String(etNow.getUTCMonth()+1).padStart(2,'0')}-${String(etNow.getUTCDate()).padStart(2,'0')}`;
+
+    // Get the UTC date string for the requested day
+    const dayDate = getDateForDayThisWeek(day);
+    const dayStr = `${dayDate.getUTCFullYear()}-${String(dayDate.getUTCMonth()+1).padStart(2,'0')}-${String(dayDate.getUTCDate()).padStart(2,'0')}`;
+    const isToday = dayStr === etTodayStr;
+
+    return SHIFT_TIMES.filter(t => {
+        if (takenValues.has(t.value)) return false;
+        if (!isToday) return true;
+
+        // Parse the EST hour from the time label and check if it's in the future
+        const estPart = t.value.split('|')[0].trim();
+        const cleanTime = estPart.replace('EST','').replace('EDT','').trim();
+        const [timePart, period] = cleanTime.split(' ');
+        let [hours] = timePart.split(':').map(Number);
+        if (period === 'PM' && hours !== 12) hours += 12;
+        if (period === 'AM' && hours === 12) hours = 0;
+
+        // Compare against current ET hour (add 1h buffer so you can't claim something starting within the hour)
+        const etCurrentHour = etNow.getUTCHours() + etNow.getUTCMinutes() / 60;
+        return hours > etCurrentHour + 1;
+    });
 }
 
 // ─── Helper: show reminder preference buttons ─────────────────────────────────
