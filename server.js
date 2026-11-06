@@ -440,13 +440,13 @@ function createServer(client) {
                 const sessionUTC = sessionTimeToUTC(s.time, s.scheduledDay, s.weekStart || weekStart);
                 const minutesUntil = (sessionUTC - now) / 60000;
                 if (minutesUntil < -60 || minutesUntil > 1440) continue;
-                const link = await RobloxLink.findOne({ discordId: s.hostDiscordId });
+                const link = await RobloxLink.findOne({ discordId: s.hostId });
                 if (!link) continue;
                 result.push({
                     sessionId:      s._id.toString(),
                     robloxUserId:   link.robloxUserId,
                     robloxUsername: link.robloxUsername,
-                    hostDiscordId:  s.hostDiscordId,
+                    hostDiscordId:  s.hostId,
                     hostName:       s.hostName,
                     sessionTime:    sessionUTC.toISOString(),
                     day:            s.scheduledDay,
@@ -469,13 +469,13 @@ function createServer(client) {
             const session = await Session.findById(req.params.id);
             if (!session) return res.status(404).json({ error: 'Session not found' });
             const link = await RobloxLink.findOne({ robloxUserId: String(robloxUserId) });
-            if (!link || link.discordId !== session.hostDiscordId) return res.status(403).json({ error: 'Not the session host' });
+            if (!link || link.discordId !== session.hostId) return res.status(403).json({ error: 'Not the session host' });
 
             const timeLabel = session.time.split('|')[0].trim();
 
             async function dmHost(embedData) {
                 try {
-                    const user = await client.users.fetch(session.hostDiscordId);
+                    const user = await client.users.fetch(session.hostId);
                     await user.send({ embeds: [embedData] });
                 } catch {}
             }
