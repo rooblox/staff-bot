@@ -439,7 +439,7 @@ function createServer(client) {
                 if (!s.scheduledDay || !s.time) continue;
                 const sessionUTC = sessionTimeToUTC(s.time, s.scheduledDay, s.weekStart || weekStart);
                 const minutesUntil = (sessionUTC - now) / 60000;
-                if (minutesUntil < -5 || minutesUntil > 1440) continue;
+                if (minutesUntil < -20 || minutesUntil > 1440) continue;
                 const link = await RobloxLink.findOne({ discordId: s.hostDiscordId });
                 if (!link) continue;
                 result.push({
