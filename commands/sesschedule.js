@@ -943,9 +943,9 @@ async function getAvailableTimesForDay(day, weekStart) {
         if (period === 'PM' && hours !== 12) hours += 12;
         if (period === 'AM' && hours === 12) hours = 0;
 
-        // Compare against current ET hour (add 1h buffer so you can't claim something starting within the hour)
+        // Compare against current ET hour — only hide slots that have already started
         const etCurrentHour = etNow.getUTCHours() + etNow.getUTCMinutes() / 60;
-        return hours > etCurrentHour + 1;
+        return hours > etCurrentHour;
     });
 }
 
