@@ -376,4 +376,13 @@ const schedulePostSchema = new mongoose.Schema({
 }, { versionKey: false });
 const SchedulePost = mongoose.model('SchedulePost', schedulePostSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost };
+// ── Roblox account link ───────────────────────────────────────────────────────
+const robloxLinkSchema = new mongoose.Schema({
+    discordId:      { type: String, required: true, unique: true },
+    robloxUserId:   { type: String, required: true },
+    robloxUsername: { type: String, required: true },
+    linkedAt:       { type: Date, default: Date.now },
+});
+const RobloxLink = mongoose.model('RobloxLink', robloxLinkSchema);
+
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost, RobloxLink };

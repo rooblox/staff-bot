@@ -2,9 +2,11 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
+const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
+const { startApiServer } = require('./commands/roblox-api-server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
@@ -60,6 +62,9 @@ for (const file of commandFiles) {
     cmds.push(command.data.toJSON());
     console.log(`Loaded command: ${command.data.name}`);
 }
+
+// Register /linkroblox manually (handled inline, not via commands collection)
+cmds.push(linkRobloxCommand.toJSON());
 
 const trainingModule = require('./commands/starttraining');
 const { activeSessions, getSectionEmbed, getSectionButtons, getQuizEmbed, getQuizButtons, getTrainingConfig, TRAINING_DEPTS } = trainingModule;
@@ -1038,6 +1043,12 @@ client.on('interactionCreate', async interaction => {
                     else await interaction.followUp({ embeds: [embed], flags: 64 });
                 }
             } catch (err) { console.error('Error in /loalist:', err); try { await interaction.editReply({ content: '❌ Error fetching LOAs.' }); } catch {} }
+            return;
+        }
+
+        // Roblox account linking
+        if (interaction.commandName === 'linkroblox') {
+            await handleLinkRoblox(interaction);
             return;
         }
 
@@ -4922,6 +4933,13 @@ client.once('ready', async () => {
         await initScheduleSystem(client);
     } catch (err) {
         console.error('❌ Failed to init session schedule system:', err.message);
+    }
+
+    // Roblox ↔ Discord session bridge API
+    try {
+        startApiServer(client);
+    } catch (err) {
+        console.error('❌ Failed to start Roblox API server:', err.message);
     }
 
     // ========== APP TICKET WATCH — 48h expiry check ==========
