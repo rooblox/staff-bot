@@ -1,5 +1,6 @@
 const express = require('express');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Session, RobloxLink } = require('./db');
 
 const INTERVIEW_LOG_CHANNEL = process.env.INTERVIEW_LOG_CHANNEL || '1422682430099165266';
 const TRAINING_LOG_CHANNEL = process.env.TRAINING_LOG_CHANNEL || '';
@@ -371,6 +372,153 @@ function createServer(client) {
             if (!res.headersSent) {
                 return res.status(500).json({ success: false, error: 'Internal server error' });
             }
+        }
+    });
+
+    // ========== ROBLOX SESSION API ==========
+    function requireRobloxKey(req, res, next) {
+        const apiKey = process.env.ROBLOX_API_KEY;
+        if (!apiKey) return next();
+        const provided = req.headers['x-api-key'] || req.query.key;
+        if (provided !== apiKey) return res.status(401).json({ error: 'Unauthorized' });
+        next();
+    }
+
+    function getEasternOffsetHours(utcDate) {
+        const year = utcDate.getUTCFullYear();
+        function nthSun(y, mo, nth) {
+            let count = 0;
+            const d = new Date(Date.UTC(y, mo, 1));
+            while (d.getUTCMonth() === mo) {
+                if (d.getUTCDay() === 0) { count++; if (count === nth) break; }
+                d.setUTCDate(d.getUTCDate() + 1);
+            }
+            d.setUTCHours(6, 0, 0, 0);
+            return d;
+        }
+        const dstStart = nthSun(year, 2, 2);
+        const dstEnd   = nthSun(year, 10, 1);
+        if (utcDate >= dstStart && utcDate < dstEnd) return 4;
+        return 5;
+    }
+
+    function sessionTimeToUTC(timeStr, dayLabel, weekStartStr) {
+        const estPart   = timeStr.split('|')[0].trim();
+        const cleanTime = estPart.replace('EST','').replace('EDT','').trim();
+        const [timePart, period] = cleanTime.split(' ');
+        let [hours, minutes] = timePart.split(':').map(Number);
+        if (period === 'PM' && hours !== 12) hours += 12;
+        if (period === 'AM' && hours === 12) hours = 0;
+        const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+        const [y, m, d] = weekStartStr.split('-').map(Number);
+        const monday  = new Date(Date.UTC(y, m - 1, d));
+        const dayIdx  = DAYS.indexOf(dayLabel);
+        const dayDate = new Date(monday.getTime() + dayIdx * 86400 * 1000);
+        const probe   = new Date(Date.UTC(dayDate.getUTCFullYear(), dayDate.getUTCMonth(), dayDate.getUTCDate(), 0, 0, 0));
+        const offset  = getEasternOffsetHours(probe);
+        return new Date(Date.UTC(dayDate.getUTCFullYear(), dayDate.getUTCMonth(), dayDate.getUTCDate(), hours + offset, minutes, 0, 0));
+    }
+
+    function getCurrentWeekStart() {
+        const now = new Date();
+        const etOffset  = getEasternOffsetHours(now);
+        const etMs      = now.getTime() - etOffset * 3600 * 1000;
+        const etNow     = new Date(etMs);
+        const daysFromMon = (etNow.getUTCDay() + 6) % 7;
+        const mon = new Date(etMs - daysFromMon * 86400 * 1000);
+        return `${mon.getUTCFullYear()}-${String(mon.getUTCMonth()+1).padStart(2,'0')}-${String(mon.getUTCDate()).padStart(2,'0')}`;
+    }
+
+    app.get('/api/sessions/upcoming', requireRobloxKey, async (req, res) => {
+        try {
+            const weekStart = getCurrentWeekStart();
+            const now = new Date();
+            const sessions = await Session.find({ weekStart, status: { $in: ['pending', 'approved'] } });
+            const result = [];
+            for (const s of sessions) {
+                if (!s.scheduledDay || !s.time) continue;
+                const sessionUTC = sessionTimeToUTC(s.time, s.scheduledDay, s.weekStart || weekStart);
+                const minutesUntil = (sessionUTC - now) / 60000;
+                if (minutesUntil < -5 || minutesUntil > 1440) continue;
+                const link = await RobloxLink.findOne({ discordId: s.hostDiscordId });
+                if (!link) continue;
+                result.push({
+                    sessionId:      s._id.toString(),
+                    robloxUserId:   link.robloxUserId,
+                    robloxUsername: link.robloxUsername,
+                    hostDiscordId:  s.hostDiscordId,
+                    hostName:       s.hostName,
+                    sessionTime:    sessionUTC.toISOString(),
+                    day:            s.scheduledDay,
+                    timeLabel:      s.time.split('|')[0].trim(),
+                    minutesUntil:   Math.round(minutesUntil),
+                    shiftType:      s.shiftType || 'Regular Shift',
+                });
+            }
+            res.json(result);
+        } catch (err) {
+            console.error('[roblox-api] /upcoming error:', err);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.post('/api/sessions/:id/status', requireRobloxKey, async (req, res) => {
+        try {
+            const { action, robloxUserId } = req.body;
+            if (!action || !robloxUserId) return res.status(400).json({ error: 'Missing action or robloxUserId' });
+            const session = await Session.findById(req.params.id);
+            if (!session) return res.status(404).json({ error: 'Session not found' });
+            const link = await RobloxLink.findOne({ robloxUserId: String(robloxUserId) });
+            if (!link || link.discordId !== session.hostDiscordId) return res.status(403).json({ error: 'Not the session host' });
+
+            const timeLabel = session.time.split('|')[0].trim();
+
+            async function dmHost(embedData) {
+                try {
+                    const user = await client.users.fetch(session.hostDiscordId);
+                    await user.send({ embeds: [embedData] });
+                } catch {}
+            }
+
+            async function getAnnounceCh() {
+                try {
+                    const g = await client.guilds.fetch('1370892833182974035');
+                    return await g.channels.fetch('1385105286926172160');
+                } catch { return null; }
+            }
+
+            if (action === 'ready') {
+                session.status = 'active';
+                await session.save();
+                await dmHost({ color: 0x57F287, title: '🟢 Session Marked Active', description: `Your **${session.shiftType || 'Regular Shift'}** is now active!`, fields: [{ name: 'Time', value: timeLabel, inline: true }], footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() });
+                const ch = await getAnnounceCh();
+                if (ch) {
+                    const pingRole = session.shiftType === 'Recruitment Shift' ? '1371568736569659442' : '1371568661592019044';
+                    await ch.send({ content: `<@&${pingRole}>`, embeds: [{ color: 0x57F287, title: '🟢 Session Starting Now', description: `**${session.hostName}** is hosting a **${session.shiftType || 'Regular Shift'}**!\n\nJoin the game now to participate.`, fields: [{ name: 'Scheduled Time', value: timeLabel, inline: true }], footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() }] });
+                }
+                return res.json({ ok: true });
+            }
+
+            if (action === 'delay') {
+                session.delayMinutes = (session.delayMinutes || 0) + 15;
+                await session.save();
+                await dmHost({ color: 0xFEE75C, title: '⏳ Session Delayed', description: `Your session has been delayed by **${session.delayMinutes} minutes total**.`, fields: [{ name: 'Original Time', value: timeLabel, inline: true }], footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() });
+                return res.json({ ok: true });
+            }
+
+            if (action === 'cancel') {
+                session.status = 'cancelled';
+                await session.save();
+                await dmHost({ color: 0xED4245, title: '❌ Session Cancelled', description: `Your session at **${timeLabel}** has been cancelled.`, footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() });
+                const ch = await getAnnounceCh();
+                if (ch) await ch.send({ embeds: [{ color: 0xED4245, title: '❌ Session Cancelled', description: `**${session.hostName}**'s session at **${timeLabel}** has been cancelled.`, footer: { text: 'Kavià Café Session System' }, timestamp: new Date().toISOString() }] });
+                return res.json({ ok: true });
+            }
+
+            return res.status(400).json({ error: 'Unknown action' });
+        } catch (err) {
+            console.error('[roblox-api] /status error:', err);
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 

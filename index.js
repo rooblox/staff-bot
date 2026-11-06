@@ -6,7 +6,6 @@ const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, T
 const { createServer, handleRankButton } = require('./server');
 const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
-const { startApiServer } = require('./commands/roblox-api-server');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
 const ANNOUNCEMENT_CHANNEL_ID = '1385105286926172160';
@@ -4935,12 +4934,6 @@ client.once('ready', async () => {
         console.error('❌ Failed to init session schedule system:', err.message);
     }
 
-    // Roblox ↔ Discord session bridge API
-    try {
-        startApiServer(client);
-    } catch (err) {
-        console.error('❌ Failed to start Roblox API server:', err.message);
-    }
 
     // ========== APP TICKET WATCH — 48h expiry check ==========
     // Runs every 30 minutes; alerts staff if an applicant never opened a ticket
