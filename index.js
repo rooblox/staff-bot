@@ -1793,15 +1793,16 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
 
         if (interaction.customId.startsWith('ticket_claim_')) {
             const caseId = interaction.customId.replace('ticket_claim_', '');
+            await interaction.deferUpdate().catch(() => {});
             const ticket = await Ticket.findOne({ caseId });
-            if (!ticket) return interaction.reply({ content: '❌ Ticket not found.', flags: 64 });
-            if (ticket.claimedBy) return interaction.reply({ content: '❌ This ticket has already been claimed.', flags: 64 });
-            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.reply({ content: '❌ You do not have permission to claim tickets.', flags: 64 });
+            if (!ticket) return interaction.editReply({ content: '❌ Ticket not found.', embeds: [], components: [] });
+            if (ticket.claimedBy) return interaction.editReply({ content: '❌ This ticket has already been claimed.', embeds: [], components: [] });
+            if (!await hasTicketStaffRole(interaction.user.id, ticket.serverId, ticket.pingRoleId, ticket.pingRoleIds)) return interaction.editReply({ content: '❌ You do not have permission to claim tickets.', embeds: [], components: [] });
            await Ticket.findByIdAndUpdate(ticket._id, { claimedBy: interaction.user.id, claimedByTag: interaction.user.tag, status: 'claimed', claimedAt: new Date() });
             if (client.ticketRepingTimeouts.has(caseId)) { clearTimeout(client.ticketRepingTimeouts.get(caseId)); client.ticketRepingTimeouts.delete(caseId); }
             try { await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }); } catch {}
             try { await interaction.channel.setName(`claimed-${interaction.channel.name.replace(/^(claimed-|unclaimed-)/, '')}`); } catch {}
-          await interaction.update({
+          await interaction.editReply({
                 embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xF39C12).spliceFields(2, 1, { name: '👮 Status', value: `✋ Claimed by ${interaction.user.tag}`, inline: true })],
                 components: [new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`ticket_close_${caseId}`).setLabel('🔒 Close').setStyle(ButtonStyle.Danger),
@@ -3658,12 +3659,13 @@ if (interaction.customId.startsWith('dmreply_')) {
 
         // ========== APPLICATION WATCH — ticket link confirm ==========
         if (interaction.customId.startsWith('appwatch_yes_') || interaction.customId.startsWith('appwatch_no_')) {
+            await interaction.deferUpdate().catch(() => {});
             const isYes   = interaction.customId.startsWith('appwatch_yes_');
             const watchId = interaction.customId.replace(isYes ? 'appwatch_yes_' : 'appwatch_no_', '');
             const { AppTicketWatch, AppSubmission } = require('./db');
             const watch = await AppTicketWatch.findById(watchId).catch(() => null);
 
-            if (!watch) return interaction.update({ content: '❌ Watch record not found or already handled.', components: [], embeds: [] });
+            if (!watch) return interaction.editReply({ content: '❌ Watch record not found or already handled.', components: [], embeds: [] });
 
             if (isYes) {
                 // Post in the submission log channel that the ticket was opened
@@ -3690,11 +3692,11 @@ if (interaction.customId.startsWith('dmreply_')) {
                     await AppSubmission.findByIdAndUpdate(watch.submissionId, { status: 'ticket_opened' }).catch(() => {});
                 } catch (err) { console.error('[appwatch yes]', err); }
 
-                await interaction.update({ content: `✅ Noted — the submission log has been updated with a link to this ticket.`, components: [], embeds: [] });
+                await interaction.editReply({ content: `✅ Noted — the submission log has been updated with a link to this ticket.`, components: [], embeds: [] });
             } else {
                 // No — unrelated ticket, untrigger so it can still match a future ticket
                 await AppTicketWatch.findByIdAndUpdate(watchId, { triggered: false }).catch(() => {});
-                return interaction.update({ content: `Got it — marked as unrelated. Still watching for their application ticket.`, components: [], embeds: [] });
+                return interaction.editReply({ content: `Got it — marked as unrelated. Still watching for their application ticket.`, components: [], embeds: [] });
             }
 
             // Only reached on Yes — clean up the watch
