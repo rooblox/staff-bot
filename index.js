@@ -880,8 +880,16 @@ async function postModReport(client) {
     try {
         const guild = await client.guilds.fetch(MOD_REPORT_GUILD_ID).catch(() => null);
         if (!guild) return;
-        await guild.members.fetch();
-        const staffMembers = guild.members.cache.filter(m => m.roles.cache.has(STAFF_ROLE_ID));
+        // Use REST to list members then filter by role — avoids opcode 8 rate limits
+        // that happen when fetching all guild members via the gateway
+        let staffMembers;
+        try {
+            const allMembers = await guild.members.list({ limit: 1000 });
+            staffMembers = allMembers.filter(m => m.roles.cache.has(STAFF_ROLE_ID));
+        } catch {
+            // If list() also fails, fall back to cache (may be incomplete but won't rate limit)
+            staffMembers = guild.members.cache.filter(m => m.roles.cache.has(STAFF_ROLE_ID));
+        }
         const channel = await client.channels.fetch(MOD_REPORT_CHANNEL_ID).catch(() => null);
         if (!channel?.isTextBased()) return;
         const weekStart = getWeekStart();
