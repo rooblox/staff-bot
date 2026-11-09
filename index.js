@@ -476,10 +476,10 @@ const SESSION_INFO_CHANNEL_ID = '1385105286926172160'; // the channel the panel 
 async function postOrUpdateSessionInfoPanel() {
     try {
         const { SchedulePost } = require('./db');
-        const guild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID).catch(() => null);
-        if (!guild) return;
+        let guild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID).catch(() => null);
+        if (!guild) { console.warn('[sessionInfoPanel] Could not fetch guild', ANNOUNCEMENT_GUILD_ID); return; }
         const channel = await guild.channels.fetch(SESSION_INFO_CHANNEL_ID).catch(() => null);
-        if (!channel?.isTextBased()) return;
+        if (!channel?.isTextBased()) { console.warn('[sessionInfoPanel] Could not fetch channel', SESSION_INFO_CHANNEL_ID); return; }
 
         const embed = await buildSessionInfoEmbed();
         const row = new ActionRowBuilder().addComponents(
@@ -4084,7 +4084,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 const panelId = interaction.customId.replace('ts_editpanelmodal_', '');
                 const title = interaction.fields.getTextInputValue('title');
                 const description = interaction.fields.getTextInputValue('description');
-                const panel = await TicketPanel.findByIdAndUpdate(panelId, { title, description }, { new: true });
+                const panel = await TicketPanel.findByIdAndUpdate(panelId, { title, description }, { returnDocument: 'after' });
                 const guild = await client.guilds.fetch(panel.serverId);
                 const { rebuildAndUpdatePanel } = require('./commands/ticketsetup');
                 await rebuildAndUpdatePanel(panel, guild, client);
@@ -5094,7 +5094,9 @@ client.once('ready', async () => {
     await restoreSessions();
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
-    await postOrUpdateSessionInfoPanel(); // post/refresh session info panel on startup
+    // Small delay so all guilds are cached before we try to post the panel
+    await new Promise(r => setTimeout(r, 3000));
+    await postOrUpdateSessionInfoPanel().then(() => console.log('✅ Session info panel posted/updated')).catch(err => console.error('[sessionInfoPanel] startup error:', err));
 
     // ── Fire pending session Remind Me reminders every minute ────────────────
     async function fireSessionReminders() {
