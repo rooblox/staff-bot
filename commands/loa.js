@@ -99,8 +99,16 @@ module.exports = {
             const loaGuild = await client.guilds.fetch(deptConfig.serverId);
             const loaChannel = await loaGuild.channels.fetch(deptConfig.loaChannelId);
 
+            // Build ping content — always ping the dept role; also ping the
+            // HR review role (1439608585381478471) when posting in that server.
+            const LOA_HR_PING_ROLE_ID = '1439608585381478471';
+            const LOA_HR_SERVER_ID    = '1434556801096876034';
+            let pingContent = deptConfig.roleId ? `<@&${deptConfig.roleId}>` : '';
+            if (deptConfig.serverId === LOA_HR_SERVER_ID && deptConfig.roleId !== LOA_HR_PING_ROLE_ID) {
+                pingContent = `<@&${LOA_HR_PING_ROLE_ID}>`;
+            }
             const msg = await loaChannel.send({
-                content: `<@&${deptConfig.roleId}>`,
+                content: pingContent || undefined,
                 embeds: [embed],
                 components: [row]
             });

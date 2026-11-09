@@ -134,6 +134,12 @@ async function hasStaffRole(userId, department) {
             const member = await guild.members.fetch(userId).catch(() => null);
             if (member && member.roles.cache.has(deptConfig.roleId)) return true;
         }
+        // HR server senior role can accept LOAs from any department
+        const hrGuild = await client.guilds.fetch('1434556801096876034').catch(() => null);
+        if (hrGuild) {
+            const hrMember = await hrGuild.members.fetch(userId).catch(() => null);
+            if (hrMember && hrMember.roles.cache.has('1484973859513045224')) return true;
+        }
         for (const guild of client.guilds.cache.values()) {
             const m = await guild.members.fetch(userId).catch(() => null);
             if (m && m.roles.cache.has(LOA_STAFF_ROLE_ID)) return true;
@@ -1031,6 +1037,7 @@ async function sendNextSection(userId, session) {
     if (isAgeVerif) {
         await user.send({ embeds: [embed] });
         session.awaitingAgeVerif = true;
+        console.log(`[ageVerif] Waiting for age verif DM from ${userId}, logChannel: ${session.deptConfig?.logChannelId}`);
         scheduleAgeVerifReping(userId, session);
     } else {
         const buttons = getSectionButtons(userId, section);
@@ -4987,7 +4994,23 @@ client.on('messageCreate', async message => {
                 return;
             }
             try {
-                const logChannel = await client.channels.fetch(trainingSession.deptConfig.logChannelId);
+                // Age verif channel per department — explicit map so the right
+                // channel is used regardless of which deptConfig is on the session.
+                const AGE_VERIF_CHANNELS = {
+                    'Human Resources': '1496259091935399956',
+                    'Mod':             '1485349514486480947',
+                    'SHR':             '1493725407332139179'
+                };
+                const ageVerifChannelId = AGE_VERIF_CHANNELS[trainingSession.department]
+                    || trainingSession.deptConfig?.logChannelId;
+                if (!ageVerifChannelId) {
+                    console.error('[ageVerif] No log channel for dept:', trainingSession.department, JSON.stringify(trainingSession.deptConfig));
+                    try { await message.react('❌'); } catch {}
+                    try { await message.reply({ content: '⚠️ Could not forward your verification — please contact a staff member directly.', allowedMentions: { repliedUser: false } }); } catch {}
+                    return;
+                }
+                console.log(`[ageVerif] Posting to channel ${ageVerifChannelId} for dept ${trainingSession.department}`);
+                const logChannel = await client.channels.fetch(ageVerifChannelId);
                 if (logChannel?.isTextBased()) {
                     const verifyRow = new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId(`st_ageverif_accept_${message.author.id}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
@@ -5013,7 +5036,13 @@ client.on('messageCreate', async message => {
                     trainingSession.ageVerifLogMessageId = logMsg.id;
                     trainingSession.ageVerifLogChannelId = logChannel.id;
                 }
-            } catch (err) { console.error('Error logging age verif submission:', err); }
+            } catch (err) {
+                console.error('[ageVerif] Error logging age verif submission:', err);
+                console.error('[ageVerif] deptConfig:', JSON.stringify(trainingSession.deptConfig));
+                // Notify the trainee something went wrong rather than silently failing
+                try { await message.react('❌'); } catch {}
+                try { await message.reply({ content: '⚠️ There was an issue forwarding your verification. Please contact a staff member directly.', allowedMentions: { repliedUser: false } }); } catch {}
+            }
             return;
         }
      const logChannelId = client.dmLogChannels?.get(message.author.id) || '1462580398935642144';
