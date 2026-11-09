@@ -46,6 +46,13 @@ const TRAINING_CHOICES = [
     { name: 'SHR Training', value: 'SHR Training' }
 ];
 
+// ========== SHARED AGE VERIFICATION SECTION ==========
+// Inserted at index 1 (after the welcome section) in every training.
+const AGE_VERIF_SECTION = {
+    title: '📋 Age Verification',
+    content: `Before proceeding to the next stage of your training, you are required to complete age verification to confirm that you are **13 years of age or older**.\n\nTo verify your age, please follow these steps:\n1. Open the Roblox App\n2. Go to Settings\n3. Select Account Info\n4. Navigate to Personal\n5. Take a screenshot of the page\n\nYou are allowed to cross out or blur any other personal information shown in the image for your privacy. However, your **username and age must remain visible**.\n\n**Privacy Notice**\nAt Kavià Café, we respect and value your privacy. Your age verification screenshot will only be reviewed for confirmation purposes and will not be shared outside of the designated verification channel.\n\n-# If it is confirmed that you are under the age of 13, you will be removed from the community in accordance with platform policies. Refusal to complete age verification will result in immediate termination of your training.\n\n**Please send your screenshot or image link as a reply to this DM. A staff member will review it shortly.**`
+};
+
 // ========== TRAINING CONTENT ==========
 
 const INTRO_TO_MENTORSHIP_SECTIONS = [
@@ -53,10 +60,7 @@ const INTRO_TO_MENTORSHIP_SECTIONS = [
         title: '📕 Intro to Mentorship',
         content: `Congratulations on passing your application! Welcome to your mentorship, where you will learn the fundamentals to being an HR here at Kavià Café.\n\nIf you have a question at any time, feel free to click the help button. This will notify your department leadership and they will reach out to you to provide assistance.\n\nYou will have **1 week** to successfully complete the introductory mentorship.`
     },
-    {
-        title: '📋 Age Verification',
-        content: `Before proceeding to the next stage of your internship, you are required to complete age verification to confirm that you are **13 years of age or older**.\n\nTo verify your age, please follow these steps:\n1. Open the Roblox App\n2. Go to Settings\n3. Select Account Info\n4. Navigate to Personal\n5. Take a screenshot of the attached page\n\nYou are allowed to cross out or blur any other personal information shown in the image for your privacy. However, your **username and age must remain visible**.\n\n**Privacy Notice**\nAt Kavià Café, we respect and value your privacy. Your age verification screenshot will only be reviewed for confirmation purposes and will not be shared outside of the designated verification channel.\n\n-# If it is confirmed that you are under the age of 13, you will be removed from the community in accordance with platform policies. Refusal to complete age verification will result in immediate termination of your internship.\n\n**Please send your screenshot or image link as a reply to this DM. A staff member will review it shortly.**`
-    },
+    AGE_VERIF_SECTION,
     {
         title: '🎫 Ticket Information',
         content: `As part of your responsibilities as a staff member, you will also assist with responding to support tickets. These tickets allow members to ask questions, report issues, or request assistance from the Kavià Café team.\n\nKavià Café currently uses the following ticket categories:\n> **General Support**\n> **Moderation Support**\n> **Public Relations Support**\n> **Human Resources Support**\n> **Development**\n> **SHR**\n\n• **General Support** tickets are visible to all High Ranks.\n• **Department-specific tickets** are only visible to staff members assigned to those respective departments.\n\n**Expectations When Responding to Tickets**\nBefore sending a message in a ticket, ensure the ticket has not already been claimed by another High Rank. If the ticket has not been claimed, you may claim it and introduce yourself before assisting the member.\n\n**Example Introduction Message**\n*"Hello! My name is (name), and I will be assisting you with this ticket. Please let me know your inquiry"*\n\nIf the individual does not reply after 48 hours, you may close the ticket.`
@@ -100,6 +104,7 @@ const MOD_BASIC_SECTIONS = [
         title: '<:emoji_1:1464065515579248854> Welcome to Moderation!',
         content: `Hello, and congratulations on passing your application and joining our Moderation Department! During this period, you will receive the trial moderator role as you undergo your mentorship.\n\nThis trial was designed to provide a clear explanation of our policies, expectations, procedures, and logging requirements. If you have any questions at any time, do not hesitate to ask.\n\nWe will now send a series of messages covering everything needed to become an excellent moderator. If you fail your trial you will receive only *one* opportunity to retake it. If you fail twice, you will be removed from the department.\n\nThis trial will be open until you achieve the rank of moderator.`
     },
+    AGE_VERIF_SECTION,
     {
         title: '<:emoji_1:1464065515579248854> Rules & Procedures',
         content: `A moderator's main responsibility is to enforce and uphold all rules found within https://discord.com/channels/1370892833182974035/1370946530894413824. When moderating, you should do so fairly, professionally, and respectfully, as this helps keep our community safe and welcoming for everyone.\n\nAll actions should follow the guidelines listed below. Consistency and sound judgment are crucial when handling situations within the server.\n\n> [Kavià Cafe Rules](https://docs.google.com/spreadsheets/d/1cK-QcY_UXiFTCF8IQXlzCQqnz2uklMdHpEDR99oesm0/edit?usp=sharing)\n\nPlease ensure you are familiar with these rules and review the document periodically to stay informed. If you are ever unsure about what action to take, do not hesitate to contact a member of moderation leadership.`
@@ -158,6 +163,7 @@ const HR_BASIC_SECTIONS = [
         title: '▶️ Human Resources Training',
         content: `👋 Welcome to the Human Resources team! Now that you've passed your application, you will undergo a trial period.\n\nOnce you pass this trial, you will move up to become an **official Human Resources Officer.**\n\n👓 You will receive a series of messages. You are expected to **read** and **understand** the information inside of them.\n\n❌ If you fail this trial, you will be given **one** chance to retake it. If you don't pass the extra chance, you will be **removed** from the department.`
     },
+    AGE_VERIF_SECTION,
     {
         title: '👉 Purpose and Expectations',
         content: `📊 As a member of Human Resources, you are responsible for overseeing the overall quality, productivity, and performance of the lower staff team here at Kavià.\n\n🗂️ This includes but is not limited to promotions, demotions, strikes, terminations, and blacklists.\n\n✅ Another duty of yours is to host sessions and trainings.`
@@ -218,12 +224,12 @@ const HR_BASIC_QUIZ = [
     }
 ];
 
-
 const SHR_TRAINING_SECTIONS = [
     {
         title: '📢 Welcome to Intro to Mentorship',
         content: `Hello! Congratulations on joining the mentorship program at Kavià Café! This training will walk you through everything you need to know about handling tickets, your added responsibilities as a Senior High Rank and how to best work your way up.\n\nPlease read each section carefully and click **Done** when you are ready to move on.`
     },
+    AGE_VERIF_SECTION,
     {
         title: '📋 SHR Responsibilities',
         content: `Now that you are a Senior High Rank, your expectations are different from when you were a High Rank (if you were one). As you work your way through all 3 of our SHR ranks we expect you to uphold our standards and expectations.\n\n• **Professionalism** → Punctuation is not required, but you must use common sense and know the appropriate time and place for jokes.\n• **Department Leadership** → As an SHR you are eligible to lead a department, it is not a requirement but if you do we expect you to keep up with your tasks.\n• **Providing basic leadership and advice to HRs** → If you see an issue arise, try to help to the best of your abilities.\n• **Tickets** → You will be expected to deal with all SHR tickets, unless they need presidential intervention.`
@@ -428,16 +434,9 @@ module.exports = {
             activeSessions.set(member.id, sessionData);
 
             try {
-                const isAgeVerif = training === 'Intro to Mentorship' && sessionData.section === 1;
                 const embed = getSectionEmbed(trainingConfig.sections[0], 0, trainingConfig.sections.length, department, training);
-
-                if (isAgeVerif) {
-                    await member.send({ embeds: [embed] });
-                    sessionData.awaitingAgeVerif = true;
-                } else {
-                    const buttons = getSectionButtons(member.id, 0);
-                    await member.send({ embeds: [embed], components: [buttons] });
-                }
+                const buttons = getSectionButtons(member.id, 0);
+                await member.send({ embeds: [embed], components: [buttons] });
 
                 await interaction.editReply({ content: `✅ Training started for **${member.tag}**! Sections are being sent to their DMs.` });
 
