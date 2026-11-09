@@ -1519,6 +1519,23 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ========== APPLICATION AUTO-CLOSE — extend / keep buttons (sent in DM) ==========
+        if (interaction.customId.startsWith('appextend_extend_') || interaction.customId.startsWith('appextend_keep_')) {
+            const { AppForm } = require('./db');
+            const isExtend = interaction.customId.startsWith('appextend_extend_');
+            const formId   = interaction.customId.replace(/^appextend_(extend|keep)_/, '');
+            const form     = await AppForm.findById(formId).catch(() => null);
+            if (!form) return interaction.update({ content: '❌ Form not found — it may have already been closed.', components: [] });
+            if (!form.open) return interaction.update({ content: '⚠️ This form is already closed.', components: [] });
+            if (isExtend) {
+                const newClose = new Date((form.closeAt || new Date()).getTime() + 7 * 24 * 60 * 60 * 1000);
+                await AppForm.findByIdAndUpdate(formId, { closeAt: newClose, closeWarningDmSent: false });
+                return interaction.update({ content: `✅ Extended! **${form.name}** will now auto-close <t:${Math.floor(newClose.getTime() / 1000)}:F>.`, components: [] });
+            } else {
+                return interaction.update({ content: `✅ Got it — **${form.name}** will close as scheduled <t:${Math.floor(form.closeAt.getTime() / 1000)}:F>.`, components: [] });
+            }
+        }
+
         // ========== APPLICATION SETUP — "Continue Form Details" button (after notify role modal) ==========
         if (interaction.customId.startsWith('appsetup_opendetails_')) {
             await require('./commands/application').handleSetupSelect(interaction);
@@ -4869,6 +4886,11 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
         if (interaction.customId.startsWith('appopen_manualredirectch_')) {
             await require('./commands/application').handleOpenManualRedirectChannel(interaction);
             return;
+
+        // ========== APPLICATION OPEN — close date modal ==========
+        } if (interaction.customId.startsWith('appopen_closedatemodal_')) {
+            await require('./commands/application').handleOpenCloseDateModal(interaction);
+            return;
         }
 
         // ========== APPLICATION OPEN — attach to existing message modal ==========
@@ -5324,6 +5346,75 @@ client.once('ready', async () => {
     }
     await fireSessionReminders();
     setInterval(fireSessionReminders, 60 * 1000);
+
+    // ── Application auto-close scheduler ─────────────────────────────────────
+    async function checkAppAutoClose() {
+        try {
+            const { AppForm } = require('./db');
+            const { refreshStatusBoard } = require('./commands/application');
+            const now = new Date();
+            const forms = await AppForm.find({ open: true, closeAt: { $ne: null } });
+            for (const form of forms) {
+                if (!form.closeAt) continue;
+                const msUntilClose = form.closeAt.getTime() - now.getTime();
+
+                // Send 24h warning DM if not yet sent and within 24h–25h window
+                if (!form.closeWarningDmSent && msUntilClose > 0 && msUntilClose <= 25 * 60 * 60 * 1000) {
+                    if (form.openedById) {
+                        try {
+                            const opener = await client.users.fetch(form.openedById).catch(() => null);
+                            if (opener) {
+                                const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+                                const warnEmbed = new EmbedBuilder()
+                                    .setColor(0xf0a500)
+                                    .setTitle('⏰ Application Closing Soon')
+                                    .setDescription(
+                                        `**${form.name}** is set to auto-close <t:${Math.floor(form.closeAt.getTime() / 1000)}:R> (<t:${Math.floor(form.closeAt.getTime() / 1000)}:F>).\n\n` +
+                                        `Would you like to extend it or keep the scheduled close time?`
+                                    );
+                                const row = new ActionRowBuilder().addComponents(
+                                    new ButtonBuilder()
+                                        .setCustomId(`appextend_extend_${form._id}`)
+                                        .setLabel('⏳ Extend by 7 Days')
+                                        .setStyle(ButtonStyle.Primary),
+                                    new ButtonBuilder()
+                                        .setCustomId(`appextend_keep_${form._id}`)
+                                        .setLabel('✅ Keep Scheduled Time')
+                                        .setStyle(ButtonStyle.Secondary)
+                                );
+                                await opener.send({ embeds: [warnEmbed], components: [row] });
+                            }
+                        } catch (e) { console.error('[autoclose warning DM error]', e); }
+                    }
+                    await AppForm.findByIdAndUpdate(form._id, { closeWarningDmSent: true });
+                }
+
+                // Auto-close if past closeAt
+                if (msUntilClose <= 0) {
+                    await AppForm.findByIdAndUpdate(form._id, { open: false });
+                    // Remove the button from the posted message
+                    if (form.openChannelId && form.openMessageId) {
+                        try {
+                            const ch  = await client.channels.fetch(form.openChannelId).catch(() => null);
+                            const msg = ch ? await ch.messages.fetch(form.openMessageId).catch(() => null) : null;
+                            if (msg && msg.author.id === client.user.id) await msg.edit({ components: [] });
+                        } catch {}
+                    }
+                    await refreshStatusBoard(client);
+                    // DM the opener to let them know
+                    if (form.openedById) {
+                        try {
+                            const opener = await client.users.fetch(form.openedById).catch(() => null);
+                            if (opener) await opener.send({ content: `🔴 **${form.name}** has been automatically closed as scheduled.` });
+                        } catch {}
+                    }
+                    console.log(`[autoclose] Closed "${form.name}" (${form._id}) at scheduled time.`);
+                }
+            }
+        } catch (e) { console.error('[checkAppAutoClose error]', e); }
+    }
+    await checkAppAutoClose();
+    setInterval(checkAppAutoClose, 60 * 1000);
 
     // Session schedule reminders (24h / 12h / 10min DM reminders for claimed slots)
     setInterval(() => checkAndSendReminders(client).catch(err =>

@@ -234,7 +234,11 @@ const appFormSchema = new mongoose.Schema({
     openChannelId: String,
     notifyRoleId: String,
     redirectChannelId: String,   // if set, button says "Go to #channel" instead of opening DM form
-    redirectChannelName: String
+    redirectChannelName: String,
+    openedById: String,          // Discord user ID of whoever ran /application open
+    openedByTag: String,
+    closeAt: Date,               // auto-close at this time (optional)
+    closeWarningDmSent: { type: Boolean, default: false }  // true once 24h-before DM is sent
 }, { versionKey: false });
 
 // Tracks the pinned status board message(s) that auto-update on open/close

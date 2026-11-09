@@ -252,6 +252,20 @@ async function sendOpenStep(interaction, session, isUpdate = false, isDeferred =
                 .setStyle(ButtonStyle.Secondary)
         )];
 
+    } else if (session.step === 'pick_close_date') {
+        embed = stepEmbed('Open — Auto-Close Date (optional)',
+            `Form: **${session.formName}** ✅\n\nWould you like this form to automatically close on a specific date?\n\nIf yes, click **Set Close Date** and enter it. You'll get a DM 24 hours before so you can extend if needed.\nClick **No Close Date** to leave it open indefinitely.`);
+        components = [new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`appopen_setclosedate_${uid}`)
+                .setLabel('📅 Set Close Date')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId(`appopen_noclosedate_${uid}`)
+                .setLabel('⏭️ No Close Date')
+                .setStyle(ButtonStyle.Secondary)
+        )];
+
     } else if (session.step === 'pick_server') {
         embed = stepEmbed('Open — Step 2 of 3',
             `Form: **${session.formName}** ✅\n\nWhich server should the Apply button be posted in?`);
@@ -387,6 +401,12 @@ module.exports = {
         .addSubcommand(sub => sub
             .setName('send')
             .setDescription('Send an application link directly into this channel (e.g. inside a ticket)')
+        )
+        .addSubcommand(sub => sub
+            .setName('setclosedate')
+            .setDescription('Set or clear an auto-close date on an open form')
+            .addStringOption(o => o.setName('form_search').setDescription('Part of the form name').setRequired(true).setMaxLength(80))
+            .addStringOption(o => o.setName('date').setDescription('Close date e.g. "Dec 31 2026 11:59 PM EST" — leave blank to clear').setRequired(false).setMaxLength(60))
         ),
 
     async execute(interaction) {
@@ -441,6 +461,33 @@ module.exports = {
                 await AppForm.findByIdAndDelete(matched[0]._id);
                 await refreshStatusBoard(client);
                 return interaction.editReply({ content: `✅ **${matched[0].name}** deleted.` });
+            }
+
+            if (sub === 'setclosedate') {
+                const q       = interaction.options.getString('form_search').toLowerCase().trim();
+                const dateStr = interaction.options.getString('date') || null;
+                const forms   = await AppForm.find({ open: true });
+                const matched = forms.filter(f => f.name.toLowerCase().includes(q));
+                if (!matched.length) return interaction.editReply({ content: `❌ No open form found matching "${q}".` });
+                if (matched.length > 1) return interaction.editReply({ content: `⚠️ Multiple matches:\n${matched.map(f => `• **${f.name}**`).join('\n')}` });
+                const form = matched[0];
+
+                if (!dateStr) {
+                    await AppForm.findByIdAndUpdate(form._id, { closeAt: null, closeWarningDmSent: false });
+                    return interaction.editReply({ content: `✅ Cleared the auto-close date for **${form.name}**. It will stay open until manually closed.` });
+                }
+
+                const parsed = new Date(dateStr);
+                if (isNaN(parsed.getTime()) || parsed <= new Date()) {
+                    return interaction.editReply({ content: '❌ Couldn\'t parse that date, or it\'s already in the past. Try something like `Dec 31 2026 11:59 PM EST`.' });
+                }
+                await AppForm.findByIdAndUpdate(form._id, {
+                    closeAt: parsed,
+                    closeWarningDmSent: false,
+                    openedById: form.openedById || interaction.user.id,
+                    openedByTag: form.openedByTag || interaction.user.tag
+                });
+                return interaction.editReply({ content: `✅ **${form.name}** will auto-close <t:${Math.floor(parsed.getTime() / 1000)}:F>.\nYou'll get a DM 24 hours before so you can extend if needed.` });
             }
 
             if (sub === 'statusboard') {
@@ -852,28 +899,55 @@ module.exports = {
             // Apply type buttons — DM form vs redirect to channel
             if (interaction.isButton() && id === `appopen_type_dm_${uid}`) {
                 session.redirectChannelId = null;
-                // Auto-skip server step if bot is only in one guild
-                if (client.guilds.cache.size === 1) {
-                    const guild = [...client.guilds.cache.values()][0];
-                    session.serverId   = guild.id;
-                    session.serverName = guild.name;
-                    session.step       = 'pick_channel';
-                } else {
-                    session.step = 'pick_server';
-                }
+                session.step = 'pick_close_date';
                 return sendOpenStep(interaction, session, true, true);
             }
 
             if (interaction.isButton() && id === `appopen_type_redirect_${uid}`) {
                 session.redirectChannelId = 'pending'; // will be set after pick_redirect_channel
-                // Auto-skip server step if bot is only in one guild
-                if (client.guilds.cache.size === 1) {
-                    const guild = [...client.guilds.cache.values()][0];
-                    session.serverId   = guild.id;
-                    session.serverName = guild.name;
-                    session.step       = 'pick_redirect_channel';
+                session.step = 'pick_close_date';
+                return sendOpenStep(interaction, session, true, true);
+            }
+
+            // Close date — set via modal
+            if (interaction.isButton() && id === `appopen_setclosedate_${uid}`) {
+                const modal = new ModalBuilder()
+                    .setCustomId(`appopen_closedatemodal_${uid}`)
+                    .setTitle('Set Auto-Close Date');
+                modal.addComponents(new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('close_date')
+                        .setLabel('Close date & time (e.g. Dec 31 2026 11:59 PM EST)')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setMaxLength(50)
+                        .setPlaceholder('e.g. Dec 31 2026 11:59 PM EST')
+                ));
+                return interaction.showModal(modal);
+            }
+
+            // Close date — skip
+            if (interaction.isButton() && id === `appopen_noclosedate_${uid}`) {
+                session.closeAt = null;
+                // Now go to redirect channel or server/channel
+                if (session.redirectChannelId === 'pending') {
+                    if (client.guilds.cache.size === 1) {
+                        const guild = [...client.guilds.cache.values()][0];
+                        session.serverId   = guild.id;
+                        session.serverName = guild.name;
+                        session.step       = 'pick_redirect_channel';
+                    } else {
+                        session.step = 'pick_server';
+                    }
                 } else {
-                    session.step = 'pick_server_for_redirect';
+                    if (client.guilds.cache.size === 1) {
+                        const guild = [...client.guilds.cache.values()][0];
+                        session.serverId   = guild.id;
+                        session.serverName = guild.name;
+                        session.step       = 'pick_channel';
+                    } else {
+                        session.step = 'pick_server';
+                    }
                 }
                 return sendOpenStep(interaction, session, true, true);
             }
@@ -999,6 +1073,51 @@ module.exports = {
             return sendOpenStep(interaction, session, false, true);
         } catch (err) {
             console.error('[appopen redirect manual error]', err);
+            await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
+        }
+    },
+
+    // ── Open wizard close-date modal ─────────────────────────────────────────
+    // index.js: if (interaction.customId.startsWith('appopen_closedatemodal_')) { await require('./commands/application').handleOpenCloseDateModal(interaction); return; }
+    async handleOpenCloseDateModal(interaction) {
+        try {
+            const uid     = interaction.user.id;
+            const session = pendingOpens.get(uid);
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', flags: 64 });
+
+            const raw    = interaction.fields.getTextInputValue('close_date').trim();
+            const parsed = new Date(raw);
+            if (isNaN(parsed.getTime()) || parsed <= new Date()) {
+                return interaction.reply({ content: '❌ Couldn\'t parse that date, or it\'s already in the past. Try something like `Dec 31 2026 11:59 PM EST`.', flags: 64 });
+            }
+            session.closeAt = parsed;
+
+            const client = interaction.client;
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+
+            // Now advance to redirect channel or server/channel
+            if (session.redirectChannelId === 'pending') {
+                if (client.guilds.cache.size === 1) {
+                    const guild = [...client.guilds.cache.values()][0];
+                    session.serverId   = guild.id;
+                    session.serverName = guild.name;
+                    session.step       = 'pick_redirect_channel';
+                } else {
+                    session.step = 'pick_server';
+                }
+            } else {
+                if (client.guilds.cache.size === 1) {
+                    const guild = [...client.guilds.cache.values()][0];
+                    session.serverId   = guild.id;
+                    session.serverName = guild.name;
+                    session.step       = 'pick_channel';
+                } else {
+                    session.step = 'pick_server';
+                }
+            }
+            return sendOpenStep(interaction, session, false, true);
+        } catch (err) {
+            console.error('[appopen closedate modal error]', err);
             await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
         }
     },
@@ -1159,15 +1278,28 @@ async function refreshStatusBoard(client) {
             if (!deptButtons.has(dept)) deptButtons.set(dept, []);
             let btn;
             if (f.open) {
-                btn = f.gameLink
-                    ? new ButtonBuilder()
+                if (f.gameLink) {
+                    btn = new ButtonBuilder()
                         .setURL(f.gameLink)
                         .setLabel(`Apply — ${f.name}`)
-                        .setStyle(ButtonStyle.Link)
-                    : new ButtonBuilder()
+                        .setStyle(ButtonStyle.Link);
+                } else if (f.redirectChannelId) {
+                    // Redirect form — resolve the guild ID from the channel the button is posted in
+                    let guildId = '';
+                    try {
+                        const postCh = await client.channels.fetch(f.openChannelId).catch(() => null);
+                        guildId = postCh?.guildId || '';
+                    } catch {}
+                    btn = new ButtonBuilder()
+                        .setURL(`https://discord.com/channels/${guildId}/${f.redirectChannelId}`)
+                        .setLabel(`Apply — ${f.name}`)
+                        .setStyle(ButtonStyle.Link);
+                } else {
+                    btn = new ButtonBuilder()
                         .setCustomId(`app_apply_${f._id}`)
                         .setLabel(`Apply — ${f.name}`)
                         .setStyle(ButtonStyle.Success);
+                }
             } else {
                 // Closed — show as disabled button so newly-created forms are visible on the board
                 btn = new ButtonBuilder()
@@ -1322,12 +1454,19 @@ async function finishOpen(interaction, session, channelId, client, isDeferred = 
     await AppForm.findByIdAndUpdate(session.formId, {
         open: true, openMessageId, openChannelId: channelId,
         redirectChannelId: session.redirectChannelId || null,
-        redirectChannelName: session.redirectChannelName || null
+        redirectChannelName: session.redirectChannelName || null,
+        openedById: interaction.user.id,
+        openedByTag: interaction.user.tag,
+        closeAt: session.closeAt || null,
+        closeWarningDmSent: false
     });
     await refreshStatusBoard(client);
 
+    const closeDateNote = session.closeAt
+        ? `\n📅 Auto-closes <t:${Math.floor(session.closeAt.getTime() / 1000)}:F> — you'll get a DM 24 hours before.`
+        : '';
     const successNote = isRedirect
-        ? `✅ **${session.formName}** is now open! Button posted in <#${channelId}> — redirects to <#${session.redirectChannelId}>.`
-        : `✅ **${session.formName}** is now open! Apply button posted in <#${channelId}>.`;
+        ? `✅ **${session.formName}** is now open! Button posted in <#${channelId}> — redirects to <#${session.redirectChannelId}>.${closeDateNote}`
+        : `✅ **${session.formName}** is now open! Apply button posted in <#${channelId}>.${closeDateNote}`;
     return replyOrUpdate({ content: successNote, embeds: [], components: [] });
 }
