@@ -1031,11 +1031,18 @@ async function saveWeeklyStats() {
 async function sendNextSection(userId, session) {
     const { trainingConfig, section, department, training } = session;
     const sections = trainingConfig.sections;
-    const isAgeVerif = training === 'Intro to Mentorship' && section === 1;
+    const isAgeVerif = section === 1; // section 1 is always age verif across all trainings
     const embed = getSectionEmbed(sections[section], section, sections.length, department, training);
     const user = await client.users.fetch(userId);
     if (isAgeVerif) {
-        await user.send({ embeds: [embed] });
+        // Age verif: show Help button only — no Done button (trainee must send screenshot and wait for staff approval)
+        const ageVerifRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`st_help_${userId}_${section}`)
+                .setLabel('🆘 I Need Help')
+                .setStyle(ButtonStyle.Danger)
+        );
+        await user.send({ embeds: [embed], components: [ageVerifRow] });
         session.awaitingAgeVerif = true;
         console.log(`[ageVerif] Waiting for age verif DM from ${userId}, logChannel: ${session.deptConfig?.logChannelId}`);
         scheduleAgeVerifReping(userId, session);
