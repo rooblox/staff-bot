@@ -5042,6 +5042,9 @@ client.on('messageCreate', async message => {
                     const logMsg = await logChannel.send({ content: `<@&${trainingSession.deptConfig.pingRoleId}>`, embeds: [logEmbed], components: [verifyRow] });
                     trainingSession.ageVerifLogMessageId = logMsg.id;
                     trainingSession.ageVerifLogChannelId = logChannel.id;
+                    try {
+                        await message.reply({ content: '✅ Your age verification has been submitted! Please wait for a staff member to review it. This can take up to **24–48 hours**.', allowedMentions: { repliedUser: false } });
+                    } catch {}
                 }
             } catch (err) {
                 console.error('[ageVerif] Error logging age verif submission:', err);
