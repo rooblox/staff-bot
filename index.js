@@ -440,18 +440,17 @@ function scheduleTicketInactivity(ticket, guild) {
 async function buildSessionInfoEmbed() {
     const now = new Date();
     // Find the next 3 future approved/pending sessions
-    const upcoming = await Session.find({ status: { $in: ['pending', 'approved'] }, sessionFireAt: { $gt: now } })
+    const upcoming = await Session.find({ status: 'approved', sessionFireAt: { $gt: now } })
         .sort({ sessionFireAt: 1 }).limit(3);
 
     let sessionsValue;
     if (upcoming.length === 0) {
         sessionsValue = '> No sessions are currently scheduled.\n​';
     } else {
+        const NUMS = ['1️⃣', '2️⃣', '3️⃣'];
         sessionsValue = upcoming.map((s, i) => {
             const ts = Math.floor(new Date(s.sessionFireAt).getTime() / 1000);
-            const label = i === 0 ? '**Next**' : i === 1 ? '**2nd**' : '**3rd**';
-            const statusIcon = s.status === 'approved' ? '✅' : '🕐';
-            return `${statusIcon} ${label} — **${s.shiftType || 'Regular Shift'}**\n> <t:${ts}:F> (<t:${ts}:R>)\n> Hosted by <@${s.hostId}>`;
+            return `${NUMS[i]} **${s.shiftType || 'Regular Shift'}**\n<t:${ts}:F> · <t:${ts}:R>\nHosted by <@${s.hostId}>`;
         }).join('\n\n') + '\n​';
     }
 
@@ -2189,7 +2188,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         // ── Remind Me — step 1: pick WHICH session (if multiple upcoming) ────────
         if (interaction.customId === 'ses_remindme') {
             const now = new Date();
-            const upcoming = await Session.find({ status: { $in: ['pending', 'approved'] }, sessionFireAt: { $gt: now } })
+            const upcoming = await Session.find({ status: 'approved', sessionFireAt: { $gt: now } })
                 .sort({ sessionFireAt: 1 }).limit(3);
             if (upcoming.length === 0) return interaction.reply({ content: '📅 There are no upcoming sessions to set a reminder for right now.', flags: 64 });
 
