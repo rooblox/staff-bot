@@ -1222,6 +1222,24 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
     }
 
     if (interaction.isStringSelectMenu()) {
+        // ── Remind Me — session picker ────────────────────────────────────────────
+        if (interaction.customId === 'ses_remindme_pick') {
+            const sessionId = interaction.values?.[0];
+            const session = await Session.findById(sessionId);
+            if (!session) return interaction.update({ content: '❌ That session no longer exists.', components: [] });
+            const ts = Math.floor(new Date(session.sessionFireAt).getTime() / 1000);
+            const timeShort = session.time ? session.time.split('|')[0].trim() : 'TBA';
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`ses_remind_when_24h_${session._id}`).setLabel('24 hours before').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`ses_remind_when_12h_${session._id}`).setLabel('12 hours before').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`ses_remind_when_ontime_${session._id}`).setLabel('When it starts').setStyle(ButtonStyle.Secondary)
+            );
+            return interaction.update({
+                content: `⏰ **When would you like to be reminded?**\nSession: **${session.shiftType || 'Regular Shift'}** — <t:${ts}:F> (\`${timeShort}\`)`,
+                components: [row]
+            });
+        }
+
         // ========== APPLICATION SETUP DROPDOWNS ==========
         if (interaction.customId.startsWith('appsetup_')) {
             await require('./commands/application').handleSetupSelect(interaction);
@@ -2234,24 +2252,6 @@ if (interaction.customId.startsWith('dmreply_')) {
                 content: `⏰ **Which session would you like a reminder for?**`,
                 components: [new ActionRowBuilder().addComponents(selectMenu)],
                 flags: 64
-            });
-        }
-
-        // ── Remind Me — session picker result → show when-picker ─────────────────
-        if (interaction.isStringSelectMenu?.() && interaction.customId === 'ses_remindme_pick') {
-            const sessionId = interaction.values?.[0];
-            const session = await Session.findById(sessionId);
-            if (!session) return interaction.update({ content: '❌ That session no longer exists.', components: [] });
-            const ts = Math.floor(new Date(session.sessionFireAt).getTime() / 1000);
-            const timeShort = session.time ? session.time.split('|')[0].trim() : 'TBA';
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`ses_remind_when_24h_${session._id}`).setLabel('24 hours before').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId(`ses_remind_when_12h_${session._id}`).setLabel('12 hours before').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId(`ses_remind_when_ontime_${session._id}`).setLabel('When it starts').setStyle(ButtonStyle.Secondary)
-            );
-            return interaction.update({
-                content: `⏰ **When would you like to be reminded?**\nSession: **${session.shiftType || 'Regular Shift'}** — <t:${ts}:F> (\`${timeShort}\`)`,
-                components: [row]
             });
         }
 
