@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { CompletedTrainings } = require('../db');
+const { CompletedTrainings, TrainingProgress } = require('../db');
 
 // ========== DEPT CONFIG ==========
 const TRAINING_DEPTS = {
@@ -293,6 +293,101 @@ const SHR_TRAINING_QUIZ = [
 
 const activeSessions = new Map();
 
+// ── Persist training progress to DB ───────────────────────────────────────────
+async function saveTrainingProgress(userId, session) {
+    try {
+        await TrainingProgress.findByIdAndUpdate(userId, {
+            _id:                 userId,
+            staffId:             session.staffId,
+            staffTag:            session.staffTag,
+            department:          session.department,
+            training:            session.training,
+            section:             session.section,
+            phase:               session.phase,
+            score:               session.score,
+            quizIndex:           session.quizIndex,
+            locked:              session.locked,
+            awaitingAgeVerif:    session.awaitingAgeVerif,
+            ageVerifLogMessageId: session.ageVerifLogMessageId || null,
+            ageVerifLogChannelId: session.ageVerifLogChannelId || null,
+            updatedAt:           new Date()
+        }, { upsert: true, new: true });
+    } catch (err) {
+        console.error('[training] Failed to save progress for', userId, err.message);
+    }
+}
+
+// ── Clear saved progress when training ends ────────────────────────────────────
+async function clearTrainingProgress(userId) {
+    try { await TrainingProgress.findByIdAndDelete(userId); } catch {}
+}
+
+// ── Restore in-progress sessions from DB on startup ──────────────────────────
+async function restoreTrainingSessions(client) {
+    try {
+        const records = await TrainingProgress.find({});
+        for (const rec of records) {
+            if (activeSessions.has(rec._id)) continue; // already running
+            const trainingConfig = getTrainingConfig(rec.department, rec.training);
+            if (trainingConfig.notSetup) {
+                await clearTrainingProgress(rec._id);
+                continue;
+            }
+            const deptConfig = TRAINING_DEPTS[rec.department] || null;
+            const sessionData = {
+                staffId:             rec.staffId,
+                staffTag:            rec.staffTag,
+                department:          rec.department,
+                training:            rec.training,
+                deptConfig,
+                trainingConfig,
+                section:             rec.section,
+                phase:               rec.phase,
+                score:               rec.score,
+                quizIndex:           rec.quizIndex,
+                locked:              rec.locked,
+                awaitingAgeVerif:    rec.awaitingAgeVerif,
+                lastAgeVerifContent: null,
+                ageVerifLogMessageId: rec.ageVerifLogMessageId || null,
+                ageVerifLogChannelId: rec.ageVerifLogChannelId || null,
+                ageVerifRepingTimeout: null,
+                client
+            };
+            activeSessions.set(rec._id, sessionData);
+            console.log(`[training] Restored session for ${rec._id} (${rec.department} ${rec.training}, section ${rec.section})`);
+
+            // Notify trainee the bot restarted and re-send where they left off
+            try {
+                const user = await client.users.fetch(rec._id).catch(() => null);
+                if (user) {
+                    if (rec.phase === 'sections') {
+                        const sections = trainingConfig.sections;
+                        if (rec.awaitingAgeVerif) {
+                            await user.send({ content: '🔄 **The bot has restarted.** Your age verification is still pending — please wait for a staff member to approve it.' }).catch(() => {});
+                        } else {
+                            const embed = getSectionEmbed(sections[rec.section], rec.section, sections.length, rec.department, rec.training);
+                            const buttons = getSectionButtons(rec._id, rec.section);
+                            await user.send({ content: '🔄 **The bot restarted — picking up right where you left off!**', embeds: [embed], components: [buttons] }).catch(() => {});
+                        }
+                    } else if (rec.phase === 'quiz') {
+                        const q = trainingConfig.quiz[rec.quizIndex];
+                        if (q) {
+                            const embed = getQuizEmbed(q, rec.quizIndex, rec.score, trainingConfig.quiz.length, rec.department, rec.training);
+                            const buttons = getQuizButtons(rec._id, rec.quizIndex, q);
+                            await user.send({ content: '🔄 **The bot restarted — continuing your quiz right where you left off!**', embeds: [embed], components: [buttons] }).catch(() => {});
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error(`[training] Failed to notify ${rec._id} on restore:`, err.message);
+            }
+        }
+        if (records.length) console.log(`[training] Restored ${records.length} training session(s) from DB`);
+    } catch (err) {
+        console.error('[training] Failed to restore sessions:', err.message);
+    }
+}
+
 function getTrainingConfig(department, training) {
     if (OTHER_DEPTS.includes(department)) return { sections: null, quiz: null, notSetup: true };
 
@@ -362,6 +457,9 @@ function getQuizButtons(userId, questionIndex, q) {
 
 module.exports = {
     activeSessions,
+    saveTrainingProgress,
+    clearTrainingProgress,
+    restoreTrainingSessions,
 
     data: new SlashCommandBuilder()
         .setName('starttraining')
@@ -432,6 +530,7 @@ module.exports = {
             };
 
             activeSessions.set(member.id, sessionData);
+            await saveTrainingProgress(member.id, sessionData);
 
             try {
                 const embed = getSectionEmbed(trainingConfig.sections[0], 0, trainingConfig.sections.length, department, training);
@@ -480,5 +579,8 @@ module.exports = {
     INTRO_TO_MENTORSHIP_SECTIONS,
     INTRO_TO_MENTORSHIP_QUIZ,
     TRAINING_DEPTS,
-    getTrainingConfig
+    getTrainingConfig,
+    saveTrainingProgress,
+    clearTrainingProgress,
+    restoreTrainingSessions
 };

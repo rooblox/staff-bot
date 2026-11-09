@@ -232,7 +232,9 @@ const appFormSchema = new mongoose.Schema({
     open: { type: Boolean, default: false },
     openMessageId: String,
     openChannelId: String,
-    notifyRoleId: String
+    notifyRoleId: String,
+    redirectChannelId: String,   // if set, button says "Go to #channel" instead of opening DM form
+    redirectChannelName: String
 }, { versionKey: false });
 
 // Tracks the pinned status board message(s) that auto-update on open/close
@@ -388,6 +390,40 @@ const sessionReminderSchema = new mongoose.Schema({
 }, { versionKey: false });
 const SessionReminder = mongoose.model('SessionReminder', sessionReminderSchema);
 
+// ── Application DM session (persist across bot restarts) ─────────────────────
+const appDMSessionSchema = new mongoose.Schema({
+    _id:           String,   // applicant userId
+    formId:        String,
+    formName:      String,
+    answers:       [String],
+    questionIndex: { type: Number, default: 0 },
+    isResubmit:    { type: Boolean, default: false },
+    questions:     [String],
+    state:         { type: String, default: 'intro' },  // 'intro' | 'active' | 'review'
+    updatedAt:     { type: Date, default: Date.now }
+}, { versionKey: false });
+const AppDMSession = mongoose.model('AppDMSession', appDMSessionSchema);
+
+// ── Training progress (persist across bot restarts) ───────────────────────────
+const trainingProgressSchema = new mongoose.Schema({
+    _id:                 String,   // trainee userId
+    staffId:             String,
+    staffTag:            String,
+    department:          String,
+    training:            String,
+    section:             { type: Number, default: 0 },
+    phase:               { type: String, default: 'sections' },
+    score:               { type: Number, default: 0 },
+    quizIndex:           { type: Number, default: 0 },
+    locked:              { type: Boolean, default: false },
+    awaitingAgeVerif:    { type: Boolean, default: false },
+    ageVerifLogMessageId: String,
+    ageVerifLogChannelId: String,
+    startedAt:           { type: Date, default: Date.now },
+    updatedAt:           { type: Date, default: Date.now }
+}, { versionKey: false });
+const TrainingProgress = mongoose.model('TrainingProgress', trainingProgressSchema);
+
 // ── Roblox account link ───────────────────────────────────────────────────────
 const robloxLinkSchema = new mongoose.Schema({
     discordId:      { type: String, required: true, unique: true },
@@ -397,4 +433,4 @@ const robloxLinkSchema = new mongoose.Schema({
 });
 const RobloxLink = mongoose.model('RobloxLink', robloxLinkSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost, RobloxLink, SessionReminder };
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost, RobloxLink, SessionReminder, TrainingProgress, AppDMSession };

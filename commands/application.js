@@ -211,7 +211,7 @@ function parseQuestion(raw) {
 
 // ─── Open wizard step renderer ───────────────────────────────────────────────
 
-async function sendOpenStep(interaction, session, isUpdate = false) {
+async function sendOpenStep(interaction, session, isUpdate = false, isDeferred = false) {
     const client = interaction.client;
     const uid    = interaction.user.id;
     let embed, components;
@@ -221,7 +221,7 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
         const forms = await AppForm.find().sort({ createdAt: -1 }).limit(25);
         if (!forms.length) {
             const msg = { content: '❌ No forms yet. Use `/application setup` first.', flags: 64 };
-            return isUpdate ? interaction.update(msg) : interaction.reply(msg);
+            return isDeferred ? interaction.editReply(msg) : isUpdate ? interaction.update(msg) : interaction.reply(msg);
         }
         const totalSteps = client.guilds.cache.size > 1 ? 3 : 2;
         embed = stepEmbed(`Open — Step 1 of ${totalSteps}`,
@@ -236,6 +236,20 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
                     description: `${f.department || 'General'} · ${f.gameLink ? 'Game link' : `${f.questions.length} questions`} · ${f.open ? '🟢 Open' : '🔴 Closed'}`
                         .slice(0, 100)
                 })))
+        )];
+
+    } else if (session.step === 'pick_apply_type') {
+        embed = stepEmbed('Open — How should people apply?',
+            `Form: **${session.formName}** ✅\n\nShould the Apply button start a DM form, or redirect people to an applications channel?`);
+        components = [new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`appopen_type_dm_${uid}`)
+                .setLabel('💬 DM Form (default)')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId(`appopen_type_redirect_${uid}`)
+                .setLabel('🔗 Redirect to a Channel')
+                .setStyle(ButtonStyle.Secondary)
         )];
 
     } else if (session.step === 'pick_server') {
@@ -271,9 +285,27 @@ async function sendOpenStep(interaction, session, isUpdate = false) {
                 .setLabel('📌 Attach to existing message')
                 .setStyle(ButtonStyle.Secondary)
         ));
+
+    } else if (session.step === 'pick_redirect_channel') {
+        const opts = await channelOptions(client, session.serverId);
+        embed = stepEmbed('Open — Applications Channel',
+            `Form: **${session.formName}** ✅\n\nWhich channel should the Apply button **redirect people to** (your applications channel)?`);
+        components = [];
+        if (opts.length) {
+            components.push(new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId(`appopen_redirectch_${uid}`)
+                    .setPlaceholder('Select the applications channel…')
+                    .addOptions(opts)
+            ));
+        }
+        components.push(new ActionRowBuilder().addComponents(
+            manualIdButton(`appopen_redirectch_manual_${uid}`, '📋 Enter channel ID manually')
+        ));
     }
 
     const payload = { embeds: [embed], components, flags: 64 };
+    if (isDeferred) return interaction.editReply(payload);
     if (isUpdate) return interaction.update(payload);
     return interaction.reply(payload);
 }
@@ -781,9 +813,12 @@ module.exports = {
     // index.js: if (interaction.customId.startsWith('appopen_')) { await require('./commands/application').handleOpenSelect(interaction); return; }
     async handleOpenSelect(interaction) {
         try {
+            // Defer immediately — DB lookups below can exceed Discord's 3-second window
+            await interaction.deferUpdate().catch(() => {});
+
             const uid     = interaction.user.id;
             const session = pendingOpens.get(uid);
-            if (!session) return interaction.update({ content: '❌ Session expired. Run `/application open` again.', embeds: [], components: [] });
+            if (!session) return interaction.editReply({ content: '❌ Session expired. Run `/application open` again.', embeds: [], components: [] });
 
             const id     = interaction.customId;
             const client = interaction.client;
@@ -814,6 +849,51 @@ module.exports = {
                 return interaction.showModal(modal);
             }
 
+            // Apply type buttons — DM form vs redirect to channel
+            if (interaction.isButton() && id === `appopen_type_dm_${uid}`) {
+                session.redirectChannelId = null;
+                // Auto-skip server step if bot is only in one guild
+                if (client.guilds.cache.size === 1) {
+                    const guild = [...client.guilds.cache.values()][0];
+                    session.serverId   = guild.id;
+                    session.serverName = guild.name;
+                    session.step       = 'pick_channel';
+                } else {
+                    session.step = 'pick_server';
+                }
+                return sendOpenStep(interaction, session, true, true);
+            }
+
+            if (interaction.isButton() && id === `appopen_type_redirect_${uid}`) {
+                session.redirectChannelId = 'pending'; // will be set after pick_redirect_channel
+                // Auto-skip server step if bot is only in one guild
+                if (client.guilds.cache.size === 1) {
+                    const guild = [...client.guilds.cache.values()][0];
+                    session.serverId   = guild.id;
+                    session.serverName = guild.name;
+                    session.step       = 'pick_redirect_channel';
+                } else {
+                    session.step = 'pick_server_for_redirect';
+                }
+                return sendOpenStep(interaction, session, true, true);
+            }
+
+            // Manual channel ID button for redirect
+            if (interaction.isButton() && id === `appopen_redirectch_manual_${uid}`) {
+                const modal = new ModalBuilder()
+                    .setCustomId(`appopen_manualredirectch_${uid}`)
+                    .setTitle('Applications Channel ID');
+                modal.addComponents(new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('channel_id')
+                        .setLabel('Channel ID of your applications channel')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true).setMinLength(17).setMaxLength(20)
+                        .setPlaceholder('e.g. 1234567890123456789')
+                ));
+                return interaction.showModal(modal);
+            }
+
             // Manual channel ID button
             if (interaction.isButton() && id === `appopen_channel_manual_${uid}`) {
                 const modal = new ModalBuilder()
@@ -835,11 +915,33 @@ module.exports = {
             if (id === `appopen_form_${uid}`) {
                 const { AppForm } = require('../db');
                 const form = await AppForm.findById(value);
-                if (!form) return interaction.update({ content: '❌ Form not found.', embeds: [], components: [] });
+                if (!form) return interaction.editReply({ content: '❌ Form not found.', embeds: [], components: [] });
                 session.formId   = String(form._id);
                 session.formName = form.name;
                 session.formDesc = form.description || '';
                 // Auto-skip server step if bot is only in one guild
+                session.step = 'pick_apply_type';
+                return sendOpenStep(interaction, session, true, true);
+            }
+
+            if (id === `appopen_server_${uid}`) {
+                const guild = client.guilds.cache.get(value);
+                session.serverId   = value;
+                session.serverName = guild ? guild.name : value;
+                session.step       = 'pick_channel';
+                return sendOpenStep(interaction, session, true, true);
+            }
+
+            if (id === `appopen_channel_${uid}`) {
+                await finishOpen(interaction, session, value, client, true);
+            }
+
+            // Redirect channel selected — now pick which channel to post the button in
+            if (id === `appopen_redirectch_${uid}`) {
+                const ch = await client.channels.fetch(value).catch(() => null);
+                session.redirectChannelId   = value;
+                session.redirectChannelName = ch ? ch.name : value;
+                // Now pick where to post the "Go to #channel" button
                 if (client.guilds.cache.size === 1) {
                     const guild = [...client.guilds.cache.values()][0];
                     session.serverId   = guild.id;
@@ -848,24 +950,12 @@ module.exports = {
                 } else {
                     session.step = 'pick_server';
                 }
-                return sendOpenStep(interaction, session, true);
-            }
-
-            if (id === `appopen_server_${uid}`) {
-                const guild = client.guilds.cache.get(value);
-                session.serverId   = value;
-                session.serverName = guild ? guild.name : value;
-                session.step       = 'pick_channel';
-                return sendOpenStep(interaction, session, true);
-            }
-
-            if (id === `appopen_channel_${uid}`) {
-                await finishOpen(interaction, session, value, client);
+                return sendOpenStep(interaction, session, true, true);
             }
 
         } catch (err) {
             console.error('[appopen select error]', err);
-            await interaction.update({ content: '❌ Something went wrong. Try `/application open` again.', embeds: [], components: [] }).catch(() => {});
+            await interaction.editReply({ content: '❌ Something went wrong. Try `/application open` again.', embeds: [], components: [] }).catch(() => {});
         }
     },
 
@@ -881,6 +971,34 @@ module.exports = {
             await finishOpen(interaction, session, chId, client);
         } catch (err) {
             console.error('[appopen manual error]', err);
+            await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
+        }
+    },
+
+    // ── Open wizard redirect channel manual modal ────────────────────────────
+    // index.js: if (interaction.customId.startsWith('appopen_manualredirectch_')) { await require('./commands/application').handleOpenManualRedirectChannel(interaction); return; }
+    async handleOpenManualRedirectChannel(interaction) {
+        try {
+            const uid     = interaction.user.id;
+            const session = pendingOpens.get(uid);
+            if (!session) return interaction.reply({ content: '❌ Session expired. Run `/application open` again.', flags: 64 });
+            const chId   = interaction.fields.getTextInputValue('channel_id').trim();
+            const client = interaction.client;
+            const ch = await client.channels.fetch(chId).catch(() => null);
+            session.redirectChannelId   = chId;
+            session.redirectChannelName = ch ? ch.name : chId;
+            if (client.guilds.cache.size === 1) {
+                const guild = [...client.guilds.cache.values()][0];
+                session.serverId   = guild.id;
+                session.serverName = guild.name;
+                session.step       = 'pick_channel';
+            } else {
+                session.step = 'pick_server';
+            }
+            await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            return sendOpenStep(interaction, session, false, true);
+        } catch (err) {
+            console.error('[appopen redirect manual error]', err);
             await interaction.reply({ content: '❌ Something went wrong.', flags: 64 }).catch(() => {});
         }
     },
@@ -1149,12 +1267,14 @@ async function saveForm(interaction, session) {
 
 // ─── Shared finish-open logic ────────────────────────────────────────────────
 
-async function finishOpen(interaction, session, channelId, client) {
+async function finishOpen(interaction, session, channelId, client, isDeferred = false) {
     const { AppForm } = require('../db');
     pendingOpens.delete(interaction.user.id);
 
     // Helper: reply works for both select menus (update) and modal submits (reply/editReply)
+    // isDeferred=true means we already called deferUpdate(), so we must use editReply
     const replyOrUpdate = (payload) => {
+        if (isDeferred) return interaction.editReply(payload);
         if (interaction.isModalSubmit()) return interaction.reply({ ...payload, flags: 64 });
         return interaction.update(payload);
     };
@@ -1162,12 +1282,26 @@ async function finishOpen(interaction, session, channelId, client) {
     const targetChannel = await client.channels.fetch(channelId).catch(() => null);
     if (!targetChannel) return replyOrUpdate({ content: `❌ Couldn't find channel \`${channelId}\`. Make sure the ID is correct and the bot is in that server.`, embeds: [], components: [] });
 
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`app_apply_${session.formId}`)
-            .setLabel('Apply Now 📝')
-            .setStyle(ButtonStyle.Primary)
-    );
+    // Build the button — either opens DM form or redirects to applications channel
+    const isRedirect = !!(session.redirectChannelId && session.redirectChannelId !== 'pending');
+    let row;
+    if (isRedirect) {
+        const redirectCh = await client.channels.fetch(session.redirectChannelId).catch(() => null);
+        const chMention = redirectCh ? `#${redirectCh.name}` : `#${session.redirectChannelName || session.redirectChannelId}`;
+        row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setURL(`https://discord.com/channels/${redirectCh?.guildId || targetChannel.guildId}/${session.redirectChannelId}`)
+                .setLabel(`📋 Go to ${chMention}`)
+                .setStyle(ButtonStyle.Link)
+        );
+    } else {
+        row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`app_apply_${session.formId}`)
+                .setLabel('Apply Now 📝')
+                .setStyle(ButtonStyle.Primary)
+        );
+    }
 
     let openMessageId;
     if (session.messageId) {
@@ -1177,15 +1311,23 @@ async function finishOpen(interaction, session, channelId, client) {
         await existing.edit({ components: [row] });
         openMessageId = session.messageId;
     } else {
+        const redirectNote = isRedirect ? `\n> 📋 **Head to <#${session.redirectChannelId}> to apply!**` : '\n> Click below to apply. Make sure your DMs are open!';
         const msg = await targetChannel.send({
-            content: `> 📝 **${session.formName}**${session.formDesc ? ` — ${session.formDesc}` : ''}\n> Click below to apply. Make sure your DMs are open!`,
+            content: `> 📝 **${session.formName}**${session.formDesc ? ` — ${session.formDesc}` : ''}${redirectNote}`,
             components: [row]
         });
         openMessageId = msg.id;
     }
 
-    await AppForm.findByIdAndUpdate(session.formId, { open: true, openMessageId, openChannelId: channelId });
+    await AppForm.findByIdAndUpdate(session.formId, {
+        open: true, openMessageId, openChannelId: channelId,
+        redirectChannelId: session.redirectChannelId || null,
+        redirectChannelName: session.redirectChannelName || null
+    });
     await refreshStatusBoard(client);
 
-    return replyOrUpdate({ content: `✅ **${session.formName}** is now open! Apply button posted in <#${channelId}>.`, embeds: [], components: [] });
+    const successNote = isRedirect
+        ? `✅ **${session.formName}** is now open! Button posted in <#${channelId}> — redirects to <#${session.redirectChannelId}>.`
+        : `✅ **${session.formName}** is now open! Apply button posted in <#${channelId}>.`;
+    return replyOrUpdate({ content: successNote, embeds: [], components: [] });
 }

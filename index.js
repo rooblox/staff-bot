@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
-const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink, SessionReminder } = require('./db');
+const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink, SessionReminder, AppDMSession } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
@@ -69,7 +69,7 @@ for (const file of commandFiles) {
 cmds.push(linkRobloxCommand.toJSON());
 
 const trainingModule = require('./commands/starttraining');
-const { activeSessions, getSectionEmbed, getSectionButtons, getQuizEmbed, getQuizButtons, getTrainingConfig, TRAINING_DEPTS } = trainingModule;
+const { activeSessions, getSectionEmbed, getSectionButtons, getQuizEmbed, getQuizButtons, getTrainingConfig, TRAINING_DEPTS, saveTrainingProgress, clearTrainingProgress, restoreTrainingSessions } = trainingModule;
 
 const loaModule = require('./commands/loa');
 const { scheduleLOAReturnReminder, DEPARTMENTS } = loaModule;
@@ -648,6 +648,87 @@ function scheduleAutoDelete(sessionId, messageId, delay) {
     }, delay);
 }
 
+// ── Application DM session persistence ───────────────────────────────────────
+async function saveAppDMSession(userId, appSession) {
+    try {
+        await AppDMSession.findByIdAndUpdate(userId, {
+            _id:           userId,
+            formId:        appSession.formId,
+            formName:      appSession.formName,
+            answers:       appSession.answers,
+            questionIndex: appSession.questionIndex,
+            isResubmit:    appSession.isResubmit || false,
+            questions:     appSession.questions,
+            state:         appSession.state,
+            updatedAt:     new Date()
+        }, { upsert: true, new: true });
+    } catch (err) {
+        console.error('[appDM] Failed to save session for', userId, err.message);
+    }
+}
+
+async function clearAppDMSession(userId) {
+    try { await AppDMSession.findByIdAndDelete(userId); } catch {}
+}
+
+async function restoreAppDMSessions() {
+    try {
+        const { pendingDMs } = require('./commands/application');
+        const records = await AppDMSession.find({});
+        for (const rec of records) {
+            if (pendingDMs.has(rec._id)) continue;
+            pendingDMs.set(rec._id, {
+                formId:        rec.formId,
+                formName:      rec.formName,
+                answers:       rec.answers || [],
+                questionIndex: rec.questionIndex || 0,
+                isResubmit:    rec.isResubmit || false,
+                questions:     rec.questions || [],
+                state:         rec.state || 'intro'
+            });
+            // Notify the applicant the bot restarted
+            try {
+                const user = await client.users.fetch(rec._id).catch(() => null);
+                if (user && rec.state === 'active') {
+                    const { parseQuestion } = require('./commands/application');
+                    const q = parseQuestion(rec.questions[rec.questionIndex]);
+                    let content = `🔄 **The bot restarted mid-application — picking up where you left off!**\n\n**Question ${rec.questionIndex + 1} of ${rec.questions.length}:**\n${q.display}`;
+                    let components = [];
+                    if (q.type === 'scale') {
+                        const { StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+                        components = [new ActionRowBuilder().addComponents(
+                            new StringSelectMenuBuilder()
+                                .setCustomId(`app_dmscale_${rec.formId}`)
+                                .setPlaceholder('Select a rating...')
+                                .addOptions([1,2,3,4,5,6,7,8,9,10].map(n => ({ label: `${n}`, value: `${n}` })))
+                        )];
+                    } else if (q.type === 'choice') {
+                        const { StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+                        components = [new ActionRowBuilder().addComponents(
+                            new StringSelectMenuBuilder()
+                                .setCustomId(`app_dmchoice_${rec.formId}`)
+                                .setPlaceholder('Select an option...')
+                                .addOptions(q.choices.map(c => ({ label: c, value: c })))
+                        )];
+                    } else {
+                        content += '\n\n*Reply to this message with your answer.*';
+                    }
+                    await user.send({ content, components }).catch(() => {});
+                } else if (user && rec.state === 'intro') {
+                    await user.send({ content: `🔄 **The bot restarted.** Your application for **${rec.formName}** was reset — please click the Apply button in the channel to start again. Sorry for the inconvenience!` }).catch(() => {});
+                    pendingDMs.delete(rec._id);
+                    await clearAppDMSession(rec._id);
+                } else if (user && rec.state === 'review') {
+                    await user.send({ content: `🔄 **The bot restarted mid-review.** Please re-answer the last question — your previous answers were saved up to that point.` }).catch(() => {});
+                }
+            } catch {}
+        }
+        if (records.length) console.log(`[appDM] Restored ${records.length} in-progress application session(s)`);
+    } catch (err) {
+        console.error('[appDM] Failed to restore sessions:', err.message);
+    }
+}
+
 async function restoreSessions() {
     try {
         const sessions = await Session.find({ status: { $in: ['approved', 'active'] } });
@@ -1084,6 +1165,7 @@ async function startQuiz(userId, session) {
     session.phase = 'quiz';
     session.quizIndex = 0;
     session.score = 0;
+    await saveTrainingProgress(userId, session);
     await user.send({ embeds: [new EmbedBuilder().setTitle('📝 Quiz Time!').setDescription(`You've completed all sections! Now it's time for your quiz.\n\nYou need **${session.trainingConfig.passScore}/${session.trainingConfig.quiz.length}** to pass.\n\n**Good luck!**`).setColor(0x9B59B6).setTimestamp()] });
     setTimeout(async () => {
         const q = session.trainingConfig.quiz[0];
@@ -1431,9 +1513,8 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
-        // ========== APPLICATION OPEN — manual channel ID button / attach button ==========
-        if (interaction.customId.startsWith('appopen_channel_manual_') ||
-            interaction.customId.startsWith('appopen_attach_')) {
+        // ========== APPLICATION OPEN — wizard buttons ==========
+        if (interaction.customId.startsWith('appopen_')) {
             await require('./commands/application').handleOpenSelect(interaction);
             return;
         }
@@ -1979,7 +2060,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             if (session.locked) return interaction.reply({ content: '🔒 Your session is locked. Please wait for a staff member to resolve your help request.', flags: 64 });
             await interaction.update({ components: [] });
             const nextSection = sectionIndex + 1;
-            if (nextSection < session.trainingConfig.sections.length) { session.section = nextSection; await sendNextSection(userId, session); }
+            if (nextSection < session.trainingConfig.sections.length) { session.section = nextSection; await saveTrainingProgress(userId, session); await sendNextSection(userId, session); }
             else { await startQuiz(userId, session); }
             return;
         }
@@ -2046,6 +2127,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             const user = await client.users.fetch(userId);
             await user.send({ embeds: [new EmbedBuilder().setTitle('✅ Age Verification Approved').setDescription('Your age has been successfully verified! You may now continue with your training.').setColor(0x2ECC71).setTimestamp()] });
             session.section += 1;
+            await saveTrainingProgress(userId, session);
             await sendNextSection(userId, session);
             return;
         }
@@ -2077,6 +2159,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             const nextQuestion = questionIndex + 1;
             if (nextQuestion < session.trainingConfig.quiz.length) {
                 session.quizIndex = nextQuestion;
+                await saveTrainingProgress(userId, session);
                 setTimeout(async () => {
                     const nextQ = session.trainingConfig.quiz[nextQuestion];
                     const embed = getQuizEmbed(nextQ, nextQuestion, session.score, session.trainingConfig.quiz.length, session.department, session.training);
@@ -2101,6 +2184,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             } catch (err) { console.error('Error saving completed training:', err); }
             const user = await client.users.fetch(userId);
             activeSessions.delete(userId);
+            await clearTrainingProgress(userId);
             await user.send({ embeds: [new EmbedBuilder().setTitle('🎉 Congratulations!').setDescription(`Congratulations, ${user}! 🎉\n\nYou have successfully **passed** your **${session.training}** for the **${session.department}** department at **Kavià Café**!\n\nYour hard work and dedication have not gone unnoticed. Your permissions will be updated shortly.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0x2ECC71).setTimestamp()] });
             const logChannel = await client.channels.fetch(session.deptConfig.logChannelId);
             if (logChannel?.isTextBased()) {
@@ -2139,6 +2223,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                 ).setTimestamp()] });
             }
             session.section = 0; session.phase = 'sections'; session.score = 0; session.quizIndex = 0; session.locked = false; session.awaitingAgeVerif = false;
+            await saveTrainingProgress(userId, session);
             setTimeout(async () => { await sendNextSection(userId, session); }, 2000);
             return;
         }
@@ -3268,6 +3353,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             if (nextIndex < appSession.questions.length) {
                 appSession.questionIndex = nextIndex;
                 pendingDMs.set(interaction.user.id, appSession);
+                await saveAppDMSession(interaction.user.id, appSession);
                 const nextQ = parseQuestion(appSession.questions[nextIndex]);
                 let components = [];
                 if (nextQ.type === 'scale') {
@@ -3290,6 +3376,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                 // All questions answered — show review/confirm prompt
                 appSession.state = 'review';
                 pendingDMs.set(interaction.user.id, appSession);
+                await saveAppDMSession(interaction.user.id, appSession);
 
                 const reviewLines = appSession.questions.map((q, i) => {
                     const { display } = parseQuestion(q);
@@ -3357,7 +3444,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                 await dm.send({ embeds: [introEmbed], components: [introRow] });
 
                 // Store session in "intro" state — no questions started yet
-                pendingDMs.set(interaction.user.id, {
+                const newAppSession = {
                     formId,
                     formName: form.name,
                     answers: [],
@@ -3365,7 +3452,9 @@ if (interaction.customId.startsWith('dmreply_')) {
                     isResubmit,
                     questions: form.questions,
                     state: 'intro'   // 'intro' | 'active' | 'review'
-                });
+                };
+                pendingDMs.set(interaction.user.id, newAppSession);
+                await saveAppDMSession(interaction.user.id, newAppSession);
 
                 return interaction.editReply({ content: '📬 Check your DMs! I\'ve sent you the application details.' });
             } catch (err) {
@@ -3385,6 +3474,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             appSession.answers = [];
             appSession.questionIndex = 0;
             pendingDMs.set(interaction.user.id, appSession);
+            await saveAppDMSession(interaction.user.id, appSession);
 
             const q0 = parseQuestion(appSession.questions[0]);
             let components = [];
@@ -3413,6 +3503,7 @@ if (interaction.customId.startsWith('dmreply_')) {
         if (interaction.customId.startsWith('app_dmnvm_')) {
             const { pendingDMs } = require('./commands/application');
             pendingDMs.delete(interaction.user.id);
+            await clearAppDMSession(interaction.user.id);
             return interaction.update({ content: '❌ Application cancelled. You can always apply again later!', components: [], embeds: [] });
         }
 
@@ -3423,6 +3514,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             if (!appSession) return interaction.update({ content: '❌ Session expired.', components: [], embeds: [] });
 
             pendingDMs.delete(interaction.user.id);
+            await clearAppDMSession(interaction.user.id);
             await interaction.update({ components: [] }); // disable the review buttons
 
             // ── Helper: truncate a value to Discord's 1024-char field limit ──
@@ -3586,6 +3678,7 @@ if (interaction.customId.startsWith('dmreply_')) {
             appSession.questionIndex = 0;
             appSession.state = 'active';
             pendingDMs.set(interaction.user.id, appSession);
+            await saveAppDMSession(interaction.user.id, appSession);
 
             const q0 = parseQuestion(appSession.questions[0]);
             let components = [];
@@ -4772,6 +4865,12 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
+        // ========== APPLICATION OPEN — redirect channel manual modal ==========
+        if (interaction.customId.startsWith('appopen_manualredirectch_')) {
+            await require('./commands/application').handleOpenManualRedirectChannel(interaction);
+            return;
+        }
+
         // ========== APPLICATION OPEN — attach to existing message modal ==========
         if (interaction.customId.startsWith('appopen_attachmsg_')) {
             await require('./commands/application').handleOpenAttachMessage(interaction);
@@ -4951,6 +5050,7 @@ client.on('messageCreate', async message => {
         if (appSession) {
             if (message.content.toLowerCase() === 'cancel') {
                 pendingDMs.delete(message.author.id);
+                await clearAppDMSession(message.author.id);
                 await message.reply('❌ Application cancelled.');
                 return;
             }
@@ -4975,6 +5075,7 @@ client.on('messageCreate', async message => {
                 // More questions
                 appSession.questionIndex = nextIndex;
                 pendingDMs.set(message.author.id, appSession);
+                await saveAppDMSession(message.author.id, appSession);
                 const nextQ = parseQuestion(appSession.questions[nextIndex]);
                 let components = [];
                 if (nextQ.type === 'scale') {
@@ -4997,6 +5098,7 @@ client.on('messageCreate', async message => {
                 // All answered — show review/confirm prompt
                 appSession.state = 'review';
                 pendingDMs.set(message.author.id, appSession);
+                await saveAppDMSession(message.author.id, appSession);
 
                 const reviewRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`app_dmsubmit_${message.author.id}`).setLabel('✅ Submit Application').setStyle(ButtonStyle.Success),
@@ -5187,6 +5289,8 @@ client.once('ready', async () => {
     for (const reminder of pendingReminders) scheduleReminder(reminder, client);
     console.log(`✅ Reloaded ${pendingReminders.length} pending reminders`);
     await restoreSessions();
+    await restoreTrainingSessions(client);
+    await restoreAppDMSessions();
     await cleanupStaleSessions();
     setInterval(cleanupStaleSessions, 60 * 60 * 1000);
     // Small delay so all guilds are cached before we try to post the panel
