@@ -439,15 +439,20 @@ function scheduleTicketInactivity(ticket, guild) {
 // Shows next scheduled session (or "None scheduled") + ping role buttons.
 async function buildSessionInfoEmbed() {
     const now = new Date();
-    // Find the soonest future approved/pending session
+    // Find the next 3 future approved/pending sessions
     const upcoming = await Session.find({ status: { $in: ['pending', 'approved'] }, sessionFireAt: { $gt: now } })
-        .sort({ sessionFireAt: 1 }).limit(1);
-    const next = upcoming[0] || null;
+        .sort({ sessionFireAt: 1 }).limit(3);
 
-    let nextLine = '> No sessions are currently scheduled.';
-    if (next) {
-        const ts = Math.floor(new Date(next.sessionFireAt).getTime() / 1000);
-        nextLine = `> **${next.shiftType || 'Regular Shift'}** — <t:${ts}:F> (<t:${ts}:R>)\n> Hosted by <@${next.hostId}>`;
+    let sessionsValue;
+    if (upcoming.length === 0) {
+        sessionsValue = '> No sessions are currently scheduled.\n​';
+    } else {
+        sessionsValue = upcoming.map((s, i) => {
+            const ts = Math.floor(new Date(s.sessionFireAt).getTime() / 1000);
+            const label = i === 0 ? '**Next**' : i === 1 ? '**2nd**' : '**3rd**';
+            const statusIcon = s.status === 'approved' ? '✅' : '🕐';
+            return `${statusIcon} ${label} — **${s.shiftType || 'Regular Shift'}**\n> <t:${ts}:F> (<t:${ts}:R>)\n> Hosted by <@${s.hostId}>`;
+        }).join('\n\n') + '\n​';
     }
 
     return new EmbedBuilder()
@@ -469,8 +474,8 @@ async function buildSessionInfoEmbed() {
                 inline: false
             },
             {
-                name: '📅  Next Scheduled Session',
-                value: nextLine + '\n​',
+                name: '📅  Upcoming Sessions',
+                value: sessionsValue,
                 inline: false
             }
         )
@@ -2181,21 +2186,73 @@ if (interaction.customId.startsWith('dmreply_')) {
             }
         }
 
-        // ── Remind Me — step 1: pick WHEN ────────────────────────────────────────
+        // ── Remind Me — step 1: pick WHICH session (if multiple upcoming) ────────
         if (interaction.customId === 'ses_remindme') {
             const now = new Date();
-            const next = await Session.findOne({ status: { $in: ['pending', 'approved'] }, sessionFireAt: { $gt: now } }).sort({ sessionFireAt: 1 });
-            if (!next) return interaction.reply({ content: '📅 There are no upcoming sessions to set a reminder for right now.', flags: 64 });
-            const ts = Math.floor(new Date(next.sessionFireAt).getTime() / 1000);
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`ses_remind_when_24h_${next._id}`).setLabel('24 hours before').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId(`ses_remind_when_12h_${next._id}`).setLabel('12 hours before').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId(`ses_remind_when_ontime_${next._id}`).setLabel('When it starts').setStyle(ButtonStyle.Secondary)
-            );
+            const upcoming = await Session.find({ status: { $in: ['pending', 'approved'] }, sessionFireAt: { $gt: now } })
+                .sort({ sessionFireAt: 1 }).limit(3);
+            if (upcoming.length === 0) return interaction.reply({ content: '📅 There are no upcoming sessions to set a reminder for right now.', flags: 64 });
+
+            // If only one session, skip straight to the when-picker
+            if (upcoming.length === 1) {
+                const next = upcoming[0];
+                const ts = Math.floor(new Date(next.sessionFireAt).getTime() / 1000);
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`ses_remind_when_24h_${next._id}`).setLabel('24 hours before').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ses_remind_when_12h_${next._id}`).setLabel('12 hours before').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`ses_remind_when_ontime_${next._id}`).setLabel('When it starts').setStyle(ButtonStyle.Secondary)
+                );
+                return interaction.reply({
+                    content: `⏰ **When would you like to be reminded?**\nSession: **${next.shiftType || 'Regular Shift'}** — <t:${ts}:F>`,
+                    components: [row],
+                    flags: 64
+                });
+            }
+
+            // Multiple sessions — show a select menu so they pick which one
+            const ORDINALS = ['1st', '2nd', '3rd'];
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('ses_remindme_pick')
+                .setPlaceholder('Select a session...')
+                .addOptions(upcoming.map((s, i) => {
+                    const ts = Math.floor(new Date(s.sessionFireAt).getTime() / 1000);
+                    const dateObj = new Date(s.sessionFireAt);
+                    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    const dayName = days[dateObj.getUTCDay()];
+                    const monthName = months[dateObj.getUTCMonth()];
+                    const dateNum = dateObj.getUTCDate();
+                    // Build EST time string from the session's stored time field
+                    const timeShort = s.time ? s.time.split('|')[0].trim() : 'TBA';
+                    return {
+                        label: `${ORDINALS[i]} — ${s.shiftType || 'Regular Shift'}`,
+                        description: `${dayName}, ${monthName} ${dateNum} • ${timeShort}`,
+                        value: String(s._id)
+                    };
+                }));
+
             return interaction.reply({
-                content: `⏰ **When would you like to be reminded?**\nNext session: **${next.shiftType || 'Regular Shift'}** — <t:${ts}:F>`,
-                components: [row],
+                content: `⏰ **Which session would you like a reminder for?**`,
+                components: [new ActionRowBuilder().addComponents(selectMenu)],
                 flags: 64
+            });
+        }
+
+        // ── Remind Me — session picker result → show when-picker ─────────────────
+        if (interaction.isStringSelectMenu?.() && interaction.customId === 'ses_remindme_pick') {
+            const sessionId = interaction.values?.[0];
+            const session = await Session.findById(sessionId);
+            if (!session) return interaction.update({ content: '❌ That session no longer exists.', components: [] });
+            const ts = Math.floor(new Date(session.sessionFireAt).getTime() / 1000);
+            const timeShort = session.time ? session.time.split('|')[0].trim() : 'TBA';
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`ses_remind_when_24h_${session._id}`).setLabel('24 hours before').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`ses_remind_when_12h_${session._id}`).setLabel('12 hours before').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`ses_remind_when_ontime_${session._id}`).setLabel('When it starts').setStyle(ButtonStyle.Secondary)
+            );
+            return interaction.update({
+                content: `⏰ **When would you like to be reminded?**\nSession: **${session.shiftType || 'Regular Shift'}** — <t:${ts}:F> (\`${timeShort}\`)`,
+                components: [row]
             });
         }
 
