@@ -590,7 +590,7 @@ async function handleScheduleInteraction(interaction, client) {
         const day = id.replace('sched_claim_', '');
         if (!DAYS_OF_WEEK.includes(day)) return false;
 
-        await interaction.deferReply({ flags: 64 }).catch(() => {});
+        try { await interaction.deferReply({ flags: 64 }); } catch { return true; }
 
         if (!await hasSessionRole(client, interaction.user.id)) {
             await interaction.editReply({ content: '❌ You do not have permission to claim session slots.' });
@@ -759,7 +759,7 @@ async function handleScheduleInteraction(interaction, client) {
         const rawId     = interaction.fields.getTextInputValue('cohost_id').trim();
         if (!timeVal || !shiftType) return false;
 
-        await interaction.deferReply({ flags: 64 }).catch(() => {});
+        try { await interaction.deferReply({ flags: 64 }); } catch { return true; }
 
         // Validate the user ID
         let coHostUser = null;
@@ -791,7 +791,7 @@ async function handleScheduleInteraction(interaction, client) {
 
     // ── Manage my sessions ────────────────────────────────────────────────────
     if (id === 'sched_manage') {
-        await interaction.deferReply({ flags: 64 }).catch(() => {});
+        try { await interaction.deferReply({ flags: 64 }); } catch { return true; }
 
         const weekStart = getCurrentWeekStart();
         const mySessions = await Session.find({
