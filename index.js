@@ -5,6 +5,7 @@ const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, Modal
 const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink, SessionReminder, AppDMSession } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
+const { handleOnboardingInteraction, checkOnboardingCleanup } = require('./commands/botonboarding');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -1334,6 +1335,11 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
+        // ========== BOT ONBOARDING — category select ==========
+        if (interaction.customId?.startsWith('ob_')) {
+            if (await handleOnboardingInteraction(interaction, client)) return;
+        }
+
         // ========== APPLICATION CLOSE DROPDOWN ==========
         if (interaction.customId.startsWith('appclose_form_')) {
             await require('./commands/application').handleCloseSelect(interaction);
@@ -1486,6 +1492,11 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
     }
 
     if (interaction.isButton()) { try {
+
+        // ========== BOT ONBOARDING — all ob_ buttons ==========
+        if (interaction.customId?.startsWith('ob_')) {
+            if (await handleOnboardingInteraction(interaction, client)) return;
+        }
 
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
@@ -5328,17 +5339,26 @@ client.once('ready', async () => {
                 const session = await Session.findById(r.sessionId).catch(() => null);
                 if (!session) continue;
                 const ts = Math.floor(new Date(session.sessionFireAt).getTime() / 1000);
-                const whenLabel = r.when === '24h' ? '24 hours' : r.when === '12h' ? '12 hours' : 'now';
-                const msg = r.when === 'ontime'
-                    ? `⏰ <@${r.userId}> Your session reminder — **${session.shiftType || 'Regular Shift'}** is starting **now**! <t:${ts}:R>`
-                    : `⏰ <@${r.userId}> Reminder — **${session.shiftType || 'Regular Shift'}** starts in **${whenLabel}**! (<t:${ts}:F>)`;
+                const isNow = r.when === 'ontime';
+                const { EmbedBuilder } = require('discord.js');
+                const reminderEmbed = new EmbedBuilder()
+                    .setColor(isNow ? 0xe74c3c : 0x5865f2)
+                    .setTitle(isNow ? '⏰ Session Starting Now!' : '🔔 Upcoming Session Reminder')
+                    .setDescription(
+                        isNow
+                            ? `Your **${session.shiftType || 'Regular Shift'}** session is starting **right now!**\n> Scheduled for <t:${ts}:F>`
+                            : `Your **${session.shiftType || 'Regular Shift'}** session is coming up!\n> Starts <t:${ts}:R> (<t:${ts}:F>)`
+                    )
+                    .setFooter({ text: 'Kavià Café Staff Bot' })
+                    .setTimestamp();
+                const payload = { content: `<@${r.userId}>`, embeds: [reminderEmbed] };
                 try {
                     if (r.how === 'dm') {
                         const user = await client.users.fetch(r.userId);
-                        await user.send(msg);
+                        await user.send(payload);
                     } else {
                         const ch = await client.channels.fetch(SESSION_REMINDER_CHANNEL_ID);
-                        if (ch?.isTextBased()) await ch.send(msg);
+                        if (ch?.isTextBased()) await ch.send(payload);
                     }
                 } catch (e) { console.warn('[sessionReminder] Could not deliver reminder:', e.message); }
             }
@@ -5456,6 +5476,9 @@ client.once('ready', async () => {
     } catch (err) {
         console.error('❌ Failed to init session schedule system:', err.message);
     }
+
+    // Bot onboarding — cleanup abandoned training channels every 10 minutes
+    setInterval(() => checkOnboardingCleanup(client).catch(console.error), 10 * 60 * 1000);
 
 
     // ========== APP TICKET WATCH — 48h expiry check ==========
