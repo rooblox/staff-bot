@@ -14,8 +14,7 @@
  *   2. Multi-select dropdown: pick which categories to train on
  *   3. Bot creates a private #bot-training-[username] channel
  *   4. Interactive walkthrough with example commands, tips, and quizzes
- *   5. Fake alliance creation sandbox (doesn't log to DB)
- *   6. At the end: "Are you done?" prompt → marks complete or keeps channel open
+ *   5. At the end: "Are you done?" prompt → marks complete or keeps channel open
  *   7. Auto-delete channel after 24h of inactivity
  *
  * WIRING IN index.js:
@@ -48,7 +47,6 @@ const onboardingSessionSchema = new mongoose.Schema({
     currentCategory:  { type: Number, default: 0 },
     currentStep:      { type: Number, default: 0 },
     completedCats:    [String],
-    sandboxAllianceChannelId: String,  // fake alliance channel created during sandbox
     status:           { type: String, default: 'active' },  // active | done | abandoned
     createdAt:        { type: Date, default: Date.now },
     lastActivityAt:   { type: Date, default: Date.now }
@@ -375,87 +373,6 @@ const CATEGORIES = {
             }
         ]
     },
-    alliance: {
-        label: '🤝 Alliance Setup (Sandbox)',
-        description: 'Practice creating an alliance — sandbox mode (nothing is logged!)',
-        emoji: '🤝',
-        steps: [
-            {
-                title: '🤝 Alliance Setup — What is This?',
-                content: [
-                    '**Welcome to the Alliance Sandbox!** 🏖️',
-                    '',
-                    'In this training mode, you\'ll go through the **full alliance creation process** — but nothing actually gets logged or created permanently.',
-                    '',
-                    '**What the sandbox does:**',
-                    '✅ Creates a temporary fake alliance channel (deleted when training ends)',
-                    '✅ Simulates the rep setup flow',
-                    '✅ Shows you all the steps you\'d take in a real alliance',
-                    '',
-                    '**What it does NOT do:**',
-                    '❌ Log anything to the alliance database',
-                    '❌ Create any permanent records',
-                    '❌ Send any real notifications',
-                    '',
-                    'Click **Start Sandbox** below to create your practice alliance!',
-                ].join('\n'),
-                isSandboxStart: true
-            },
-            {
-                title: '🤝 Alliance — Step 1: Alliance Name',
-                content: [
-                    'In a **real** alliance setup, you\'d run the alliance creation command and enter:',
-                    '',
-                    '📌 **Alliance Name** — The official name of the alliance',
-                    '📌 **Alliance Type** — Partnership, Affiliate, etc.',
-                    '📌 **Representative** — The Discord user who is the alliance rep',
-                    '',
-                    '🏖️ *In this sandbox, we\'ve pre-filled a fake alliance: **"Sandbox Café Alliance"***',
-                    '',
-                    'In a real setup, the bot would:',
-                    '1. Create a dedicated alliance channel',
-                    '2. Set up roles for the alliance rep',
-                    '3. Post an alliance info embed',
-                    '4. Log the alliance to the database',
-                ].join('\n')
-            },
-            {
-                title: '🤝 Alliance — Step 2: Fake Reps',
-                content: [
-                    '**Alliance Representatives** are the contacts from the other server.',
-                    '',
-                    'In a real setup:',
-                    '• You\'d add their Discord user(s) as reps',
-                    '• The bot assigns them a "Partner Rep" role',
-                    '• They get access to the alliance channel',
-                    '• A welcome message goes to the channel',
-                    '',
-                    '🏖️ *Sandbox: Fake reps "Rep Alpha" and "Rep Beta" have been simulated. No roles were actually given!*',
-                    '',
-                    '**Managing reps after setup:**',
-                    'You can add/remove reps, update alliance info, and archive alliances through the alliance management commands.',
-                ].join('\n')
-            },
-            {
-                title: '🤝 Alliance — Sandbox Complete! 🎉',
-                content: [
-                    '**Amazing work!** You\'ve completed the Alliance Sandbox! 🎊',
-                    '',
-                    'You just experienced the full flow:',
-                    '✅ Alliance channel created (this training channel is acting as your fake one)',
-                    '✅ Reps simulated',
-                    '✅ Setup process walked through',
-                    '',
-                    '**Remember:** In a real alliance setup, everything would be permanent and logged.',
-                    '',
-                    'The temporary sandbox alliance channel will be cleaned up when you finish training.',
-                    '',
-                    '*Ready to continue to the next category or finish up?*',
-                ].join('\n'),
-                isSandboxEnd: true
-            }
-        ]
-    },
     tickets: {
         label: '🎫 Tickets',
         description: 'Ticket panels, claiming, and managing support tickets',
@@ -577,19 +494,6 @@ async function sendStep(channel, session) {
             )
         );
         await channel.send({ embeds: [embed], components: [row] });
-    } else if (step.isSandboxStart) {
-        embed.setDescription(step.content);
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`ob_sandbox_start_${session.userId}`)
-                .setLabel('🏖️ Start Sandbox')
-                .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-                .setCustomId(`ob_next_${session.userId}`)
-                .setLabel('⏭️ Skip Sandbox')
-                .setStyle(ButtonStyle.Secondary)
-        );
-        await channel.send({ embeds: [embed], components: [row] });
     } else {
         embed.setDescription(step.content);
         const components = [];
@@ -700,12 +604,6 @@ async function cleanupSession(sessionId, client) {
     const session = await OnboardingSession.findById(sessionId);
     if (!session) return;
 
-    // Delete sandbox alliance channel if any
-    if (session.sandboxAllianceChannelId) {
-        const sandboxCh = await client.channels.fetch(session.sandboxAllianceChannelId).catch(() => null);
-        if (sandboxCh) await sandboxCh.delete('Bot training sandbox cleanup').catch(() => {});
-    }
-
     // Delete training channel
     const ch = await client.channels.fetch(session.channelId).catch(() => null);
     if (ch) await ch.delete('Bot training complete — cleanup').catch(() => {});
@@ -716,6 +614,70 @@ async function cleanupSession(sessionId, client) {
 // ─── Main Interaction Handler ─────────────────────────────────────────────────
 async function handleOnboardingInteraction(interaction, client) {
     const id = interaction.customId || '';
+
+    // Train All button — select every category at once
+    if (id === 'ob_train_all') {
+        const session = await getSession(interaction.user.id);
+        if (!session) return false;
+        try { await interaction.deferUpdate(); } catch { return true; }
+
+        const allKeys = categoryKeys();
+        await OnboardingSession.findByIdAndUpdate(session._id, { categories: allKeys });
+        session.categories = allKeys;
+
+        const guild = await client.guilds.fetch(TRAINING_GUILD_ID).catch(() => null);
+        if (!guild) {
+            await interaction.editReply({ content: '❌ Could not find training guild.', components: [], embeds: [] });
+            return true;
+        }
+
+        const trainee = await client.users.fetch(session.targetUserId).catch(() => null);
+        const channelName = `bot-training-${trainee?.username?.toLowerCase().replace(/[^a-z0-9]/g, '') || session.targetUserId}`;
+
+        const trainingChannel = await guild.channels.create({
+            name: channelName,
+            type: ChannelType.GuildText,
+            parent: TRAINING_CATEGORY_ID || undefined,
+            permissionOverwrites: [
+                { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+                { id: session.userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+                ...(session.targetUserId !== session.userId ? [{ id: session.targetUserId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }] : [])
+            ],
+            topic: `Bot training session for ${trainee?.tag || session.targetUserId} — auto-deletes after 24h of inactivity`
+        }).catch(() => null);
+
+        if (!trainingChannel) {
+            await interaction.editReply({ content: '❌ Failed to create training channel. Check bot permissions.', components: [], embeds: [] });
+            return true;
+        }
+
+        await OnboardingSession.findByIdAndUpdate(session._id, { channelId: trainingChannel.id });
+        session.channelId = trainingChannel.id;
+
+        await interaction.editReply({
+            embeds: [new EmbedBuilder()
+                .setColor(0x57f287)
+                .setTitle('✅ Training Channel Created!')
+                .setDescription(`Your training channel is ready: ${trainingChannel}\n\nHead over there to begin!`)],
+            components: []
+        });
+
+        const welcomeEmbed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle('🎓 Welcome to Bot Training!')
+            .setDescription(
+                `Hey ${trainee ? `<@${session.targetUserId}>` : 'there'}! 👋\n\n` +
+                `You're training on **all ${allKeys.length} categories**:\n` +
+                allKeys.map(k => `> ${CATEGORIES[k].label}`).join('\n') +
+                `\n\nThis channel auto-deletes after **24 hours of inactivity**.\n\nLet's get started! 🚀`
+            )
+            .setFooter({ text: 'Kavià Café Bot Training System' });
+
+        await trainingChannel.send({ embeds: [welcomeEmbed] });
+
+        setTimeout(() => sendStep(trainingChannel, session), 1500);
+        return true;
+    }
 
     // Category select menu
     if (id === 'ob_category_select') {
@@ -849,71 +811,6 @@ async function handleOnboardingInteraction(interaction, client) {
         return true;
     }
 
-    // Sandbox start
-    if (id.startsWith('ob_sandbox_start_')) {
-        const traineeId = id.replace('ob_sandbox_start_', '');
-        const session = await OnboardingSession.findOne({ userId: traineeId, status: 'active' });
-        if (!session) return false;
-
-        try { await interaction.deferUpdate(); } catch { return true; }
-
-        // Create a fake alliance channel
-        const guild = await client.guilds.fetch(TRAINING_GUILD_ID).catch(() => null);
-        let sandboxChannelId = null;
-        if (guild) {
-            const sandboxCh = await guild.channels.create({
-                name: `🏖️sandbox-alliance`,
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: session.userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] },
-                    { id: session.targetUserId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }
-                ],
-                topic: 'SANDBOX — Fake alliance for training purposes. This channel will be deleted.'
-            }).catch(() => null);
-
-            if (sandboxCh) {
-                sandboxChannelId = sandboxCh.id;
-                await OnboardingSession.findByIdAndUpdate(session._id, { sandboxAllianceChannelId: sandboxCh.id });
-
-                // Post fake alliance info
-                await sandboxCh.send({
-                    embeds: [new EmbedBuilder()
-                        .setColor(0xfaa61a)
-                        .setTitle('🏝️ Sandbox Café Alliance — FAKE ALLIANCE')
-                        .setDescription(
-                            '**⚠️ THIS IS A SANDBOX — NOTHING HERE IS REAL**\n\n' +
-                            '**Alliance Name:** Sandbox Café Alliance\n' +
-                            '**Alliance Type:** Training Partner\n' +
-                            '**Reps:** Rep Alpha, Rep Beta (fake)\n\n' +
-                            '*In a real alliance, this channel would have the actual alliance info, rep roles, and be a permanent record.*'
-                        )
-                        .setTimestamp()]
-                });
-            }
-        }
-
-        const channel = await client.channels.fetch(session.channelId).catch(() => null);
-        if (channel) {
-            await interaction.editReply({
-                embeds: [new EmbedBuilder()
-                    .setColor(0x57f287)
-                    .setTitle('🏖️ Sandbox Created!')
-                    .setDescription(
-                        `Your fake alliance channel has been created: ${sandboxChannelId ? `<#${sandboxChannelId}>` : '(check sidebar)'}\n\n` +
-                        `Check it out, then come back here to continue the training!`
-                    )],
-                components: [new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`ob_next_${session.userId}`)
-                        .setLabel('➡️ Continue Training')
-                        .setStyle(ButtonStyle.Primary)
-                )]
-            });
-        }
-        return true;
-    }
-
     // Close training channel now
     if (id.startsWith('ob_close_now_')) {
         const traineeId = id.replace('ob_close_now_', '');
@@ -1038,7 +935,7 @@ async function sendOnboardingBlast(interaction, client) {
                     `Hey ${member.user.username}! 👋\n\n` +
                     `Kavià Café has a **brand-new bot onboarding training system** to help staff learn all the bot commands!\n\n` +
                     `It covers:\n` +
-                    `• 📋 Applications\n• 🗓️ Sessions & Scheduling\n• 🎓 Staff Trainings\n• 🌴 LOA\n• 🚪 Resignations\n• 🎉 Giveaways\n• 🤝 Alliance Setup (Sandbox)\n• 🎫 Tickets\n\n` +
+                    `• 📋 Applications\n• 🗓️ Sessions & Scheduling\n• 🎓 Staff Trainings\n• 🌴 LOA\n• 🚪 Resignations\n• 🎉 Giveaways\n• 🎫 Tickets\n\n` +
                     `**Would you like to go through the training?**\n` +
                     `*(You can also run \`/botonboarding start\` anytime to do it yourself!)*`
                 )
@@ -1135,9 +1032,15 @@ async function execute(interaction, client) {
             )
             .setFooter({ text: 'Kavià Café Bot Training System' });
 
-        const row = new ActionRowBuilder().addComponents(buildCategorySelectMenu());
+        const trainAllRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('ob_train_all')
+                .setLabel('🚀 Train All Categories')
+                .setStyle(ButtonStyle.Success)
+        );
+        const selectRow = new ActionRowBuilder().addComponents(buildCategorySelectMenu());
 
-        await interaction.reply({ embeds: [embed], components: [row], flags: 64 });
+        await interaction.reply({ embeds: [embed], components: [trainAllRow, selectRow], flags: 64 });
         return;
     }
 
