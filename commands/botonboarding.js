@@ -496,16 +496,26 @@ async function sendStep(channel, session) {
         await channel.send({ embeds: [embed], components: [row] });
     } else {
         embed.setDescription(step.content);
-        const components = [];
-        const nextRow = new ActionRowBuilder().addComponents(
+
+        const isFirst = session.currentStep === 0 && session.currentCategory === 0;
+        const isLast  = session.currentStep === cat.steps.length - 1 && session.currentCategory === session.categories.length - 1;
+
+        const navRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`ob_prev_${session.userId}`)
+                .setLabel('⬅️ Previous')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(isFirst),
             new ButtonBuilder()
                 .setCustomId(`ob_next_${session.userId}`)
-                .setLabel(session.currentStep === cat.steps.length - 1 && session.currentCategory === session.categories.length - 1
-                    ? '🏁 Finish Training' : '➡️ Next')
-                .setStyle(ButtonStyle.Primary)
+                .setLabel(isLast ? '🏁 Finish Training' : '➡️ Next')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId(`ob_end_${session.userId}`)
+                .setLabel('🛑 End Training')
+                .setStyle(ButtonStyle.Danger)
         );
-        components.push(nextRow);
-        await channel.send({ embeds: [embed], components });
+        await channel.send({ embeds: [embed], components: [navRow] });
     }
 
     // Update last activity
@@ -615,6 +625,38 @@ async function cleanupSession(sessionId, client) {
 async function handleOnboardingInteraction(interaction, client) {
     const id = interaction.customId || '';
 
+    // Guild picker — user selected which server to create training channel in
+    if (id === 'ob_guild_select') {
+        const session = await getSession(interaction.user.id);
+        if (!session) return false;
+        try { await interaction.deferUpdate(); } catch { return true; }
+
+        const chosenGuildId = interaction.values[0];
+        const chosenGuild = await client.guilds.fetch(chosenGuildId).catch(() => null);
+        if (!chosenGuild) {
+            await interaction.editReply({ content: '❌ Could not find that server.', components: [], embeds: [] });
+            return true;
+        }
+
+        await OnboardingSession.findByIdAndUpdate(session._id, { guildId: chosenGuildId });
+
+        const embed = new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle('🎓 Bot Onboarding Training')
+            .setDescription(
+                `Training channel will be created in **${chosenGuild.name}**.\n\n` +
+                `Select which **categories** to cover, or click **Train All** to do everything at once.`
+            )
+            .setFooter({ text: 'Kavià Café Bot Training System' });
+
+        const trainAllRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('ob_train_all').setLabel('🚀 Train All Categories').setStyle(ButtonStyle.Success)
+        );
+        const selectRow = new ActionRowBuilder().addComponents(buildCategorySelectMenu());
+        await interaction.editReply({ embeds: [embed], components: [trainAllRow, selectRow] });
+        return true;
+    }
+
     // Train All button — select every category at once
     if (id === 'ob_train_all') {
         const session = await getSession(interaction.user.id);
@@ -625,7 +667,8 @@ async function handleOnboardingInteraction(interaction, client) {
         await OnboardingSession.findByIdAndUpdate(session._id, { categories: allKeys });
         session.categories = allKeys;
 
-        const guild = await client.guilds.fetch(TRAINING_GUILD_ID).catch(() => null);
+        const guildId = session.guildId && session.guildId !== 'pending' ? session.guildId : TRAINING_GUILD_ID;
+        const guild = await client.guilds.fetch(guildId).catch(() => null);
         if (!guild) {
             await interaction.editReply({ content: '❌ Could not find training guild.', components: [], embeds: [] });
             return true;
@@ -694,8 +737,9 @@ async function handleOnboardingInteraction(interaction, client) {
             lastActivityAt: new Date()
         });
 
-        // Create the training channel
-        const guild = await client.guilds.fetch(TRAINING_GUILD_ID).catch(() => null);
+        // Create the training channel in the guild the user selected
+        const targetGuildId = session.guildId && session.guildId !== 'pending' ? session.guildId : TRAINING_GUILD_ID;
+        const guild = await client.guilds.fetch(targetGuildId).catch(() => null);
         if (!guild) {
             await interaction.editReply({ content: '❌ Could not find the training guild.', components: [] });
             return true;
@@ -753,6 +797,95 @@ async function handleOnboardingInteraction(interaction, client) {
     }
 
     // Next step button
+    // End training early
+    if (id.startsWith('ob_end_')) {
+        const traineeId = id.replace('ob_end_', '');
+        const session = await OnboardingSession.findOne({ userId: traineeId, status: 'active' });
+        if (!session) return false;
+        if (interaction.user.id !== traineeId && interaction.user.id !== session.userId) {
+            await interaction.reply({ content: '❌ Only the trainer or trainee can end this training.', flags: 64 });
+            return true;
+        }
+        try { await interaction.deferUpdate(); } catch { return true; }
+
+        await interaction.editReply({
+            embeds: [new EmbedBuilder()
+                .setColor(0xe74c3c)
+                .setTitle('🛑 End Training?')
+                .setDescription('Are you sure you want to end training early? The channel will be deleted in 10 seconds.')],
+            components: [new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`ob_end_confirm_${traineeId}`).setLabel('✅ Yes, End It').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId(`ob_end_cancel_${traineeId}`).setLabel('↩️ Go Back').setStyle(ButtonStyle.Secondary)
+            )]
+        });
+        return true;
+    }
+
+    if (id.startsWith('ob_end_confirm_')) {
+        const traineeId = id.replace('ob_end_confirm_', '');
+        const session = await OnboardingSession.findOne({ userId: traineeId, status: 'active' });
+        if (!session) return false;
+        try { await interaction.deferUpdate(); } catch { return true; }
+        await interaction.editReply({
+            embeds: [new EmbedBuilder().setColor(0xe74c3c).setTitle('🛑 Training Ended').setDescription('Training has been ended. This channel will be deleted in **10 seconds**.')],
+            components: []
+        });
+        setTimeout(() => cleanupSession(session._id, client), 10000);
+        return true;
+    }
+
+    if (id.startsWith('ob_end_cancel_')) {
+        const traineeId = id.replace('ob_end_cancel_', '');
+        const session = await OnboardingSession.findOne({ userId: traineeId, status: 'active' });
+        if (!session) return false;
+        try { await interaction.deferUpdate(); } catch { return true; }
+        // Re-send the current step
+        const channel = await client.channels.fetch(session.channelId).catch(() => null);
+        if (channel) await sendStep(channel, session);
+        await interaction.editReply({ embeds: [], components: [], content: '↩️ Returned to training.' });
+        return true;
+    }
+
+    // Go back to previous step
+    if (id.startsWith('ob_prev_')) {
+        const traineeId = id.replace('ob_prev_', '');
+        const session = await OnboardingSession.findOne({ userId: traineeId, status: 'active' });
+        if (!session) return false;
+        if (interaction.user.id !== traineeId && interaction.user.id !== session.userId) {
+            await interaction.reply({ content: '❌ Only the trainer or trainee can navigate this training.', flags: 64 });
+            return true;
+        }
+        try { await interaction.deferUpdate(); } catch { return true; }
+
+        // Step back
+        let prevStep = session.currentStep - 1;
+        let prevCat  = session.currentCategory;
+
+        if (prevStep < 0) {
+            // Go to end of previous category
+            prevCat = session.currentCategory - 1;
+            if (prevCat < 0) {
+                await interaction.editReply({ content: 'ℹ️ Already at the beginning!', components: [] });
+                return true;
+            }
+            const prevCatKey = session.categories[prevCat];
+            prevStep = CATEGORIES[prevCatKey].steps.length - 1;
+        }
+
+        await OnboardingSession.findByIdAndUpdate(session._id, {
+            currentCategory: prevCat,
+            currentStep: prevStep,
+            lastActivityAt: new Date()
+        });
+        session.currentCategory = prevCat;
+        session.currentStep = prevStep;
+
+        const channel = await client.channels.fetch(session.channelId).catch(() => null);
+        if (channel) await sendStep(channel, session);
+        await interaction.editReply({ embeds: [], components: [], content: '⬅️ Went back.' });
+        return true;
+    }
+
     if (id.startsWith('ob_next_')) {
         const traineeId = id.replace('ob_next_', '');
         // Allow the trainer OR the trainee to click next
@@ -1010,37 +1143,70 @@ async function execute(interaction, client) {
             }
         }
 
-        // Create session record (channelId filled in after category selection)
+        // Create session record (channelId + guildId filled in after guild selection)
         await OnboardingSession.create({
             userId: interaction.user.id,
             targetUserId: targetUser.id,
             targetUserTag: targetUser.tag || targetUser.username,
-            guildId: interaction.guildId,
+            guildId: 'pending',
             channelId: 'pending',
             categories: [],
             status: 'active'
         });
 
+        // Build a list of guilds the bot shares with the target user
+        const sharedGuilds = [];
+        for (const guild of client.guilds.cache.values()) {
+            const member = await guild.members.fetch(targetUser.id).catch(() => null);
+            if (member) sharedGuilds.push(guild);
+        }
+
+        if (sharedGuilds.length === 0) {
+            await OnboardingSession.deleteOne({ userId: interaction.user.id, status: 'active' });
+            return interaction.reply({ content: '❌ The bot doesn\'t share any servers with that user.', flags: 64 });
+        }
+
+        if (sharedGuilds.length === 1) {
+            // Only one server — skip the picker and store it directly
+            await OnboardingSession.findOneAndUpdate(
+                { userId: interaction.user.id, status: 'active' },
+                { guildId: sharedGuilds[0].id }
+            );
+            const embed = new EmbedBuilder()
+                .setColor(0x5865f2)
+                .setTitle('🎓 Bot Onboarding Training')
+                .setDescription(
+                    `${targetUser.id !== interaction.user.id ? `You're setting up training for **${targetUser.username}**.\n\n` : ''}` +
+                    `Training channel will be created in **${sharedGuilds[0].name}**.\n\n` +
+                    `Select which **categories** to cover, or click **Train All** to do everything at once.`
+                )
+                .setFooter({ text: 'Kavià Café Bot Training System' });
+            const trainAllRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('ob_train_all').setLabel('🚀 Train All Categories').setStyle(ButtonStyle.Success)
+            );
+            const selectRow = new ActionRowBuilder().addComponents(buildCategorySelectMenu());
+            return interaction.reply({ embeds: [embed], components: [trainAllRow, selectRow], flags: 64 });
+        }
+
+        // Multiple servers — show guild picker
+        const guildOptions = sharedGuilds.slice(0, 25).map(g =>
+            new StringSelectMenuOptionBuilder().setLabel(g.name).setValue(g.id).setDescription(`Create training channel in ${g.name}`)
+        );
+        const guildSelect = new StringSelectMenuBuilder()
+            .setCustomId('ob_guild_select')
+            .setPlaceholder('Pick a server for the training channel')
+            .addOptions(guildOptions);
+
         const embed = new EmbedBuilder()
             .setColor(0x5865f2)
-            .setTitle('🎓 Bot Onboarding Training')
+            .setTitle('🎓 Bot Onboarding Training — Pick a Server')
             .setDescription(
-                `${targetUser.id !== interaction.user.id ? `You're setting up training for **${targetUser.username}**.\n\n` : ''}` +
-                `Select which **categories** you want to cover in this training session.\n\n` +
-                `You can select **multiple categories** at once — the training will walk through each one in order.\n\n` +
-                `The bot will create a **private training channel** for the session! 🏖️`
+                `${targetUser.id !== interaction.user.id ? `Setting up training for **${targetUser.username}**.\n\n` : ''}` +
+                `Which server should the **private training channel** be created in?`
             )
             .setFooter({ text: 'Kavià Café Bot Training System' });
 
-        const trainAllRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('ob_train_all')
-                .setLabel('🚀 Train All Categories')
-                .setStyle(ButtonStyle.Success)
-        );
-        const selectRow = new ActionRowBuilder().addComponents(buildCategorySelectMenu());
-
-        await interaction.reply({ embeds: [embed], components: [trainAllRow, selectRow], flags: 64 });
+        await interaction.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(guildSelect)], flags: 64 });
         return;
     }
 

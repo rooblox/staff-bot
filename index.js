@@ -1335,8 +1335,8 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             return;
         }
 
-        // ========== BOT ONBOARDING — category select ==========
-        if (interaction.customId?.startsWith('ob_')) {
+        // ========== BOT ONBOARDING — guild picker + category select ==========
+        if (interaction.customId === 'ob_guild_select' || interaction.customId?.startsWith('ob_')) {
             if (await handleOnboardingInteraction(interaction, client)) return;
         }
 
