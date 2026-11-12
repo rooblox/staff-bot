@@ -1297,7 +1297,7 @@ client.on('interactionCreate', async interaction => {
             // Commands that reply/update themselves (setup, open) are excluded.
             if (interaction.isChatInputCommand()) {
                 const DEFER_COMMANDS = {
-                    application: ['list', 'close', 'delete', 'statusboard'],
+                    appbuilder: ['list', 'close', 'delete', 'statusboard'],
                     giveaway: ['reroll'],
                 };
                 const sub = interaction.options.getSubcommand(false);
@@ -1360,33 +1360,17 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             });
         }
 
-        // ========== APPLICATION SETUP DROPDOWNS ==========
-        if (interaction.customId.startsWith('appsetup_')) {
-            await require('./commands/application').handleSetupSelect(interaction);
-            return;
-        }
-
-        // ========== APPLICATION OPEN DROPDOWNS ==========
-        if (interaction.customId.startsWith('appopen_')) {
-            await require('./commands/application').handleOpenSelect(interaction);
-            return;
+        // ========== APP BUILDER — setup/open/close/send selects ==========
+        if (interaction.customId.startsWith('absetup_') ||
+            interaction.customId.startsWith('abopen_')  ||
+            interaction.customId.startsWith('abclose_') ||
+            interaction.customId.startsWith('absend_')) {
+            if (await handleBuilderInteraction(interaction, client)) return;
         }
 
         // ========== BOT ONBOARDING — guild picker + category select ==========
         if (interaction.customId === 'ob_guild_select' || interaction.customId?.startsWith('ob_')) {
             if (await handleOnboardingInteraction(interaction, client)) return;
-        }
-
-        // ========== APPLICATION CLOSE DROPDOWN ==========
-        if (interaction.customId.startsWith('appclose_form_')) {
-            await require('./commands/application').handleCloseSelect(interaction);
-            return;
-        }
-
-        // ========== APPLICATION SEND — form picker dropdown ==========
-        if (interaction.customId.startsWith('appsend_pick_')) {
-            await require('./commands/application').handleSendPick(interaction);
-            return;
         }
 
         if (interaction.customId.startsWith('loa_selectdept_')) {
@@ -1535,42 +1519,17 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             if (await handleOnboardingInteraction(interaction, client)) return;
         }
 
-        // ========== APP BUILDER — all ab_ buttons ==========
-        if (interaction.customId?.startsWith('ab_')) {
+        // ========== APP BUILDER — all ab_/absetup_/abopen_/abclose_/absend_ buttons ==========
+        if (interaction.customId?.startsWith('ab_')      ||
+            interaction.customId?.startsWith('absetup_') ||
+            interaction.customId?.startsWith('abopen_')  ||
+            interaction.customId?.startsWith('abclose_') ||
+            interaction.customId?.startsWith('absend_')) {
             if (await handleBuilderInteraction(interaction, client)) return;
         }
 
         const handled = await handleRankButton(interaction, client);
         if (handled) return;
-
-        // ========== APPLICATION SETUP — manual channel ID buttons ==========
-        if (interaction.customId.startsWith('appsetup_logchannel_manual_') ||
-            interaction.customId.startsWith('appsetup_ticketchannel_manual_') ||
-            interaction.customId.startsWith('appsetup_notifyrole_manual_') ||
-            interaction.customId.startsWith('appsetup_notifyrole_skip_')) {
-            await require('./commands/application').handleSetupSelect(interaction);
-            return;
-        }
-
-        // ========== APPLICATION SETUP — "Add Questions" button after details modal ==========
-        if (interaction.customId.startsWith('appsetup_startquestions_')) {
-            await require('./commands/application').handleSetupSelect(interaction);
-            return;
-        }
-
-        // ========== APPLICATION SETUP — add more questions / done / save-link buttons ==========
-        if (interaction.customId.startsWith('appsetup_addmore_') ||
-            interaction.customId.startsWith('appsetup_savequestions_') ||
-            interaction.customId.startsWith('appsetup_savelink_')) {
-            await require('./commands/application').handleSetupQuestionsButton(interaction);
-            return;
-        }
-
-        // ========== APPLICATION OPEN — wizard buttons ==========
-        if (interaction.customId.startsWith('appopen_')) {
-            await require('./commands/application').handleOpenSelect(interaction);
-            return;
-        }
 
         // ========== APPLICATION AUTO-CLOSE — extend / keep buttons (sent in DM) ==========
         if (interaction.customId.startsWith('appextend_extend_') || interaction.customId.startsWith('appextend_keep_')) {
@@ -1589,11 +1548,8 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             }
         }
 
-        // ========== APPLICATION SETUP — "Continue Form Details" button (after notify role modal) ==========
-        if (interaction.customId.startsWith('appsetup_opendetails_')) {
-            await require('./commands/application').handleSetupSelect(interaction);
-            return;
-        }
+        // ========== APP BUILDER — absetup_ buttons (details, role skip, etc.) ==========
+        // already caught by the ab_/absetup_ block above
 
         // ========== PR TICKET — alliance Yes/No (initial) ==========
         if (interaction.customId.startsWith('ticket_pr_alliance_yes_')) {
@@ -4907,28 +4863,10 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
             return;
         }
 
-        // ========== APPLICATION SETUP DETAILS MODAL (name + description) ==========
-        if (interaction.customId === 'app_setup_details') {
-            await require('./commands/application').handleSetupDetails(interaction);
-            return;
-        }
-
-        // ========== APPLICATION SETUP QUESTIONS MODAL (rounds 1-3) ==========
-        if (interaction.customId.startsWith('app_setup_questions_')) {
-            await require('./commands/application').handleSetupModal(interaction);
-            return;
-        }
-
-        // ========== APPLICATION SETUP — manual channel ID modals ==========
-        if (interaction.customId.startsWith('appsetup_manualch_')) {
-            await require('./commands/application').handleSetupManualChannel(interaction);
-            return;
-        }
-
-        // ========== APPLICATION SETUP — notify role ID modal ==========
-        if (interaction.customId.startsWith('appsetup_notifyrole_id_')) {
-            await require('./commands/application').handleNotifyRoleModal(interaction);
-            return;
+        // ========== APP BUILDER — setup/open modals ==========
+        if (interaction.customId.startsWith('absetup_modal_') ||
+            interaction.customId.startsWith('abopen_modal_')) {
+            if (await handleBuilderInteraction(interaction, client)) return;
         }
 
         // ========== APPLICATION OPEN — manual channel ID modal ==========
