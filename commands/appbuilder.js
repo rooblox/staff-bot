@@ -844,16 +844,23 @@ async function handleBuilderButtonInteraction(interaction, client) {
     }
 
     if (id === `ab_qconfirm_yes_${userId}`) {
-        session.questions.push({ ...session.currentQ });
+        // If we were editing an existing question, re-insert at its original index
+        if (session.editIndex !== undefined && session.editIndex !== null) {
+            session.questions.splice(session.editIndex, 0, { ...session.currentQ });
+            session.editIndex = null;
+        } else {
+            session.questions.push({ ...session.currentQ });
+        }
         session.currentQ = {};
-        session.step = 'awaiting_question';
-        await interaction.update({ embeds: [builderEmbed('✅ Question saved!', `You now have **${session.questions.length}** question${session.questions.length !== 1 ? 's' : ''}.`)], components: [] });
+        session.step = 'final_preview';
+        await interaction.update({ embeds: [builderEmbed('✅ Question saved!', `You now have **${session.questions.length}** question${session.questions.length !== 1 ? 's' : ''}. Here\'s your updated preview.')], components: [] });
         const dm = await interaction.user.createDM();
-        await sendAskQuestion(dm, session);
+        await sendFinalPreview(dm, userId, session);
         return true;
     }
 
     if (id === `ab_qconfirm_redo_${userId}`) {
+        // Keep editIndex so the re-entered question still lands in the right slot
         session.currentQ = {};
         session.step = 'awaiting_question';
         await interaction.update({ embeds: [builderEmbed('🔄 Let\'s redo that', 'Type your question again below.')], components: [] });
@@ -861,7 +868,9 @@ async function handleBuilderButtonInteraction(interaction, client) {
     }
 
     if (id === `ab_qconfirm_done_${userId}`) {
+        // Discard the in-progress question entirely, re-insert nothing
         session.currentQ = {};
+        session.editIndex = null;
         session.step = 'final_preview';
         await interaction.update({ embeds: [builderEmbed('🏁 All done!', 'Here\'s your full preview.')], components: [] });
         const dm = await interaction.user.createDM();
@@ -1552,6 +1561,17 @@ async function handleBuilderMessage(message, client) {
     const bSession = builderSessions.get(userId);
     if (bSession) {
         if (text.toLowerCase() === 'cancel') {
+            // If mid-edit, put the original question back before cancelling the whole session
+            if (bSession.editIndex !== null && bSession.editIndex !== undefined && bSession.currentQ?.text) {
+                bSession.questions.splice(bSession.editIndex, 0, { ...bSession.currentQ });
+                bSession.editIndex = null;
+                bSession.currentQ = {};
+                bSession.step = 'final_preview';
+                await message.reply({ embeds: [builderEmbed('↩️ Edit cancelled', 'Your original question was kept. Here\'s your preview.')] });
+                const dm = await message.author.createDM();
+                await sendFinalPreview(dm, userId, bSession);
+                return true;
+            }
             builderSessions.delete(userId);
             await message.reply({ embeds: [builderEmbed('❌ Cancelled', 'No changes were saved.', 0xe74c3c)] });
             return true;
@@ -1956,13 +1976,13 @@ module.exports.handleBuilderInteraction = async function(interaction, client) {
             await interaction.update({ embeds: [builderEmbed('⚠️ Not found', 'That question no longer exists.')], components: [] }).catch(() => {});
             return true;
         }
-        // Pull it out for re-editing
+        // Pull it out temporarily — saved back at original index on ab_qconfirm_yes
         session.editIndex = index;
         session.currentQ  = { ...q };
         session.questions.splice(index, 1);
         session.step = 'awaiting_question';
         await interaction.update({
-            embeds: [builderEmbed(`✏️ Editing Q${index + 1}`, `**Current text:**\n> ${q.text}\n\nType the new question text below, or retype it to keep it the same.`)],
+            embeds: [builderEmbed(`✏️ Editing Q${index + 1}`, `**Current text:**\n> ${q.text}\n\nType the new question text below, or retype it to keep it the same.\nType **cancel** to go back without saving.`)],
             components: []
         });
         return true;
