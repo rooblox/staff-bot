@@ -5,7 +5,7 @@ const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, Modal
 const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink, SessionReminder, AppDMSession } = require('./db');
 const { createServer, handleRankButton } = require('./server');
 const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
-const { handleOnboardingInteraction, checkOnboardingCleanup } = require('./commands/botonboarding');
+const { handleOnboardingInteraction, checkOnboardingCleanup, restoreOnboardingSessions } = require('./commands/botonboarding');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -736,13 +736,45 @@ async function restoreSessions() {
         for (const session of sessions) {
             if (session.status === 'approved') {
                 const fireAt = new Date(session.sessionFireAt).getTime();
-                if (fireAt > Date.now()) await scheduleSession(session);
+                if (fireAt > Date.now()) {
+                    // Session hasn't fired yet — schedule normally
+                    await scheduleSession(session);
+                } else {
+                    // Bot was offline when session was supposed to fire — announce it now
+                    const missedBy = Date.now() - fireAt;
+                    if (missedBy < 2 * 60 * 60 * 1000) {
+                        // Missed by less than 2 hours — fire it immediately (better late than never)
+                        console.log(`[restoreSessions] Session ${session._id} missed by ${Math.round(missedBy / 60000)}min — announcing now`);
+                        await scheduleSession(session); // negative delays fire immediately in Node.js
+                    } else {
+                        // Missed by more than 2 hours — cancel it gracefully
+                        console.log(`[restoreSessions] Session ${session._id} missed by ${Math.round(missedBy / 60000)}min — marking cancelled`);
+                        await Session.findByIdAndUpdate(session._id, { status: 'auto_cancelled' });
+                        // Notify host
+                        try {
+                            const host = await client.users.fetch(session.hostId).catch(() => null);
+                            if (host) await host.send({
+                                embeds: [new EmbedBuilder()
+                                    .setColor(0xff4444)
+                                    .setTitle('⚠️ Session Missed — Bot Was Offline')
+                                    .setDescription(`Your session was scheduled but the bot was offline when it was supposed to fire. It has been automatically cancelled.\n\nUse </session schedule:0> to reschedule.`)
+                                    .setFooter({ text: 'Kavià Café Bot' })
+                                ]
+                            }).catch(() => {});
+                        } catch {}
+                    }
+                }
             }
             if (session.status === 'active' && session.announcementMessageId) {
                 const timeLeft = new Date(session.autoDeleteAt).getTime() - Date.now();
                 if (timeLeft > 0) scheduleAutoDelete(session._id, session.announcementMessageId, timeLeft);
                 const finishCheckDelay = new Date(session.sessionFireAt).getTime() + 25 * 60 * 1000 - Date.now();
-                if (finishCheckDelay > 0) setTimeout(async () => { await sendFinishCheck(session._id); }, finishCheckDelay);
+                if (finishCheckDelay > 0) {
+                    setTimeout(async () => { await sendFinishCheck(session._id); }, finishCheckDelay);
+                } else {
+                    // Finish check was missed — send it now
+                    await sendFinishCheck(session._id);
+                }
             }
         }
         console.log(`✅ Restored ${sessions.length} active sessions`);
@@ -752,7 +784,11 @@ async function restoreSessions() {
 async function cleanupStaleSessions() {
     try {
         const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const staleSessions = await Session.find({ status: { $in: ['pending', 'approved', 'active'] }, createdAt: { $lt: cutoff } });
+        // Use sessionFireAt (not createdAt) so we don't wipe sessions scheduled far in advance
+        const staleSessions = await Session.find({
+            status: { $in: ['pending', 'approved', 'active'] },
+            sessionFireAt: { $lt: cutoff }
+        });
         for (const session of staleSessions) {
             if (session.announcementMessageId) {
                 try {
@@ -5477,7 +5513,8 @@ client.once('ready', async () => {
         console.error('❌ Failed to init session schedule system:', err.message);
     }
 
-    // Bot onboarding — cleanup abandoned training channels every 10 minutes
+    // Bot onboarding — restore active sessions after restart, then run cleanup every 10 minutes
+    await restoreOnboardingSessions(client).catch(err => console.error('[botonboarding restore]', err));
     setInterval(() => checkOnboardingCleanup(client).catch(console.error), 10 * 60 * 1000);
 
 
