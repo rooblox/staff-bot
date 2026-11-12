@@ -1716,7 +1716,14 @@ module.exports = {
             const session = {
                 formId: String(form._id),
                 formName: form.name,
-                questions: (form.questions || []).map(q => ({ ...q })),
+                questions: (form.questions || []).map(q => {
+                    // Normalize legacy string questions to the new object shape
+                    if (typeof q === 'string') {
+                        const parsed = parseQuestion(q);
+                        return { text: parsed.display, type: parsed.type, choices: parsed.choices || [], minWords: null, hint: null, required: true };
+                    }
+                    return { text: q.text || String(q), type: q.type || 'text', choices: q.choices || [], minWords: q.minWords || null, hint: q.hint || null, required: q.required !== false };
+                }),
                 currentQ: {},
                 step: 'greeting'
             };
