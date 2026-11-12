@@ -868,7 +868,10 @@ async function handleBuilderButtonInteraction(interaction, client) {
     }
 
     if (id === `ab_qconfirm_done_${userId}`) {
-        // Discard the in-progress question entirely, re-insert nothing
+        // If we were editing an existing question, re-insert it at its original slot before finishing
+        if (session.editIndex !== undefined && session.editIndex !== null && session.currentQ?.text) {
+            session.questions.splice(session.editIndex, 0, { ...session.currentQ });
+        }
         session.currentQ = {};
         session.editIndex = null;
         session.step = 'final_preview';
@@ -1981,10 +1984,54 @@ module.exports.handleBuilderInteraction = async function(interaction, client) {
         session.currentQ  = { ...q };
         session.questions.splice(index, 1);
         session.step = 'awaiting_question';
+        const keepRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`ab_keepq_${userId}`).setLabel('✅ Keep as-is').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`ab_cancelq_${userId}`).setLabel('↩️ Back to preview').setStyle(ButtonStyle.Secondary)
+        );
         await interaction.update({
-            embeds: [builderEmbed(`✏️ Editing Q${index + 1}`, `**Current text:**\n> ${q.text}\n\nType the new question text below, or retype it to keep it the same.\nType **cancel** to go back without saving.`)],
-            components: []
+            embeds: [builderEmbed(`✏️ Editing Q${index + 1}`, `**Current text:**\n> ${q.text}\n\nType a new question below to replace it, or use the buttons.`)],
+            components: [keepRow]
         });
+        return true;
+    }
+
+    // ── Keep question as-is (from jump-edit prompt) ───────────────────────────
+    if (id === `ab_keepq_${userId}`) {
+        const session = builderSessions.get(userId);
+        if (!session) {
+            await interaction.update({ embeds: [builderEmbed('⚠️ Session Expired', 'Run the command again.')], components: [] }).catch(() => {});
+            return true;
+        }
+        // Re-insert the unchanged question at its original slot
+        if (session.editIndex !== undefined && session.editIndex !== null && session.currentQ?.text) {
+            session.questions.splice(session.editIndex, 0, { ...session.currentQ });
+        }
+        session.currentQ = {};
+        session.editIndex = null;
+        session.step = 'final_preview';
+        await interaction.update({ embeds: [builderEmbed('✅ Kept as-is', 'No changes made.')], components: [] });
+        const dm = await interaction.user.createDM();
+        await sendFinalPreview(dm, userId, session);
+        return true;
+    }
+
+    // ── Cancel back to preview from jump-edit prompt ──────────────────────────
+    if (id === `ab_cancelq_${userId}`) {
+        const session = builderSessions.get(userId);
+        if (!session) {
+            await interaction.update({ embeds: [builderEmbed('⚠️ Session Expired', 'Run the command again.')], components: [] }).catch(() => {});
+            return true;
+        }
+        // Restore question and return to preview
+        if (session.editIndex !== undefined && session.editIndex !== null && session.currentQ?.text) {
+            session.questions.splice(session.editIndex, 0, { ...session.currentQ });
+        }
+        session.currentQ = {};
+        session.editIndex = null;
+        session.step = 'final_preview';
+        await interaction.update({ embeds: [builderEmbed('↩️ Cancelled', 'Back to your preview.')], components: [] });
+        const dm = await interaction.user.createDM();
+        await sendFinalPreview(dm, userId, session);
         return true;
     }
 
