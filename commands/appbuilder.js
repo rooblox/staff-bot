@@ -515,7 +515,7 @@ async function sendGreeting(user, session) {
     const embed = builderEmbed(
         '👋 Welcome to the Application Builder!',
         [
-            `You\'re about to build the questions for **${session.formName}**.`,
+            `You're about to build the questions for **${session.formName}**.`,
             '',
             '**Here\'s how it works:**',
             '1. I\'ll ask you to type each question one at a time',
@@ -853,7 +853,7 @@ async function handleBuilderButtonInteraction(interaction, client) {
         }
         session.currentQ = {};
         session.step = 'final_preview';
-        await interaction.update({ embeds: [builderEmbed('✅ Question saved!', `You now have **${session.questions.length}** question${session.questions.length !== 1 ? 's' : ''}. Here\'s your updated preview.')], components: [] });
+        await interaction.update({ embeds: [builderEmbed('✅ Question saved!', `You now have **${session.questions.length}** question${session.questions.length !== 1 ? 's' : ''}. Here's your updated preview.`)], components: [] });
         const dm = await interaction.user.createDM();
         await sendFinalPreview(dm, userId, session);
         return true;
