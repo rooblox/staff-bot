@@ -2298,17 +2298,19 @@ if (interaction.customId.startsWith('dmreply_')) {
             try {
                 const session = await Session.findById(sessionId);
                 if (!session) return interaction.reply({ content: '❌ Session not found.', flags: 64 });
+                // Defer immediately to avoid 3-second timeout
+                await interaction.deferUpdate();
                 await Session.findByIdAndUpdate(sessionId, { status: 'approved', approvedAt: new Date() });
                 const user = await client.users.fetch(session.hostId);
                 let linkText = '';
                 if (session.shiftType === 'Training') linkText = `\n\nPlease review the training guide before your session:\n${TRAINING_LINK}`;
                 else if (session.shiftType === 'Regular Shift') linkText = `\n\nPlease review the shift guide before your session:\n${SHIFT_LINK}`;
                 await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Accepted**\nHello, ${user},\nWe are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**!\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Time →** *${session.time}*\n> <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*\nShould you have any questions or concerns prior to your session, please do not hesitate to reach out.${linkText}\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
-                await interaction.update({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` })], components: [] });
+                await interaction.editReply({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` })], components: [] });
                 session.status = 'approved';
                 await scheduleSession(session);
                 postOrUpdateSessionInfoPanel().catch(() => {}); // refresh panel — new session approved
-            } catch (err) { console.error('Error accepting session:', err); await interaction.reply({ content: '❌ Error accepting request.', flags: 64 }); }
+            } catch (err) { console.error('Error accepting session:', err); await interaction.followUp({ content: '❌ Error accepting request.', flags: 64 }).catch(() => {}); }
             return;
         }
 
