@@ -6,6 +6,7 @@ const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, T
 const { createServer, handleRankButton } = require('./server');
 const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
 const { handleOnboardingInteraction, checkOnboardingCleanup, restoreOnboardingSessions } = require('./commands/botonboarding');
+const { handleBuilderInteraction, handleBuilderMessage } = require('./commands/appbuilder');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
@@ -1532,6 +1533,11 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
         // ========== BOT ONBOARDING — all ob_ buttons ==========
         if (interaction.customId?.startsWith('ob_')) {
             if (await handleOnboardingInteraction(interaction, client)) return;
+        }
+
+        // ========== APP BUILDER — all ab_ buttons ==========
+        if (interaction.customId?.startsWith('ab_')) {
+            if (await handleBuilderInteraction(interaction, client)) return;
         }
 
         const handled = await handleRankButton(interaction, client);
@@ -5115,6 +5121,9 @@ client.on('messageCreate', async message => {
     }
 
     if (message.channel.type === 1) {
+        // ── App Builder DM flow ──
+        if (await handleBuilderMessage(message, client)) return;
+
         // ── Application DM flow ──
         const { pendingDMs, parseQuestion } = require('./commands/application');
         const appSession = pendingDMs.get(message.author.id);
