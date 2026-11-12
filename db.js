@@ -212,21 +212,12 @@ const checklistSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 
-const appFormQuestionSchema = new mongoose.Schema({
-    text:     { type: String, required: true },
-    type:     { type: String, default: 'text' },   // 'text' | 'scale' | 'choice'
-    choices:  { type: [String], default: [] },
-    minWords: { type: Number, default: null },
-    hint:     { type: String, default: null },
-    required: { type: Boolean, default: true }
-}, { _id: false, versionKey: false });
-
 const appFormSchema = new mongoose.Schema({
     name: String,
     description: String,
     department: { type: String, default: 'General' },
     gameLink: String,
-    questions: { type: [appFormQuestionSchema], default: [] },
+    questions: { type: [mongoose.Schema.Types.Mixed], default: [] },
     createdBy: String,
     createdByTag: String,
     logServerId: String,
