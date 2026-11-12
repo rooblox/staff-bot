@@ -610,6 +610,42 @@ async function finishTraining(session, channel, client) {
     }, 10 * 60 * 1000);
 }
 
+// ─── Restore Active Sessions After Restart ───────────────────────────────────
+async function restoreOnboardingSessions(client) {
+    try {
+        const active = await OnboardingSession.find({ status: 'active', channelId: { $ne: 'pending' } });
+        if (active.length === 0) return console.log('✅ No active botonboarding sessions to restore');
+
+        for (const session of active) {
+            try {
+                const channel = await client.channels.fetch(session.channelId).catch(() => null);
+                if (!channel) {
+                    // Channel was deleted while bot was offline — abandon the session
+                    await OnboardingSession.findByIdAndUpdate(session._id, { status: 'abandoned' });
+                    continue;
+                }
+
+                // Re-send the current step so the user has fresh buttons to click
+                await channel.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0xf0a500)
+                        .setTitle('🔄 Bot Restarted — Resuming Training')
+                        .setDescription('The bot was restarted. Your training progress has been saved — picking up where you left off!')
+                        .setFooter({ text: 'Kavià Café Bot Training System' })
+                    ]
+                });
+                await sendStep(channel, session);
+                console.log(`✅ Restored botonboarding session for ${session.targetUserTag} in channel ${session.channelId}`);
+            } catch (err) {
+                console.error(`[botonboarding restore] Failed to restore session ${session._id}:`, err.message);
+            }
+        }
+        console.log(`✅ Restored ${active.length} botonboarding session(s)`);
+    } catch (err) {
+        console.error('[botonboarding restore] Error:', err);
+    }
+}
+
 async function cleanupSession(sessionId, client) {
     const session = await OnboardingSession.findById(sessionId);
     if (!session) return;
@@ -1255,6 +1291,7 @@ module.exports = {
     execute,
     handleOnboardingInteraction,
     checkOnboardingCleanup,
+    restoreOnboardingSessions,
     OnboardingSession,
     OnboardingBlast
 };
