@@ -1995,23 +1995,18 @@ module.exports.handleBuilderInteraction = async function(interaction, client) {
         return true;
     }
 
-    // ── Keep question as-is (from jump-edit prompt) ───────────────────────────
+    // ── Keep question text as-is, continue to type/options editing ───────────
     if (id === `ab_keepq_${userId}`) {
         const session = builderSessions.get(userId);
         if (!session) {
             await interaction.update({ embeds: [builderEmbed('⚠️ Session Expired', 'Run the command again.')], components: [] }).catch(() => {});
             return true;
         }
-        // Re-insert the unchanged question at its original slot
-        if (session.editIndex !== undefined && session.editIndex !== null && session.currentQ?.text) {
-            session.questions.splice(session.editIndex, 0, { ...session.currentQ });
-        }
-        session.currentQ = {};
-        session.editIndex = null;
-        session.step = 'final_preview';
-        await interaction.update({ embeds: [builderEmbed('✅ Kept as-is', 'No changes made.')], components: [] });
+        // currentQ already has the original question text — just move to type selection
+        session.step = 'awaiting_type';
+        await interaction.update({ embeds: [builderEmbed('✅ Keeping text as-is', `> ${session.currentQ.text}\n\nNow let's update the question settings below.`)], components: [] });
         const dm = await interaction.user.createDM();
-        await sendFinalPreview(dm, userId, session);
+        await sendQuestionOptions(dm, userId, session.currentQ.text);
         return true;
     }
 
