@@ -726,10 +726,17 @@ async function handleBuilderButtonInteraction(interaction, client) {
 
     if (id === `ab_start_${userId}`) {
         if (!session) return interaction.update({ embeds: [builderEmbed('⚠️ Session Expired', 'Your builder session expired. Run the command again.')], components: [] });
-        await interaction.update({ embeds: [builderEmbed('✅ Let\'s go!', 'I\'ll guide you through each question. Type your first question below.')], components: [] });
-        session.step = 'awaiting_question';
+        await interaction.update({ embeds: [builderEmbed('✅ Let\'s go!', 'Loading your questions…')], components: [] });
         const dm = await interaction.user.createDM();
-        await sendAskQuestion(dm, session);
+        if (session.questions.length) {
+            // Edit mode — show preview with jump dropdown first
+            session.step = 'final_preview';
+            await sendFinalPreview(dm, userId, session);
+        } else {
+            // Create mode — go straight to adding questions
+            session.step = 'awaiting_question';
+            await sendAskQuestion(dm, session);
+        }
         return true;
     }
 
