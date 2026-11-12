@@ -1360,11 +1360,12 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
             });
         }
 
-        // ========== APP BUILDER — setup/open/close/send selects ==========
+        // ========== APP BUILDER — setup/open/close/send/jump selects ==========
         if (interaction.customId.startsWith('absetup_') ||
             interaction.customId.startsWith('abopen_')  ||
             interaction.customId.startsWith('abclose_') ||
-            interaction.customId.startsWith('absend_')) {
+            interaction.customId.startsWith('absend_')  ||
+            interaction.customId.startsWith('ab_jumpq_')) {
             if (await handleBuilderInteraction(interaction, client)) return;
         }
 

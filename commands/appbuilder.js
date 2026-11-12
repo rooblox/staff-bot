@@ -625,13 +625,29 @@ async function sendFinalPreview(dmChannel, userId, session) {
     const embed = fullPreviewEmbed(session);
     embed.setTitle(`📋 Final Preview — ${session.formName}`);
 
-    const row = new ActionRowBuilder().addComponents(
+    const buttonRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`ab_save_${userId}`).setLabel('💾 Save & finish').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`ab_addmore_${userId}`).setLabel('➕ Add more questions').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`ab_editq_${userId}`).setLabel('✏️ Edit a question').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`ab_addmore_${userId}`).setLabel('➕ Add more').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(`ab_cancel_${userId}`).setLabel('🗑️ Discard').setStyle(ButtonStyle.Danger)
     );
-    return dmChannel.send({ embeds: [embed], components: [row] });
+
+    const components = [buttonRow];
+
+    // Add question-jump dropdown if there are any questions
+    if (session.questions.length) {
+        const jumpRow = new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId(`ab_jumpq_${userId}`)
+                .setPlaceholder('✏️ Edit a question…')
+                .addOptions(session.questions.map((q, i) => ({
+                    label: `Q${i + 1}: ${q.text.slice(0, 90)}${q.text.length > 90 ? '…' : ''}`,
+                    value: String(i)
+                })).slice(0, 25))
+        );
+        components.push(jumpRow);
+    }
+
+    return dmChannel.send({ embeds: [embed], components });
 }
 
 // ─── After questions saved — kick off setup wizard in DM ─────────────────────
@@ -911,15 +927,8 @@ async function handleBuilderButtonInteraction(interaction, client) {
         return true;
     }
 
-    if (id === `ab_editq_${userId}`) {
-        session.step = 'awaiting_edit_pick';
-        const list = session.questions.map((q, i) => `**${i + 1}.** ${q.text}`).join('\n');
-        await interaction.update({
-            embeds: [builderEmbed('✏️ Edit a Question', `Type the **number** of the question you want to edit:\n\n${list}`)],
-            components: []
-        });
-        return true;
-    }
+    // ab_jumpq_ is a select menu — handled in handleBuilderInteraction top-level
+    // (falls through to false here, caught by isStringSelectMenu branch)
 
     return false;
 }
@@ -1595,20 +1604,6 @@ async function handleBuilderMessage(message, client) {
             await sendRequiredStep(dm, userId, bSession);
             return true;
         }
-        if (bSession.step === 'awaiting_edit_pick') {
-            const n = parseInt(text, 10);
-            if (isNaN(n) || n < 1 || n > bSession.questions.length) {
-                await message.reply({ embeds: [builderEmbed('⚠️ Invalid number', `Pick a number between 1 and ${bSession.questions.length}.`)] });
-                return true;
-            }
-            const q = bSession.questions[n - 1];
-            bSession.editIndex = n - 1;
-            bSession.currentQ  = { ...q };
-            bSession.questions.splice(n - 1, 1);
-            bSession.step = 'awaiting_question';
-            await message.reply({ embeds: [builderEmbed(`✏️ Editing Q${n}`, `Current text: *${q.text}*\n\nType the new question text below.`)] });
-            return true;
-        }
         return false;
     }
 
@@ -1939,6 +1934,33 @@ async function handleBuilderButtonInteractionPatched(interaction, client) {
 module.exports.handleBuilderInteraction = async function(interaction, client) {
     const id = interaction.customId;
     if (!id) return false;
+
+    // ── Question jump dropdown ────────────────────────────────────────────────
+    const userId = interaction.user.id;
+    if (id === `ab_jumpq_${userId}`) {
+        const session = builderSessions.get(userId);
+        if (!session) {
+            await interaction.update({ embeds: [builderEmbed('⚠️ Session Expired', 'Run the command again.')], components: [] }).catch(() => {});
+            return true;
+        }
+        const index = parseInt(interaction.values[0], 10);
+        const q = session.questions[index];
+        if (!q) {
+            await interaction.update({ embeds: [builderEmbed('⚠️ Not found', 'That question no longer exists.')], components: [] }).catch(() => {});
+            return true;
+        }
+        // Pull it out for re-editing
+        session.editIndex = index;
+        session.currentQ  = { ...q };
+        session.questions.splice(index, 1);
+        session.step = 'awaiting_question';
+        await interaction.update({
+            embeds: [builderEmbed(`✏️ Editing Q${index + 1}`, `**Current text:**\n> ${q.text}\n\nType the new question text below, or retype it to keep it the same.`)],
+            components: []
+        });
+        return true;
+    }
+
     if (id.startsWith('ab_')) return handleBuilderButtonInteractionPatched(interaction, client);
     if (id.startsWith('absetup_')) return handleSetupInteraction(interaction, client);
     if (id.startsWith('abopen_'))  return handleOpenInteraction(interaction, client);
