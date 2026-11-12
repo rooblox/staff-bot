@@ -3473,13 +3473,20 @@ if (interaction.customId.startsWith('dmreply_')) {
                 await dm.send({ embeds: [introEmbed], components: [introRow] });
 
                 // Store session in "intro" state — no questions started yet
+                // Normalize questions to strings for parseQuestion compatibility
+                const normalizeToString = (q) => {
+                    if (typeof q === 'string') return q;
+                    if (q.type === 'scale')  return `[SCALE] ${q.text}`;
+                    if (q.type === 'choice') return `[CHOICE: ${(q.choices || []).join('|')}] ${q.text}`;
+                    return q.text || String(q);
+                };
                 const newAppSession = {
                     formId,
                     formName: form.name,
                     answers: [],
                     questionIndex: 0,
                     isResubmit,
-                    questions: form.questions,
+                    questions: (form.questions || []).map(normalizeToString),
                     state: 'intro'   // 'intro' | 'active' | 'review'
                 };
                 pendingDMs.set(interaction.user.id, newAppSession);
