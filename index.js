@@ -3395,10 +3395,15 @@ if (interaction.customId.startsWith('dmreply_')) {
                         ...nextQ.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${interaction.user.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
                     )];
                 }
+                const nextMinW2 = (appSession.minWords || [])[nextIndex] || 0;
+                const nextHint2 = (appSession.hints   || [])[nextIndex] || null;
+                let nextDesc2 = `**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${nextQ.display}`;
+                if (nextHint2) nextDesc2 += `\n\n💡 *${nextHint2}*`;
+                if (nextMinW2) nextDesc2 += `\n\n📏 *Minimum ${nextMinW2} word${nextMinW2 !== 1 ? 's' : ''} required.*`;
                 const embed = new EmbedBuilder()
                     .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
                     .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
-                    .setDescription(`**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${nextQ.display}`)
+                    .setDescription(nextDesc2)
                     .setFooter({ text: nextQ.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
                 await interaction.followUp({ embeds: [embed], components });
             } else {
@@ -3487,6 +3492,8 @@ if (interaction.customId.startsWith('dmreply_')) {
                     questionIndex: 0,
                     isResubmit,
                     questions: (form.questions || []).map(normalizeToString),
+                    minWords: (form.questions || []).map(q => (typeof q === 'object' && q.minWords) ? q.minWords : 0),
+                    hints:    (form.questions || []).map(q => (typeof q === 'object' && q.hint)     ? q.hint     : null),
                     state: 'intro'   // 'intro' | 'active' | 'review'
                 };
                 pendingDMs.set(interaction.user.id, newAppSession);
@@ -3524,10 +3531,15 @@ if (interaction.customId.startsWith('dmreply_')) {
                     ...q0.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${interaction.user.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
                 )];
             }
+            const minW0  = (appSession.minWords || [])[0] || 0;
+            const hint0  = (appSession.hints   || [])[0] || null;
+            let desc0 = `**Question 1 of ${appSession.questions.length}:**\n${q0.display}`;
+            if (hint0)  desc0 += `\n\n💡 *${hint0}*`;
+            if (minW0)  desc0 += `\n\n📏 *Minimum ${minW0} word${minW0 !== 1 ? 's' : ''} required.*`;
             const qEmbed = new EmbedBuilder()
                 .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
                 .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
-                .setDescription(`**Question 1 of ${appSession.questions.length}:**\n${q0.display}`)
+                .setDescription(desc0)
                 .setFooter({ text: q0.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
 
             await interaction.update({ components: [] }); // disable Start/Never Mind buttons
@@ -5097,6 +5109,16 @@ client.on('messageCreate', async message => {
                 return;
             }
 
+            // Enforce minimum word count for text questions
+            const minWordsRequired = (appSession.minWords || [])[appSession.questionIndex] || 0;
+            if (minWordsRequired > 0) {
+                const wordCount = message.content.trim().split(/\s+/).filter(Boolean).length;
+                if (wordCount < minWordsRequired) {
+                    await message.reply({ content: `⚠️ Your answer is too short! This question requires at least **${minWordsRequired} word${minWordsRequired !== 1 ? 's' : ''}**. You wrote ${wordCount}. Please try again.`, allowedMentions: { repliedUser: false } });
+                    return;
+                }
+            }
+
             appSession.answers.push(message.content);
             const nextIndex = appSession.questionIndex + 1;
 
@@ -5106,6 +5128,8 @@ client.on('messageCreate', async message => {
                 pendingDMs.set(message.author.id, appSession);
                 await saveAppDMSession(message.author.id, appSession);
                 const nextQ = parseQuestion(appSession.questions[nextIndex]);
+                const nextMinW = (appSession.minWords || [])[nextIndex] || 0;
+                const nextHint = (appSession.hints   || [])[nextIndex] || null;
                 let components = [];
                 if (nextQ.type === 'scale') {
                     components = [
@@ -5117,10 +5141,13 @@ client.on('messageCreate', async message => {
                         ...nextQ.choices.map((c, i) => new ButtonBuilder().setCustomId(`app_dmchoice_${message.author.id}_${i}`).setLabel(c).setStyle(ButtonStyle.Primary))
                     )];
                 }
+                let nextDesc = `**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${nextQ.display}`;
+                if (nextHint) nextDesc += `\n\n💡 *${nextHint}*`;
+                if (nextMinW) nextDesc += `\n\n📏 *Minimum ${nextMinW} word${nextMinW !== 1 ? 's' : ''} required.*`;
                 const embed = new EmbedBuilder()
                     .setTitle(`📝 ${appSession.formName}${appSession.isResubmit ? ' (Resubmission)' : ''}`)
                     .setColor(appSession.isResubmit ? 0xe67e22 : 0x5865f2)
-                    .setDescription(`**Question ${nextIndex + 1} of ${appSession.questions.length}:**\n${nextQ.display}`)
+                    .setDescription(nextDesc)
                     .setFooter({ text: nextQ.type === 'text' ? 'Type your answer below. Type "cancel" to cancel.' : 'Click a button to answer. Type "cancel" to cancel.' });
                 await message.reply({ embeds: [embed], components });
             } else {
