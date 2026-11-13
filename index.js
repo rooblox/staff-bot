@@ -3604,9 +3604,16 @@ if (interaction.customId.startsWith('dmreply_')) {
 
                         // Build answer fields — truncate each to 1024 chars (Discord field limit)
                         const answerFields = form.questions.map((q, i) => {
-                            const qText = typeof q === 'string' ? q : (q.text || String(q));
+                            const qText    = typeof q === 'string' ? q : (q.text || String(q));
+                            const minW     = typeof q === 'object' && q.minWords ? q.minWords : 0;
+                            const hint     = typeof q === 'object' && q.hint     ? q.hint     : null;
+                            const tags     = [];
+                            if (minW) tags.push(`📏 min ${minW}w`);
+                            if (hint) tags.push(`💡 ${hint}`);
+                            const tagStr   = tags.length ? ` *(${tags.join(' · ')})*` : '';
+                            const label    = `Q${i + 1}: ${qText.length > 60 ? qText.slice(0, 57) + '...' : qText}`;
                             return {
-                                name: `Q${i + 1}: ${qText.length > 80 ? qText.slice(0, 77) + '...' : qText}`,
+                                name:  (label + tagStr).slice(0, 256),
                                 value: truncField(appSession.answers[i])
                             };
                         });
