@@ -3591,10 +3591,13 @@ if (interaction.customId.startsWith('dmreply_')) {
                             : null;
 
                         // Build answer fields — truncate each to 1024 chars (Discord field limit)
-                        const answerFields = form.questions.map((q, i) => ({
-                            name: `Q${i + 1}: ${q.length > 80 ? q.slice(0, 77) + '...' : q}`,
-                            value: truncField(appSession.answers[i])
-                        }));
+                        const answerFields = form.questions.map((q, i) => {
+                            const qText = typeof q === 'string' ? q : (q.text || String(q));
+                            return {
+                                name: `Q${i + 1}: ${qText.length > 80 ? qText.slice(0, 77) + '...' : qText}`,
+                                value: truncField(appSession.answers[i])
+                            };
+                        });
 
                         // Split into multiple embeds if needed (Discord embed total limit = 6000 chars)
                         // First embed: header info + as many answer fields as fit
@@ -3664,7 +3667,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                         try {
                             const { buildReviewEmbeds, getAIReviewOverride } = require('./commands/appchecker');
                             const reviewEmbeds = buildReviewEmbeds(
-                                form.questions,
+                                form.questions.map(q => typeof q === 'string' ? q : (q.text || String(q))),
                                 appSession.answers,
                                 interaction.user.tag,
                                 String(submission._id)
