@@ -212,11 +212,16 @@ async function sendOpenStep(interaction, session, client, isUpdate = false) {
             new ButtonBuilder().setCustomId(`abopen_closedate_skip_${interaction.user.id}`).setLabel('⏭️ No close date').setStyle(ButtonStyle.Secondary)
         )];
     } else if (step === 'pick_server') {
-        embed = stepEmbed('📂 Open Form — Step 4: Post Server', 'Which server should the Apply button be posted in?');
+        embed = stepEmbed('📂 Open Form — Step 4: Post Server', 'Which server should the Apply button be posted in?\n\nOr skip posting — the form will open silently and only appear on the status board.');
         const opts = guildOptions(client);
-        components = [new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder().setCustomId(`abopen_server_${interaction.user.id}`).setPlaceholder('Select server').addOptions(opts)
-        )];
+        components = [
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder().setCustomId(`abopen_server_${interaction.user.id}`).setPlaceholder('Select server').addOptions(opts)
+            ),
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`abopen_skip_post_${interaction.user.id}`).setLabel('⏭️ Skip — don\'t post anywhere').setStyle(ButtonStyle.Secondary)
+            )
+        ];
     } else if (step === 'pick_channel') {
         embed = stepEmbed('📂 Open Form — Step 5: Post Channel', `Server: **${session.postServerName || '—'}**\n\nWhich channel should the Apply button be posted in?`);
         const opts = session.postServerId ? await channelOptions(client, session.postServerId) : [];
@@ -402,7 +407,7 @@ async function saveFormSetup(dmChannel, userId, session) {
             department: session.department || 'General',
             description: session.description || '',
             gameLink: session.gameLink || null
-        }, { new: true });
+        }, { returnDocument: 'after' });
     } else {
         form = await AppForm.create({
             name: session.name || session.formName,
@@ -448,6 +453,23 @@ async function finishOpen(interaction, session, channelId, client, isDeferred = 
         if (interaction.isModalSubmit()) return interaction.reply({ ...payload, flags: 64 });
         return interaction.update(payload);
     };
+
+    // Skip-post mode: open the form silently (status board only, no channel announcement)
+    if (channelId === null) {
+        await AppForm.findByIdAndUpdate(session.formId, {
+            open: true, openMessageId: null, openChannelId: null,
+            redirectChannelId: null, redirectChannelName: null,
+            openedById: interaction.user.id,
+            openedByTag: interaction.user.tag,
+            closeAt: session.closeAt || null,
+            closeWarningDmSent: false
+        }, { returnDocument: 'after' });
+        await refreshStatusBoard(client);
+        const closeDateNote = session.closeAt
+            ? `\n📅 Auto-closes <t:${Math.floor(session.closeAt.getTime() / 1000)}:F> — you'll get a DM 24 hours before.`
+            : '';
+        return replyOrUpdate({ content: `✅ **${session.formName}** is now open! No button posted — it will appear on the status board only.${closeDateNote}`, embeds: [], components: [] });
+    }
 
     const targetChannel = await client.channels.fetch(channelId).catch(() => null);
     if (!targetChannel) {
@@ -498,7 +520,7 @@ async function finishOpen(interaction, session, channelId, client, isDeferred = 
         openedByTag: interaction.user.tag,
         closeAt: session.closeAt || null,
         closeWarningDmSent: false
-    });
+    }, { returnDocument: 'after' });
     await refreshStatusBoard(client);
 
     const closeDateNote = session.closeAt
@@ -1262,7 +1284,7 @@ async function completeSetup(dmChannel, userId, session, client) {
                 department: session.department || 'General',
                 description: session.description || '',
                 gameLink: session.gameLink || null
-            }, { new: true });
+            }, { returnDocument: 'after' });
         } else {
             form = await AppForm.create({
                 name: session.name || session.formName,
@@ -1419,6 +1441,14 @@ async function handleOpenInteraction(interaction, client) {
         pendingOpens.set(userId, session);
         await interaction.deferUpdate();
         await sendOpenStep(interaction, session, client, true);
+        return true;
+    }
+
+    if (id === `abopen_skip_post_${userId}`) {
+        session.skipPost = true;
+        pendingOpens.set(userId, session);
+        await interaction.deferUpdate();
+        await finishOpen(interaction, session, null, client, true);
         return true;
     }
 

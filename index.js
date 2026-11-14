@@ -663,7 +663,7 @@ async function saveAppDMSession(userId, appSession) {
             questions:     appSession.questions,
             state:         appSession.state,
             updatedAt:     new Date()
-        }, { upsert: true, new: true });
+        }, { upsert: true, returnDocument: 'after' });
     } catch (err) {
         console.error('[appDM] Failed to save session for', userId, err.message);
     }
