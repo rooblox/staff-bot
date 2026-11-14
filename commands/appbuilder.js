@@ -359,7 +359,6 @@ async function refreshStatusBoard(client) {
         for (let i = 0; i < allButtons.length && components.length < 5; i += 5) {
             components.push(new ActionRowBuilder().addComponents(allButtons.slice(i, i + 5)));
         }
-        }
 
         for (const board of boards) {
             try {
