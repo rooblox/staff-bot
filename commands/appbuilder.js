@@ -353,10 +353,12 @@ async function refreshStatusBoard(client) {
             }
             deptButtons.get(dept).push(btn);
         }
-        for (const [, buttons] of deptButtons) {
-            for (let i = 0; i < buttons.length && components.length < 5; i += 5) {
-                components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
-            }
+        // Pack all buttons together into rows of 5 (instead of one row per dept)
+        const allButtons = [];
+        for (const [, buttons] of deptButtons) allButtons.push(...buttons);
+        for (let i = 0; i < allButtons.length && components.length < 5; i += 5) {
+            components.push(new ActionRowBuilder().addComponents(allButtons.slice(i, i + 5)));
+        }
         }
 
         for (const board of boards) {
@@ -1896,10 +1898,10 @@ module.exports = {
                 }
                 deptButtons.get(dept).push(btn);
             }
-            for (const [, buttons] of deptButtons) {
-                for (let i = 0; i < buttons.length && components.length < 5; i += 5) {
-                    components.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
-                }
+            const allButtons2 = [];
+            for (const [, buttons] of deptButtons) allButtons2.push(...buttons);
+            for (let i = 0; i < allButtons2.length && components.length < 5; i += 5) {
+                components.push(new ActionRowBuilder().addComponents(allButtons2.slice(i, i + 5)));
             }
 
             const msg = await interaction.reply({ embeds: [embed], components, fetchReply: true });
