@@ -26,7 +26,11 @@ const {
     ChannelType
 } = require('discord.js');
 
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+let _canvas;
+function getCanvas() {
+    if (!_canvas) _canvas = require('@napi-rs/canvas');
+    return _canvas;
+}
 const path = require('path');
 
 // ── Pending setup sessions (in-memory, keyed by userId) ──────────────────────
@@ -61,6 +65,7 @@ const verifyCommand = new SlashCommandBuilder()
 const BG_PATH = path.join(__dirname, '..', 'assets', 'verification', 'bg.png');
 
 async function generateVerifyCard(serverName) {
+    const { createCanvas, loadImage } = getCanvas();
     const W = 900, H = 300;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
