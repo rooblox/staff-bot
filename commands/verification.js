@@ -33,6 +33,27 @@ function getCanvas() {
 }
 const path = require('path');
 
+// ── Helpers: resolve role/channel from mention, name, or ID ──────────────────
+function resolveRole(guild, raw) {
+    const s = raw.trim();
+    const mentionMatch = s.match(/^<@&(\d+)>$/);
+    if (mentionMatch) return mentionMatch[1];
+    if (/^\d+$/.test(s)) return s;
+    const name = s.replace(/^@/, '').toLowerCase();
+    const found = guild.roles.cache.find(r => r.name.toLowerCase() === name);
+    return found ? found.id : null;
+}
+
+function resolveChannel(guild, raw) {
+    const s = raw.trim();
+    const mentionMatch = s.match(/^<#(\d+)>$/);
+    if (mentionMatch) return mentionMatch[1];
+    if (/^\d+$/.test(s)) return s;
+    const name = s.replace(/^#/, '').toLowerCase();
+    const found = guild.channels.cache.find(c => c.name.toLowerCase() === name);
+    return found ? found.id : null;
+}
+
 // ── Pending setup sessions (in-memory, keyed by userId) ──────────────────────
 const pendingSetups = new Map();
 // ── Pending DM verify sessions (userId → { config, guildId, answers, qIndex, rankRoleIds }) ──
@@ -142,7 +163,7 @@ async function sendStep(interaction, session, isDeferred = false) {
     } else if (step === 'pick_roles') {
         embed = stepEmbed('Step 2: Roles to Assign', 'Which role(s) should be given to verified members?\n\nType the role IDs separated by commas in the box below, or use the button to enter them.');
         components = [new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`vsetup_enterroles_${interaction.user.id}`).setLabel('Enter Role IDs').setStyle(ButtonStyle.Primary)
+            new ButtonBuilder().setCustomId(`vsetup_enterroles_${interaction.user.id}`).setLabel('Enter Roles').setStyle(ButtonStyle.Primary)
         )];
 
     } else if (step === 'pick_channel') {
@@ -565,7 +586,7 @@ async function handleVerificationInteraction(interaction, client) {
     if (id === `vsetup_enterroles_${userId}`) {
         const modal = new ModalBuilder().setCustomId(`vsetup_modal_roles_${userId}`).setTitle('Roles to Assign');
         modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('role_ids').setLabel('Role IDs (comma-separated)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 123456789, 987654321').setRequired(true)
+            new TextInputBuilder().setCustomId('role_ids').setLabel('Roles (mentions or IDs, comma-separated)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. @Verified, @Member or 123456789').setRequired(true)
         ));
         return interaction.showModal(modal);
     }
@@ -573,7 +594,7 @@ async function handleVerificationInteraction(interaction, client) {
     if (id === `vsetup_enterchannel_${userId}`) {
         const modal = new ModalBuilder().setCustomId(`vsetup_modal_channel_${userId}`).setTitle('Verification Channel');
         modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('channel_id').setLabel('Channel ID').setStyle(TextInputStyle.Short).setPlaceholder('Right-click the channel → Copy ID').setRequired(true)
+            new TextInputBuilder().setCustomId('channel_id').setLabel('Channel (mention, name, or ID)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. #verify or 123456789').setRequired(true)
         ));
         return interaction.showModal(modal);
     }
@@ -599,7 +620,7 @@ async function handleVerificationInteraction(interaction, client) {
     if (id === `vsetup_enterapprole_${userId}`) {
         const modal = new ModalBuilder().setCustomId(`vsetup_modal_approle_${userId}`).setTitle('Approver Role');
         modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('role_id').setLabel('Approver Role ID').setStyle(TextInputStyle.Short).setRequired(true)
+            new TextInputBuilder().setCustomId('role_id').setLabel('Approver Role (mention, name, or ID)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. @Staff or 123456789').setRequired(true)
         ));
         return interaction.showModal(modal);
     }
@@ -607,7 +628,7 @@ async function handleVerificationInteraction(interaction, client) {
     if (id === `vsetup_enterreviewch_${userId}`) {
         const modal = new ModalBuilder().setCustomId(`vsetup_modal_reviewch_${userId}`).setTitle('Review Channel');
         modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('channel_id').setLabel('Review Channel ID').setStyle(TextInputStyle.Short).setRequired(true)
+            new TextInputBuilder().setCustomId('channel_id').setLabel('Review Channel (mention, name, or ID)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. #verify-review or 123456789').setRequired(true)
         ));
         return interaction.showModal(modal);
     }
@@ -615,7 +636,7 @@ async function handleVerificationInteraction(interaction, client) {
     if (id === `vsetup_enterlogch_${userId}`) {
         const modal = new ModalBuilder().setCustomId(`vsetup_modal_logch_${userId}`).setTitle('Log Channel');
         modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('channel_id').setLabel('Log Channel ID').setStyle(TextInputStyle.Short).setRequired(true)
+            new TextInputBuilder().setCustomId('channel_id').setLabel('Log Channel (mention, name, or ID)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. #verify-log or 123456789').setRequired(true)
         ));
         return interaction.showModal(modal);
     }
@@ -698,7 +719,8 @@ async function handleVerificationInteraction(interaction, client) {
         if (id === `vsetup_modal_roles_${userId}`) {
             if (!session) return interaction.reply({ content: '❌ Session expired. Run `/setup verification` again.', flags: 64 });
             const raw = interaction.fields.getTextInputValue('role_ids');
-            session.roleIds = raw.split(',').map(s => s.trim()).filter(Boolean);
+            // Accept role mentions <@&123>, @RoleName resolved via guild, or bare IDs
+            session.roleIds = raw.split(',').map(s => resolveRole(interaction.guild, s)).filter(Boolean);
             // After roles: for button/slash → channel; for dm → dm questions; for format → channel then strictness
             session.step = 'pick_channel';
             pendingSetups.set(userId, session);
@@ -708,7 +730,7 @@ async function handleVerificationInteraction(interaction, client) {
 
         if (id === `vsetup_modal_channel_${userId}`) {
             if (!session) return interaction.reply({ content: '❌ Session expired.', flags: 64 });
-            session.channelId = interaction.fields.getTextInputValue('channel_id').trim();
+            session.channelId = resolveChannel(interaction.guild, interaction.fields.getTextInputValue('channel_id'));
             // Route next step by method
             if (session.method === 'button' || session.method === 'slash') {
                 // button/slash skip approval flow → go straight to rank categories
@@ -745,7 +767,7 @@ async function handleVerificationInteraction(interaction, client) {
 
         if (id === `vsetup_modal_approle_${userId}`) {
             if (!session) return interaction.reply({ content: '❌ Session expired.', flags: 64 });
-            session.approvalRoleId = interaction.fields.getTextInputValue('role_id').trim();
+            session.approvalRoleId = resolveRole(interaction.guild, interaction.fields.getTextInputValue('role_id'));
             session.step = 'pick_review_channel';
             pendingSetups.set(userId, session);
             await interaction.reply({ content: `✅ Approver role saved: <@&${session.approvalRoleId}>`, flags: 64 });
@@ -754,7 +776,7 @@ async function handleVerificationInteraction(interaction, client) {
 
         if (id === `vsetup_modal_reviewch_${userId}`) {
             if (!session) return interaction.reply({ content: '❌ Session expired.', flags: 64 });
-            session.reviewChannelId = interaction.fields.getTextInputValue('channel_id').trim();
+            session.reviewChannelId = resolveChannel(interaction.guild, interaction.fields.getTextInputValue('channel_id'));
             session.step = 'pick_log_channel';
             pendingSetups.set(userId, session);
             await interaction.reply({ content: `✅ Review channel saved: <#${session.reviewChannelId}>`, flags: 64 });
@@ -763,7 +785,7 @@ async function handleVerificationInteraction(interaction, client) {
 
         if (id === `vsetup_modal_logch_${userId}`) {
             if (!session) return interaction.reply({ content: '❌ Session expired.', flags: 64 });
-            session.logChannelId = interaction.fields.getTextInputValue('channel_id').trim();
+            session.logChannelId = resolveChannel(interaction.guild, interaction.fields.getTextInputValue('channel_id'));
             session.step = 'pick_rank_categories';
             pendingSetups.set(userId, session);
             await interaction.reply({ content: `✅ Log channel saved: <#${session.logChannelId}>`, flags: 64 });
@@ -776,10 +798,8 @@ async function handleVerificationInteraction(interaction, client) {
         if (id === `vsetup_modal_addrank_${userId}`) {
             if (!session) return interaction.reply({ content: '❌ Session expired.', flags: 64 });
             const rankName = interaction.fields.getTextInputValue('rank_name').trim();
-            const roleRaw  = interaction.fields.getTextInputValue('rank_role').trim();
-            // Accept role mention <@&123> or bare ID
-            const roleId = roleRaw.replace(/[^0-9]/g, '');
-            if (!roleId) return interaction.reply({ content: '❌ Couldn\'t parse a role ID from that. Try pasting the role ID directly.', flags: 64 });
+            const roleId = resolveRole(interaction.guild, interaction.fields.getTextInputValue('rank_role'));
+            if (!roleId) return interaction.reply({ content: '❌ Couldn\'t find that role. Try @RoleName or paste the role ID.', flags: 64 });
             if (!session.rankCategories) session.rankCategories = [];
             session.rankCategories.push({ name: rankName, roleId });
             session.step = 'pick_rank_categories'; // stay on same step to add more
@@ -790,9 +810,8 @@ async function handleVerificationInteraction(interaction, client) {
 
         if (id === `vsetup_modal_notifyrole_${userId}`) {
             if (!session) return interaction.reply({ content: '❌ Session expired.', flags: 64 });
-            const roleRaw = interaction.fields.getTextInputValue('role_id').trim();
-            const roleId = roleRaw.replace(/[^0-9]/g, '');
-            if (!roleId) return interaction.reply({ content: '❌ Couldn\'t parse a role ID. Try pasting the role ID directly.', flags: 64 });
+            const roleId = resolveRole(interaction.guild, interaction.fields.getTextInputValue('role_id'));
+            if (!roleId) return interaction.reply({ content: '❌ Couldn\'t find that role. Try @RoleName or paste the role ID.', flags: 64 });
             session.notifyRoleId = roleId;
             session.step = 'pick_embed_desc';
             pendingSetups.set(userId, session);
