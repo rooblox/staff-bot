@@ -338,7 +338,8 @@ async function doVerify(interaction, config, client, rankRoleId = null) {
     // Check already verified (has ALL configured roles)
     const hasAll = config.roleIds.every(rid => member.roles.cache.has(rid));
     if (hasAll) {
-        return interaction.reply({ content: '✅ You\'re already verified in this server!', flags: 64 });
+        const reply = interaction.deferred ? interaction.editReply.bind(interaction) : (p) => interaction.reply({ ...p, flags: 64 });
+        return reply({ content: '✅ You\'re already verified in this server!' });
     }
 
     // Assign base verify roles
@@ -373,10 +374,10 @@ async function doVerify(interaction, config, client, rankRoleId = null) {
     const imgBuf = await generateVerifyCard(config.guildName).catch(() => null);
     const payload = {
         content: `✅ You've been verified in **${config.guildName}**!`,
-        ...(imgBuf ? { files: [{ attachment: imgBuf, name: 'verified.png' }] } : {}),
-        flags: 64
+        ...(imgBuf ? { files: [{ attachment: imgBuf, name: 'verified.png' }] } : {})
     };
-    return interaction.reply(payload);
+    if (interaction.deferred) return interaction.editReply(payload);
+    return interaction.reply({ ...payload, flags: 64 });
 }
 
 // Send a pending verification request to the review channel for staff approval
@@ -830,14 +831,15 @@ async function handleVerificationInteraction(interaction, client) {
     // ── Instant verify (button method) ────────────────────────────────────────
     if (id.startsWith('verify_click_')) {
         const guildId = id.replace('verify_click_', '');
+        await interaction.deferReply({ flags: 64 });
         const config = await VerifyConfig.findOne({ guildId });
-        if (!config || config.method !== 'button') return;
+        if (!config || config.method !== 'button') return interaction.editReply({ content: '❌ Verification isn\'t configured correctly.' });
 
         // Pick up any pending rank selection
         const rankPick = pendingRankPick.get(userId);
         const rankRoleId = (rankPick?.guildId === guildId) ? rankPick.rankRoleId : null;
         if (config.rankCategories?.length && !rankRoleId) {
-            return interaction.reply({ content: '⚠️ Please select your rank from the dropdown before clicking Verify.', flags: 64 });
+            return interaction.editReply({ content: '⚠️ Please select your rank from the dropdown before clicking Verify.' });
         }
         if (rankRoleId) pendingRankPick.delete(userId);
         return doVerify(interaction, config, client, rankRoleId);
@@ -886,17 +888,18 @@ async function handleVerificationInteraction(interaction, client) {
     if (id.startsWith('verify_approve_') || id.startsWith('verify_deny_')) {
         const isApprove = id.startsWith('verify_approve_');
         const reqId = id.replace('verify_approve_', '').replace('verify_deny_', '');
+        await interaction.deferUpdate();
         const { VerifyRequest } = db();
         const req = await VerifyRequest.findById(reqId);
-        if (!req) return interaction.reply({ content: '❌ Request not found.', flags: 64 });
-        if (req.status !== 'pending') return interaction.reply({ content: '⚠️ This request was already handled.', flags: 64 });
+        if (!req) return interaction.followUp({ content: '❌ Request not found.', flags: 64 });
+        if (req.status !== 'pending') return interaction.followUp({ content: '⚠️ This request was already handled.', flags: 64 });
 
         const config = await VerifyConfig.findOne({ guildId: req.guildId });
-        if (!config) return interaction.reply({ content: '❌ Verify config not found.', flags: 64 });
+        if (!config) return interaction.followUp({ content: '❌ Verify config not found.', flags: 64 });
 
         // Check approver role
         if (config.approvalRoleId && !interaction.member.roles.cache.has(config.approvalRoleId) && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-            return interaction.reply({ content: '❌ You don\'t have permission to handle verification requests.', flags: 64 });
+            return interaction.followUp({ content: '❌ You don\'t have permission to handle verification requests.', flags: 64 });
         }
 
         await VerifyRequest.findByIdAndUpdate(reqId, {
@@ -947,7 +950,7 @@ async function handleVerificationInteraction(interaction, client) {
             });
         } catch { /* DMs closed */ }
 
-        return interaction.update({
+        return interaction.editReply({
             embeds: [new EmbedBuilder()
                 .setColor(isApprove ? 0x22c55e : 0xef4444)
                 .setTitle(isApprove ? '✅ Approved' : '❌ Denied')
