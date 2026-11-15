@@ -90,8 +90,8 @@ const WELCOME_BANNER = 'https://media.discordapp.net/attachments/137097444472141
 // ========== ROBLOX GROUP TRACKER ==========
 const ROBLOX_GROUP_ID = '13827902';
 const ROBLOX_COUNT_CHANNEL_ID = '1371143149812187177';
-let lastRobloxMemberCount = 3947;
-let robloxMemberGoal = 4000;
+let lastRobloxMemberCount = 4002;
+let robloxMemberGoal = 5000;
 
 // Weekly Discord stats tracking
 let weeklyDiscordJoins = 0;
@@ -100,8 +100,8 @@ let lastWeekDiscordJoins = 0;
 let lastWeekDiscordLeaves = 0;
 let weeklyTotalMessages = 0;
 let lastWeekTotalMessages = 0;
-let lastWeekRobloxCount = 3947;
-let weekStartRobloxCount = 3947;
+let lastWeekRobloxCount = 4002;
+let weekStartRobloxCount = 4002;
 
 // ========== MOD REPORT / ALLIANCE ==========
 const STAFF_ROLE_ID = '1372833756489973823';
@@ -5525,7 +5525,17 @@ client.once('ready', async () => {
     // Restore weekly stats
     await restoreWeeklyStats();
 
-    // Roblox group tracker
+    // Roblox group tracker — silently bootstrap last count so restart doesn't fire a fake update
+    try {
+        const bootCount = await getRobloxGroupCount();
+        if (bootCount) {
+            lastRobloxMemberCount = bootCount;
+            weekStartRobloxCount  = bootCount;
+            // Advance goal past any already-hit milestones
+            while (robloxMemberGoal <= bootCount) robloxMemberGoal += 1000;
+            console.log(`✅ Roblox group baseline set to ${bootCount}, next goal ${robloxMemberGoal}`);
+        }
+    } catch (e) { console.error('[roblox bootstrap]', e.message); }
     setInterval(() => checkRobloxGroupCount(client), 5 * 60 * 1000);
 
     // Weekly mod report
