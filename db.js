@@ -437,4 +437,54 @@ const robloxLinkSchema = new mongoose.Schema({
 });
 const RobloxLink = mongoose.model('RobloxLink', robloxLinkSchema);
 
-module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost, RobloxLink, SessionReminder, TrainingProgress, AppDMSession };
+// ── Verification system ───────────────────────────────────────────────────────
+const verifyConfigSchema = new mongoose.Schema({
+    guildId:         { type: String, required: true, unique: true },
+    guildName:       String,
+    method:          { type: String, enum: ['button', 'slash', 'dm', 'format'], default: 'button' },
+    roleIds:         [String],                   // roles assigned on verify
+    channelId:       String,                     // where verify embed is posted
+    embedDescription: String,                    // custom embed text
+    // approval flow (dm / format methods)
+    approvalRoleId:  String,
+    reviewChannelId: String,
+    logChannelId:    String,
+    // dm-questions method
+    dmQuestions:     [String],
+    // format method
+    formatStrict:    { type: Boolean, default: false },
+    formatFields:    [String],
+    // rank categories (optional)
+    rankCategories:  [{ name: String, roleId: String }],
+    // notify role pinged in review channel when someone verifies (optional)
+    notifyRoleId:    String,
+    updatedAt:       Date
+}, { versionKey: false });
+const VerifyConfig = mongoose.model('VerifyConfig', verifyConfigSchema);
+
+// Tracks pending verification requests (dm / format methods awaiting staff approval)
+const verifyRequestSchema = new mongoose.Schema({
+    guildId:         String,
+    userId:          String,
+    userTag:         String,
+    answers:         [String],
+    rankName:        String,   // selected rank label (if rankCategories used)
+    rankRoleId:      String,   // selected rank role ID  (if rankCategories used)
+    status:          { type: String, default: 'pending' }, // pending | approved | denied
+    handledBy:       String,
+    handledByTag:    String,
+    handledAt:       Date,
+    reviewChannelId: String,
+    logChannelId:    String,
+    createdAt:       Date
+}, { versionKey: false });
+const VerifyRequest = mongoose.model('VerifyRequest', verifyRequestSchema);
+
+// Tracks whether the one-time setup ping has been sent per server
+const verifySetupPingSchema = new mongoose.Schema({
+    guildId: { type: String, required: true, unique: true },
+    sentAt:  Date
+}, { versionKey: false });
+const VerifySetupPing = mongoose.model('VerifySetupPing', verifySetupPingSchema);
+
+module.exports = { connectDB, StaffRecord, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, AppForm, AppSubmission, AppStatusBoard, AppTicketWatch, Giveaway, DeptConfigCache, Resignation, SchedulePost, RobloxLink, SessionReminder, TrainingProgress, AppDMSession, VerifyConfig, VerifyRequest, VerifySetupPing };
