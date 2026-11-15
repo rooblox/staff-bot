@@ -8,6 +8,7 @@ const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } =
 const { handleOnboardingInteraction, checkOnboardingCleanup, restoreOnboardingSessions } = require('./commands/botonboarding');
 const { handleBuilderInteraction, handleBuilderMessage } = require('./commands/appbuilder');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
+const { handleVerificationInteraction, handleVerificationMessage, sendOneTimePings, commands: verifyCmds } = require('./commands/verification');
 
 const REQUEST_CHANNEL_ID = '1493737208597971045';
 const SESSION_LOG_CHANNEL_ID = '1568027695718080552'; // attendance, confirmations, status posts
@@ -69,6 +70,9 @@ for (const file of commandFiles) {
 
 // Register /linkroblox manually (handled inline, not via commands collection)
 cmds.push(linkRobloxCommand.toJSON());
+
+// Register verification commands (/setup verification, /verify)
+for (const vc of verifyCmds) cmds.push(vc.toJSON());
 
 const trainingModule = require('./commands/starttraining');
 const { activeSessions, getSectionEmbed, getSectionButtons, getQuizEmbed, getQuizButtons, getTrainingConfig, TRAINING_DEPTS, saveTrainingProgress, clearTrainingProgress, restoreTrainingSessions } = trainingModule;
@@ -1245,6 +1249,12 @@ client.on('interactionCreate', async interaction => {
     if (await handleScheduleInteraction(interaction, client)) return;
 
     if (interaction.isChatInputCommand()) {
+        // Verification slash commands (/verify, /setup verification)
+        if (interaction.commandName === 'verify' || (interaction.commandName === 'setup' && interaction.options.getSubcommand(false) === 'verification')) {
+            const handled = await handleVerificationInteraction(interaction, client);
+            if (handled !== false) return;
+        }
+
         // Built-in commands
         if (interaction.commandName === 'weeklystats') {
             if (!await hasBotPermsRole(interaction.guildId, interaction.user.id)) {
@@ -1358,6 +1368,14 @@ await channel.send({ embeds: [new EmbedBuilder().setDescription(`➕ **${interac
                 content: `⏰ **When would you like to be reminded?**\nSession: **${session.shiftType || 'Regular Shift'}** — <t:${ts}:F> (\`${timeShort}\`)`,
                 components: [row]
             });
+        }
+
+        // ========== VERIFICATION SYSTEM ==========
+        if (interaction.customId?.startsWith('vsetup_') ||
+            interaction.customId?.startsWith('verify_') ||
+            (interaction.isChatInputCommand?.() && (interaction.commandName === 'verify' || (interaction.commandName === 'setup' && interaction.options?.getSubcommand?.() === 'verification')))) {
+            const handled = await handleVerificationInteraction(interaction, client);
+            if (handled !== false) return;
         }
 
         // ========== APP BUILDER — setup/open/close/send/jump selects ==========
@@ -5044,6 +5062,9 @@ client.on('guildMemberRemove', async member => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+    // Verification — DM question answers and channel-format submissions
+    if (await handleVerificationMessage(message, client).catch(() => false)) return;
+
     // Giveaway message tracking
     try {
         const { activeGiveaways } = require('./commands/giveaway');
@@ -5323,7 +5344,6 @@ client.once('ready', async () => {
     console.log(`✅ Starting guild registration loop...`);
 
     for (const guild of client.guilds.cache.values()) {
-        if (guild.id === '1229426371592327250') continue;
         try {
             await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: cmds });
             console.log(`✅ Commands registered in guild: ${guild.name}`);
@@ -5359,6 +5379,21 @@ client.once('ready', async () => {
     // Small delay so all guilds are cached before we try to post the panel
     await new Promise(r => setTimeout(r, 3000));
     await postOrUpdateSessionInfoPanel().then(() => console.log('✅ Session info panel posted/updated')).catch(err => console.error('[sessionInfoPanel] startup error:', err));
+
+    // ── Verification one-time setup pings (once per server, never repeats) ───
+    // Maps guildId → bot perms role ID for each server
+    const BOT_PERMS_ROLE_MAP = {
+        '1370892833182974035': '1493354187109433434', // Kavià Cafe (main)
+        '1434556801096876034': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+        '1229426371592327250': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+        '1385081586285940796': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+        '1372680943592280217': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+        '1313780438061420584': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+        '1462152073478017243': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+        '1301333604315561994': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+        '1417973638346309653': process.env.BOT_PERMS_ROLE_ID || '1493354187109433434',
+    };
+    sendOneTimePings(client, BOT_PERMS_ROLE_MAP).catch(err => console.error('[verify] one-time ping error:', err));
 
     // ── Fire pending session Remind Me reminders every minute ────────────────
     async function fireSessionReminders() {
