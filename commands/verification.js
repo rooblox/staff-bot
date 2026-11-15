@@ -214,8 +214,9 @@ async function sendStep(interaction, session, isDeferred = false) {
 
     const payload = { embeds: [embed], components };
     if (isDeferred) return interaction.editReply(payload);
-    if (interaction.isModalSubmit?.()) return interaction.reply({ ...payload, flags: 64 });
-    return interaction.update(payload);
+    if (interaction.isModalSubmit?.() || interaction.isChatInputCommand?.()) return interaction.reply({ ...payload, flags: 64 });
+    if (interaction.isButton?.()) return interaction.update(payload);
+    return interaction.reply({ ...payload, flags: 64 });
 }
 
 // ─────────────────────────────────────────────────────────────
