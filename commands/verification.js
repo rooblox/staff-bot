@@ -811,12 +811,13 @@ async function handleVerificationInteraction(interaction, client) {
     // ── Rank selection (select menu on verify embed) ──────────────────────────
     if (id.startsWith('verify_pick_rank_')) {
         const guildId = id.replace('verify_pick_rank_', '');
+        await interaction.deferReply({ flags: 64 });
         const config = await VerifyConfig.findOne({ guildId });
-        if (!config) return;
+        if (!config) return interaction.editReply({ content: '❌ Config not found.' });
 
         const selectedRoleId = interaction.values?.[0];
         const rankEntry = config.rankCategories?.find(c => c.roleId === selectedRoleId);
-        if (!rankEntry) return interaction.reply({ content: '❌ Unknown rank selection.', flags: 64 });
+        if (!rankEntry) return interaction.editReply({ content: '❌ Unknown rank selection.' });
 
         // Store pending rank pick
         pendingRankPick.set(userId, {
@@ -826,7 +827,7 @@ async function handleVerificationInteraction(interaction, client) {
             rankRoleId: selectedRoleId
         });
 
-        return interaction.reply({ content: `✅ Rank **${rankEntry.name}** selected! Now proceed with verification.`, flags: 64 });
+        return interaction.editReply({ content: `✅ Rank **${rankEntry.name}** selected! Now proceed with verification.` });
     }
 
     // ── Instant verify (button method) ────────────────────────────────────────
