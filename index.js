@@ -4023,6 +4023,12 @@ if (interaction.customId.startsWith('dmreply_')) {
             return;
         }
 
+        // ========== VERIFICATION SYSTEM — buttons ==========
+        if (interaction.customId?.startsWith('vsetup_') || interaction.customId?.startsWith('verify_')) {
+            const handled = await handleVerificationInteraction(interaction, client);
+            if (handled !== false) return;
+        }
+
         return;
     } catch (err) {
         // Silently ignore double-ack (40060) — usually a double-click; all other errors are logged
@@ -4030,6 +4036,12 @@ if (interaction.customId.startsWith('dmreply_')) {
     } }
 
     if (interaction.isModalSubmit()) {
+
+        // ========== VERIFICATION SYSTEM — modals ==========
+        if (interaction.customId?.startsWith('vsetup_modal_')) {
+            const handled = await handleVerificationInteraction(interaction, client);
+            if (handled !== false) return;
+        }
 
         // ========== PR TICKET — alliance application form modal ==========
         if (interaction.customId.startsWith('ticket_pr_alliance_form_')) {
