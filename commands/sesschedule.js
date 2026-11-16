@@ -34,6 +34,7 @@ function getCanvas() {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SCHEDULE_GUILD_ID    = '1434556801096876034';
 const SCHEDULE_CHANNEL_ID  = '1493737208597971045'; // weekly schedule post lives here
+const HOST_RECAP_CHANNEL_ID = '1493737413296525383'; // weekly host recap goes here
 const REQUEST_CHANNEL_ID   = '1568027695718080552'; // approval requests go here
 const PING_ROLE_ID         = '1439608585381478471';
 const REQUIRED_ROLE_ID    = '1434563855354167358';
@@ -556,7 +557,7 @@ async function refreshSchedule(client) {
 // holders, then emits a colour-coded embed.
 async function postWeeklyHostSummary(client) {
     try {
-        const channel = await client.channels.fetch(SCHEDULE_CHANNEL_ID).catch(() => null);
+        const channel = await client.channels.fetch(HOST_RECAP_CHANNEL_ID).catch(() => null);
         if (!channel?.isTextBased()) return;
 
         const weekStart = getCurrentWeekStart(); // closing week
