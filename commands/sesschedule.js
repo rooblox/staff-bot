@@ -516,6 +516,16 @@ async function postWeeklySchedule(client, forceNew = false) {
             }
         }
 
+        // If forcing a new post, delete the old message so the channel doesn't
+        // accumulate stale schedule posts with disabled buttons
+        if (forceNew && currentScheduleMessageId) {
+            try {
+                const oldMsg = await channel.messages.fetch(currentScheduleMessageId);
+                await oldMsg.delete();
+            } catch { /* already deleted or not found — that's fine */ }
+            currentScheduleMessageId = null;
+        }
+
         // Post fresh (includes banner image inside the embed)
         const sendPayload = { embeds: [embed], components: rows };
         if (banner) sendPayload.files = [banner];
@@ -540,6 +550,109 @@ async function refreshSchedule(client) {
     await postWeeklySchedule(client, false);
 }
 
+// ─── Weekly host summary ──────────────────────────────────────────────────────
+// Posts a "who hosted / who didn't" recap to SCHEDULE_CHANNEL_ID before the
+// new schedule goes up. Queries sessions for the closing week and all role
+// holders, then emits a colour-coded embed.
+async function postWeeklyHostSummary(client) {
+    try {
+        const channel = await client.channels.fetch(SCHEDULE_CHANNEL_ID).catch(() => null);
+        if (!channel?.isTextBased()) return;
+
+        const weekStart = getCurrentWeekStart(); // closing week
+
+        // All sessions this week (any status so we can tell "had one but cancelled")
+        const allSessions = await Session.find({ weekStart }).lean();
+
+        // Build maps: hostId → { finished, total }
+        const hostMap = {};
+        for (const s of allSessions) {
+            const id = s.hostId;
+            if (!hostMap[id]) hostMap[id] = { finished: 0, total: 0 };
+            hostMap[id].total++;
+            if (s.status === 'finished') hostMap[id].finished++;
+        }
+
+        // Fetch all members with the required role to find who had no sessions at all
+        let guild;
+        try { guild = await client.guilds.fetch(SCHEDULE_GUILD_ID); } catch { return; }
+        let staffMembers;
+        try {
+            const all = await guild.members.list({ limit: 1000 });
+            staffMembers = [...all.filter(m => !m.user.bot && m.roles.cache.has(REQUIRED_ROLE_ID)).values()];
+        } catch {
+            staffMembers = [...guild.members.cache.filter(m => !m.user.bot && m.roles.cache.has(REQUIRED_ROLE_ID)).values()];
+        }
+
+        const hosted    = []; // ≥ MIN_SESSIONS_PER_WEEK finished sessions
+        const partial   = []; // ≥ 1 finished but < minimum
+        const noSession = []; // approved/active/cancelled but 0 finished
+        const noSignup  = []; // didn't sign up at all
+
+        for (const member of staffMembers) {
+            const stats = hostMap[member.id];
+            if (!stats) {
+                noSignup.push(member);
+            } else if (stats.finished >= MIN_SESSIONS_PER_WEEK) {
+                hosted.push({ member, finished: stats.finished, total: stats.total });
+            } else if (stats.finished > 0) {
+                partial.push({ member, finished: stats.finished, total: stats.total });
+            } else {
+                noSession.push({ member, total: stats.total });
+            }
+        }
+
+        // Sort each bucket alphabetically
+        const name = m => m.member?.displayName ?? m.displayName ?? m.user?.username ?? '?';
+        hosted.sort((a, b)    => name(a).localeCompare(name(b)));
+        partial.sort((a, b)   => name(a).localeCompare(name(b)));
+        noSession.sort((a, b) => name(a).localeCompare(name(b)));
+        noSignup.sort((a, b)  => a.displayName.localeCompare(b.displayName));
+
+        const fmt = (arr, fn) => arr.length ? arr.map(fn).join('\n') : '*None*';
+
+        const embed = new EmbedBuilder()
+            .setTitle('📊  Weekly Session Hosting Recap')
+            .setDescription(
+                `Week of **${weekStart}** — recap before the schedule resets.\n` +
+                `Minimum expected: **${MIN_SESSIONS_PER_WEEK} hosted sessions**.`
+            )
+            .setColor(0x5865F2)
+            .addFields(
+                {
+                    name: `✅ Met minimum (${MIN_SESSIONS_PER_WEEK}+) — ${hosted.length} staff`,
+                    value: fmt(hosted, ({ member, finished, total }) =>
+                        `<@${member.id}> — ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}`),
+                    inline: false
+                },
+                {
+                    name: `🟡 Partially hosted (1–${MIN_SESSIONS_PER_WEEK - 1}) — ${partial.length} staff`,
+                    value: fmt(partial, ({ member, finished, total }) =>
+                        `<@${member.id}> — ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}`),
+                    inline: false
+                },
+                {
+                    name: `🔴 Signed up but hosted 0 — ${noSession.length} staff`,
+                    value: fmt(noSession, ({ member, total }) =>
+                        `<@${member.id}> — ${total} claim${total !== 1 ? 's' : ''} (none finished)`),
+                    inline: false
+                },
+                {
+                    name: `⬛ No sign-up at all — ${noSignup.length} staff`,
+                    value: fmt(noSignup, m => `<@${m.id}>`),
+                    inline: false
+                }
+            )
+            .setFooter({ text: 'Kavià Café • Session Schedule' })
+            .setTimestamp();
+
+        await channel.send({ embeds: [embed] });
+        console.log('[sesschedule] Weekly host summary posted');
+    } catch (err) {
+        console.error('[sesschedule] Error posting host summary:', err);
+    }
+}
+
 // ─── Sunday 11 PM EST reset scheduler ────────────────────────────────────────
 function scheduleSundayReset(client) {
     function msUntilNextSundayReset() {
@@ -547,9 +660,17 @@ function scheduleSundayReset(client) {
         const etOffset = getEasternOffsetHours(now);
         const etNow    = new Date(now.getTime() - etOffset * 3600 * 1000);
 
-        // Find the next Sunday
-        const daysUntilSun = (7 - etNow.getUTCDay()) % 7 || 7;
-        const nextSunday   = new Date(Date.UTC(
+        // If today IS Sunday and it's before 11 PM ET, fire tonight; otherwise
+        // wait until NEXT Sunday (always at least 1 day away to avoid an
+        // immediate double-fire when the timer re-schedules right after firing).
+        let daysUntilSun;
+        if (etNow.getUTCDay() === 0 && etNow.getUTCHours() < 23) {
+            daysUntilSun = 0; // fire tonight
+        } else {
+            daysUntilSun = (7 - etNow.getUTCDay()) % 7 || 7;
+        }
+
+        const nextSunday = new Date(Date.UTC(
             etNow.getUTCFullYear(), etNow.getUTCMonth(),
             etNow.getUTCDate() + daysUntilSun,
             23, 0, 0, 0 // 11 PM ET expressed in ET-local hours
@@ -563,6 +684,7 @@ function scheduleSundayReset(client) {
         const ms = msUntilNextSundayReset();
         console.log(`[sesschedule] Next Sunday reset in ${Math.round(ms / 60000)} minutes`);
         setTimeout(async () => {
+            await postWeeklyHostSummary(client); // recap before reset
             await postWeeklySchedule(client, true); // force new post
             scheduleNext(); // schedule the one after that
         }, ms);
@@ -1099,13 +1221,29 @@ function parseSessionTimeOnDate(timeStr, targetDateUTC) {
     if (period === 'PM' && hours !== 12) hours += 12;
     if (period === 'AM' && hours === 12) hours = 0;
 
+    // Build a candidate using the target date's UTC midnight + EST/EDT offset.
+    // We calculate the offset using a date near the actual fire time (not midnight)
+    // so DST boundary sessions are handled correctly.
+    const candidateHourUTC = hours + getEasternOffsetHours(targetDateUTC);
+    // If candidateHourUTC >= 24, we're wrapping into the next UTC day — that's fine,
+    // Date.UTC handles overflow. But recalculate DST offset for the actual fire moment.
+    const rough = new Date(Date.UTC(
+        targetDateUTC.getUTCFullYear(),
+        targetDateUTC.getUTCMonth(),
+        targetDateUTC.getUTCDate(),
+        candidateHourUTC,
+        minutes, 0, 0
+    ));
+    // Re-check offset at the actual fire time (handles rare DST day edge cases)
+    const finalOffset = getEasternOffsetHours(rough);
     const result = new Date(Date.UTC(
         targetDateUTC.getUTCFullYear(),
         targetDateUTC.getUTCMonth(),
         targetDateUTC.getUTCDate(),
-        hours + getEasternOffsetHours(targetDateUTC),
+        hours + finalOffset,
         minutes, 0, 0
     ));
+    console.log(`[parseSessionTimeOnDate] "${timeStr}" on ${targetDateUTC.toISOString().split('T')[0]} → fireAt ${result.toISOString()} (UTC offset used: ${finalOffset})`);
     return result;
 }
 
@@ -1176,7 +1314,12 @@ async function initScheduleSystem(client) {
                 await postWeeklySchedule(client, true);
             }
         } else {
-            // Different week or no record — post fresh
+            // Different week or no record — the weekly reset was missed while bot was
+            // down. Post a recap of the closing week then start the new schedule.
+            if (record && record.weekStart && record.weekStart !== weekStart) {
+                console.log(`[sesschedule] Missed weekly reset (saved: ${record.weekStart}, now: ${weekStart}) — posting recap + fresh schedule`);
+                await postWeeklyHostSummary(client);
+            }
             await postWeeklySchedule(client, true);
         }
 
