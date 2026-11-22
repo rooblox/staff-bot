@@ -4,7 +4,7 @@ const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
 const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink, SessionReminder, AppDMSession } = require('./db');
 const { createServer, handleRankButton } = require('./server');
-const { initScheduleSystem, handleScheduleInteraction, checkAndSendReminders } = require('./commands/sesschedule');
+const { initScheduleSystem, handleScheduleInteraction, handleSessionRecap, sessionRecapCommand, checkAndSendReminders } = require('./commands/sesschedule');
 const { handleOnboardingInteraction, checkOnboardingCleanup, restoreOnboardingSessions } = require('./commands/botonboarding');
 const { handleBuilderInteraction, handleBuilderMessage } = require('./commands/appbuilder');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
@@ -73,6 +73,9 @@ cmds.push(linkRobloxCommand.toJSON());
 
 // Register verification commands (/setup verification, /verify)
 for (const vc of verifyCmds) cmds.push(vc.toJSON());
+
+// Register /sessionrecap
+cmds.push(sessionRecapCommand.toJSON());
 
 const trainingModule = require('./commands/starttraining');
 const { activeSessions, getSectionEmbed, getSectionButtons, getQuizEmbed, getQuizButtons, getTrainingConfig, TRAINING_DEPTS, saveTrainingProgress, clearTrainingProgress, restoreTrainingSessions } = trainingModule;
@@ -1256,6 +1259,11 @@ client.on('interactionCreate', async interaction => {
         }
 
         // Built-in commands
+        if (interaction.commandName === 'sessionrecap') {
+            await handleSessionRecap(interaction, client);
+            return;
+        }
+
         if (interaction.commandName === 'weeklystats') {
             if (!await hasBotPermsRole(interaction.guildId, interaction.user.id)) {
                 return interaction.reply({ content: '❌ You do not have permission.', flags: 64 });

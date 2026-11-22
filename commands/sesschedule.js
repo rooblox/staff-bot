@@ -18,10 +18,26 @@ const {
     EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
     ModalBuilder, TextInputBuilder, TextInputStyle,
-    AttachmentBuilder
+    AttachmentBuilder, SlashCommandBuilder
 } = require('discord.js');
 const { Session, SchedulePost } = require('../db');
 const path = require('path');
+
+// ─── /sessionrecap slash command definition ───────────────────────────────────
+const SESSION_RECAP_ROLE_ID = '1434563855354167358'; // Human Resources
+
+const sessionRecapCommand = new SlashCommandBuilder()
+    .setName('sessionrecap')
+    .setDescription('Show the weekly host recap for this week or last week (HR only)')
+    .addStringOption(opt =>
+        opt.setName('week')
+            .setDescription('Which week to show')
+            .setRequired(false)
+            .addChoices(
+                { name: 'This week', value: 'current' },
+                { name: 'Last week', value: 'last' }
+            )
+    );
 
 // Lazy-load canvas — if not installed the banner is silently skipped
 let _canvas = null;
@@ -1333,9 +1349,120 @@ async function initScheduleSystem(client) {
     }
 }
 
+// ─── /sessionrecap command handler ───────────────────────────────────────────
+async function handleSessionRecap(interaction, client) {
+    // Role check
+    const member = interaction.member;
+    if (!member?.roles?.cache?.has(SESSION_RECAP_ROLE_ID)) {
+        return interaction.reply({ content: '❌ You don\'t have permission to use this command.', flags: 64 });
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    const choice = interaction.options.getString('week') ?? 'current';
+    const currentWeek = getCurrentWeekStart();
+
+    let weekStart;
+    if (choice === 'last') {
+        // Go back 7 days from the current week's Monday
+        const [y, m, d] = currentWeek.split('-').map(Number);
+        const lastMon = new Date(Date.UTC(y, m - 1, d - 7));
+        weekStart = `${lastMon.getUTCFullYear()}-${String(lastMon.getUTCMonth() + 1).padStart(2, '0')}-${String(lastMon.getUTCDate()).padStart(2, '0')}`;
+    } else {
+        weekStart = currentWeek;
+    }
+
+    // All sessions for the chosen week
+    const allSessions = await Session.find({ weekStart }).lean();
+
+    const hostMap = {};
+    for (const s of allSessions) {
+        const id = s.hostId;
+        if (!hostMap[id]) hostMap[id] = { finished: 0, total: 0 };
+        hostMap[id].total++;
+        if (s.status === 'finished') hostMap[id].finished++;
+    }
+
+    // Fetch staff members with the required role
+    let guild;
+    try { guild = await client.guilds.fetch(SCHEDULE_GUILD_ID); } catch {
+        return interaction.editReply({ content: '❌ Could not fetch the guild.' });
+    }
+    let staffMembers;
+    try {
+        const all = await guild.members.list({ limit: 1000 });
+        staffMembers = [...all.filter(m => !m.user.bot && m.roles.cache.has(REQUIRED_ROLE_ID)).values()];
+    } catch {
+        staffMembers = [...guild.members.cache.filter(m => !m.user.bot && m.roles.cache.has(REQUIRED_ROLE_ID)).values()];
+    }
+
+    const hosted    = [];
+    const partial   = [];
+    const noSession = [];
+    const noSignup  = [];
+
+    for (const member of staffMembers) {
+        const stats = hostMap[member.id];
+        if (!stats) {
+            noSignup.push(member);
+        } else if (stats.finished >= MIN_SESSIONS_PER_WEEK) {
+            hosted.push({ member, finished: stats.finished, total: stats.total });
+        } else if (stats.finished > 0) {
+            partial.push({ member, finished: stats.finished, total: stats.total });
+        } else {
+            noSession.push({ member, total: stats.total });
+        }
+    }
+
+    const name = m => m.member?.displayName ?? m.displayName ?? m.user?.username ?? '?';
+    hosted.sort((a, b)    => name(a).localeCompare(name(b)));
+    partial.sort((a, b)   => name(a).localeCompare(name(b)));
+    noSession.sort((a, b) => name(a).localeCompare(name(b)));
+    noSignup.sort((a, b)  => a.displayName.localeCompare(b.displayName));
+
+    const fmt = (arr, fn) => arr.length ? arr.map(fn).join('\n') : '*None*';
+
+    const label = choice === 'last' ? 'Last Week' : 'This Week';
+    const embed = new EmbedBuilder()
+        .setTitle(`📊  Session Hosting Recap — ${label}`)
+        .setDescription(`Week of **${weekStart}** | Minimum expected: **${MIN_SESSIONS_PER_WEEK} hosted sessions**`)
+        .setColor(0x5865F2)
+        .addFields(
+            {
+                name: `✅ Met minimum (${MIN_SESSIONS_PER_WEEK}+) — ${hosted.length} staff`,
+                value: fmt(hosted, ({ member, finished, total }) =>
+                    `<@${member.id}> — ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}`),
+                inline: false
+            },
+            {
+                name: `🟡 Partially hosted (1–${MIN_SESSIONS_PER_WEEK - 1}) — ${partial.length} staff`,
+                value: fmt(partial, ({ member, finished, total }) =>
+                    `<@${member.id}> — ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}`),
+                inline: false
+            },
+            {
+                name: `🔴 Signed up but hosted 0 — ${noSession.length} staff`,
+                value: fmt(noSession, ({ member, total }) =>
+                    `<@${member.id}> — ${total} claim${total !== 1 ? 's' : ''} (none finished)`),
+                inline: false
+            },
+            {
+                name: `⬛ No sign-up at all — ${noSignup.length} staff`,
+                value: fmt(noSignup, m => `<@${m.id}>`),
+                inline: false
+            }
+        )
+        .setFooter({ text: 'Kavià Café • Session Schedule' })
+        .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+}
+
 module.exports = {
     initScheduleSystem,
     handleScheduleInteraction,
+    handleSessionRecap,
+    sessionRecapCommand,
     checkAndSendReminders,
     postWeeklySchedule,
     refreshSchedule,
