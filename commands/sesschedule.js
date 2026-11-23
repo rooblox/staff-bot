@@ -135,8 +135,10 @@ function parseSessionTime(timeStr) {
 }
 
 // ─── Week helpers ─────────────────────────────────────────────────────────────
-// Returns the UTC date string (YYYY-MM-DD) of Monday of the current ET week
-function getCurrentWeekStart() {
+// Returns the UTC date string (YYYY-MM-DD) of Monday of the current ET week.
+// Pass offsetWeeks=1 to get next week's Monday (used when posting the new
+// schedule on Sunday night, since the new week hasn't started yet in ET).
+function getCurrentWeekStart(offsetWeeks = 0) {
     const now = new Date();
     const etOffset = getEasternOffsetHours(now);
     // Convert UTC to ET
@@ -145,7 +147,7 @@ function getCurrentWeekStart() {
     // Find Monday (day 1; Sunday = 0)
     const dayOfWeek = etNow.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
     const daysFromMon = (dayOfWeek + 6) % 7; // 0 on Mon, 6 on Sun
-    const mon = new Date(etMs - daysFromMon * 86400 * 1000);
+    const mon = new Date(etMs - daysFromMon * 86400 * 1000 + offsetWeeks * 7 * 86400 * 1000);
     return `${mon.getUTCFullYear()}-${String(mon.getUTCMonth() + 1).padStart(2, '0')}-${String(mon.getUTCDate()).padStart(2, '0')}`;
 }
 
@@ -500,12 +502,15 @@ async function generateScheduleBanner(weekStartStr) {
 }
 
 // ─── Post (or refresh) the weekly schedule ────────────────────────────────────
-async function postWeeklySchedule(client, forceNew = false) {
+// weekStartOverride: pass an explicit 'YYYY-MM-DD' when posting Sunday night
+// for the upcoming week (since getCurrentWeekStart() still returns this week
+// until midnight ET flips to Monday).
+async function postWeeklySchedule(client, forceNew = false, weekStartOverride = null) {
     try {
         const channel = await client.channels.fetch(SCHEDULE_CHANNEL_ID);
         if (!channel?.isTextBased()) return;
 
-        const weekStart = getCurrentWeekStart();
+        const weekStart = weekStartOverride ?? getCurrentWeekStart();
         const embed     = await buildScheduleEmbed(weekStart);
         const rows      = buildDayButtons();
 
@@ -697,14 +702,21 @@ function scheduleSundayReset(client) {
         return nextResetUTC.getTime() - now.getTime();
     }
 
+    async function doReset() {
+        // At 11 PM Sunday ET the new week starts tomorrow — pass offsetWeeks=1
+        // so the schedule shows next week's dates, not the closing week's.
+        const nextWeekStart = getCurrentWeekStart(1);
+        await postWeeklyHostSummary(client);
+        await postWeeklySchedule(client, true, nextWeekStart);
+        // After firing it is just past 11 PM Sunday — always 7 days to next reset.
+        console.log('[sesschedule] Reset done, next reset in 10080 minutes (7 days)');
+        setTimeout(doReset, 7 * 24 * 60 * 60 * 1000);
+    }
+
     function scheduleNext() {
         const ms = msUntilNextSundayReset();
         console.log(`[sesschedule] Next Sunday reset in ${Math.round(ms / 60000)} minutes`);
-        setTimeout(async () => {
-            await postWeeklyHostSummary(client); // recap before reset
-            await postWeeklySchedule(client, true); // force new post
-            scheduleNext(); // schedule the one after that
-        }, ms);
+        setTimeout(doReset, ms);
     }
 
     scheduleNext();
