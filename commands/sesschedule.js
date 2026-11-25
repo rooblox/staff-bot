@@ -720,6 +720,33 @@ function scheduleSundayReset(client) {
     }
 
     scheduleNext();
+
+    // ── Daily midnight refresh — re-edits the schedule embed so past days flip to ⬛ ──
+    function scheduleMidnightRefresh() {
+        const now = new Date();
+        const etOffset = getEasternOffsetHours(now);
+        const etMs  = now.getTime() - etOffset * 3600 * 1000;
+        const etNow = new Date(etMs);
+        // Next midnight ET
+        const nextMidnightET = new Date(Date.UTC(
+            etNow.getUTCFullYear(), etNow.getUTCMonth(), etNow.getUTCDate() + 1,
+            0, 0, 0, 0
+        ));
+        const nextMidnightUTC = new Date(nextMidnightET.getTime() + etOffset * 3600 * 1000);
+        const ms = nextMidnightUTC.getTime() - now.getTime();
+        setTimeout(async () => {
+            try {
+                console.log('[sesschedule] Midnight refresh — updating schedule embed for new day');
+                await postWeeklySchedule(client, false); // edit in place, don't force new
+            } catch (err) {
+                console.error('[sesschedule] Midnight refresh error:', err);
+            }
+            scheduleMidnightRefresh(); // schedule the next midnight
+        }, ms);
+        console.log(`[sesschedule] Next midnight embed refresh in ${Math.round(ms / 60000)} minutes`);
+    }
+
+    scheduleMidnightRefresh();
 }
 
 // ─── Permission check ─────────────────────────────────────────────────────────
