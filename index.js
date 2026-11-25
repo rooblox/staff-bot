@@ -584,7 +584,11 @@ async function scheduleSession(session) {
         setTimeout(async () => {
             try {
                 const latestSession = await Session.findById(session._id);
-                if (!latestSession || latestSession.status !== 'approved' || !latestSession.hostConfirmed) return;
+                // Post as long as the session is still approved and not already announced.
+                // We do NOT require hostConfirmed — the auto-cancel at the 8-min mark
+                // handles no-shows; if it's still approved here it should be announced.
+                if (!latestSession || latestSession.status !== 'approved') return;
+                if (latestSession.announcementMessageId) return; // already announced
                 await postAnnouncement(latestSession);
             } catch (err) { console.error('Error posting on-time announcement:', err); }
         }, announcementDelay);
