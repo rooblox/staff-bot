@@ -818,7 +818,23 @@ async function cleanupStaleSessions() {
 
 async function restoreLOAs() {
     try {
-        const activeLOAs = await LOA.find({ status: 'approved', returnReminderSent: false });
+        const now = new Date();
+
+        // Auto-expire LOAs whose return date has already passed and were never closed
+        const expired = await LOA.updateMany(
+            { status: { $in: ['approved', 'extended'] }, returnDateParsed: { $lt: now } },
+            { $set: { status: 'expired' } }
+        );
+        if (expired.modifiedCount > 0) {
+            console.log(`[restoreLOAs] Auto-expired ${expired.modifiedCount} overdue LOAs`);
+        }
+
+        // Only restore reminders for LOAs still within their active period
+        const activeLOAs = await LOA.find({
+            status: 'approved',
+            returnReminderSent: false,
+            returnDateParsed: { $gt: now }
+        });
         for (const loa of activeLOAs) scheduleLOAReturnReminder(loa, client);
         console.log(`✅ Restored ${activeLOAs.length} active LOAs`);
     } catch (err) { console.error('Error restoring LOAs:', err); }
