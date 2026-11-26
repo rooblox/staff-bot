@@ -4741,7 +4741,18 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                 if (!session) return interaction.editReply({ content: '❌ Session not found.' });
                 await Session.findByIdAndUpdate(sessionId, { status: 'cancelled' });
                 const user = await client.users.fetch(session.hostId);
-                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Declined**\nHello, ${user},\nWe regret to inform you that your **${session.shiftType}** request has been **declined** at **Kavià Café**.\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Status →** *Declined ❌*\n> <:pink_pin:1166850035611353148> **Reason →** *${reason}*\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
+                await user.send({ embeds: [new EmbedBuilder()
+                    .setTitle('❌ Session Request Declined')
+                    .setColor(0xE74C3C)
+                    .setDescription(`Your **${session.shiftType}** session request at **Kavià Café** has been declined.`)
+                    .addFields(
+                        { name: '🎭 Shift Type', value: session.shiftType, inline: true },
+                        { name: '📅 Day',        value: session.day || 'N/A', inline: true },
+                        { name: '🕒 Time',       value: session.time?.split('|')[0].trim() || 'N/A', inline: true },
+                        { name: '📝 Reason',     value: reason, inline: false }
+                    )
+                    .setFooter({ text: `Declined by ${interaction.user.username} • Kavià Café` })
+                    .setTimestamp()] });
                 await interaction.message.edit({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xE74C3C).setTitle('📋 Session Request — ❌ Declined').setFooter({ text: `Declined by ${interaction.user.username} — Reason: ${reason}` })], components: [] });
                 await interaction.editReply({ content: '✅ Request declined and user notified.' });
             } catch (err) { console.error('Error declining session:', err); try { await interaction.editReply({ content: '❌ Error declining request.' }); } catch {} }
