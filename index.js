@@ -2553,6 +2553,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                     { name: '💼 Host',   value: `<@${session.hostId}>`,                    inline: true },
                     { name: '🎯 Type',   value: session.shiftType,                          inline: true },
                     { name: '🕒 Time',   value: session.time.split('|')[0].trim(),          inline: true },
+                    { name: '📅 Day',    value: session.day || 'TBD',                       inline: true },
                     { name: '📋 Status', value: 'Confirmed ✅ — announcement will post on time', inline: false }
                 )
                 .setFooter({ text: 'Kavià Café • Session Log' })
