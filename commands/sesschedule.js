@@ -1222,16 +1222,20 @@ async function submitSessionClaim(interaction, client, day, timeVal, shiftType, 
     const timeShort  = timeVal.split('|')[0].trim();
     const cohostText = coHostId ? `<@${coHostId}>` : '*None*';
 
+    const reminderLabel = reminderType === '24h' ? '24 hours before' : reminderType === '12h' ? '12 hours before' : '10 minutes before';
     const approvalEmbed = new EmbedBuilder()
-        .setTitle('📋 Session Request')
+        .setTitle('📋 Session Request — Pending Approval')
         .setColor(0x3498DB)
+        .setThumbnail(`https://cdn.discordapp.com/avatars/${interaction.user.id}/${interaction.user.avatar}.png`)
+        .setDescription(`**${interaction.user.username}** has submitted a session request and is awaiting approval.`)
         .addFields(
-            { name: '👤 Host',       value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: false },
-            { name: '📅 Day',        value: day,        inline: true },
-            { name: '🕒 Time',       value: timeShort,  inline: true },
-            { name: '🎯 Shift Type', value: shiftType,  inline: true },
-            { name: '🤝 Co-Host',    value: cohostText, inline: true },
-            { name: '🔔 Reminder',   value: reminderType === '24h' ? '24 hours before' : reminderType === '12h' ? '12 hours before' : '10 minutes before', inline: true }
+            { name: '👤 Host',        value: `<@${interaction.user.id}>`,  inline: true },
+            { name: '🤝 Co-Host',     value: cohostText,                   inline: true },
+            { name: '​',         value: '​',                     inline: true },
+            { name: '📅 Day',         value: day,                          inline: true },
+            { name: '🕒 Time',        value: timeShort,                    inline: true },
+            { name: '🎯 Shift Type',  value: shiftType,                    inline: true },
+            { name: '🔔 Reminder Set', value: reminderLabel,               inline: true }
         )
         .setFooter({ text: `Session ID: ${session._id} • Kavià Café` })
         .setTimestamp();
