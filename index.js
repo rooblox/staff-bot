@@ -568,12 +568,23 @@ async function scheduleSession(session) {
                     try {
                         const checkSession = await Session.findById(session._id);
                         if (!checkSession || checkSession.status !== 'approved' || checkSession.hostConfirmed) return;
-                        await Session.findByIdAndUpdate(session._id, { status: 'cancelled' });
+                        await Session.findByIdAndUpdate(session._id, { status: 'auto_cancelled' });
                         try {
                             const host = await client.users.fetch(latestSession.hostId);
                             await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
                         } catch {}
                         try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setColor(0xE74C3C).setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response.`).setTimestamp()] }); } catch {}
+                        // Post no-show alert to host recap channel immediately
+                        try {
+                            const recapCh = await client.channels.fetch('1493737413296525383');
+                            if (recapCh?.isTextBased()) await recapCh.send({ embeds: [new EmbedBuilder()
+                                .setTitle('⚠️ Session No-Show')
+                                .setColor(0xFF6B35)
+                                .setDescription(`<@${latestSession.hostId}> did not confirm their **${latestSession.shiftType}** session at **${latestSession.time}** on **${latestSession.scheduledDay}** and it has been auto-cancelled.`)
+                                .setTimestamp()
+                                .setFooter({ text: 'Kavià Café • Session No-Show Log' })
+                            ] });
+                        } catch {}
                     } catch (err) { console.error('Error auto cancelling session:', err); }
                 }, 8 * 60 * 1000);
             } catch (err) { console.error('Error sending pre-session reminder:', err); }

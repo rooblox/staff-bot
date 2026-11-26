@@ -586,13 +586,14 @@ async function postWeeklyHostSummary(client) {
         // All sessions this week (any status so we can tell "had one but cancelled")
         const allSessions = await Session.find({ weekStart }).lean();
 
-        // Build maps: hostId → { finished, total }
+        // Build maps: hostId → { finished, total, autoCancelled }
         const hostMap = {};
         for (const s of allSessions) {
             const id = s.hostId;
-            if (!hostMap[id]) hostMap[id] = { finished: 0, total: 0 };
+            if (!hostMap[id]) hostMap[id] = { finished: 0, total: 0, autoCancelled: 0 };
             hostMap[id].total++;
             if (s.status === 'finished') hostMap[id].finished++;
+            if (s.status === 'auto_cancelled') hostMap[id].autoCancelled++;
         }
 
         // Fetch all members with the required role to find who had no sessions at all
@@ -606,21 +607,25 @@ async function postWeeklyHostSummary(client) {
             staffMembers = [...guild.members.cache.filter(m => !m.user.bot && m.roles.cache.has(REQUIRED_ROLE_ID)).values()];
         }
 
-        const hosted    = []; // ≥ MIN_SESSIONS_PER_WEEK finished sessions
-        const partial   = []; // ≥ 1 finished but < minimum
-        const noSession = []; // approved/active/cancelled but 0 finished
-        const noSignup  = []; // didn't sign up at all
+        const hosted      = []; // ≥ MIN_SESSIONS_PER_WEEK finished sessions
+        const partial     = []; // ≥ 1 finished but < minimum
+        const noSession   = []; // signed up but 0 finished
+        const noSignup    = []; // didn't sign up at all
+        const noShows     = []; // had at least one auto_cancelled session
 
         for (const member of staffMembers) {
             const stats = hostMap[member.id];
             if (!stats) {
                 noSignup.push(member);
             } else if (stats.finished >= MIN_SESSIONS_PER_WEEK) {
-                hosted.push({ member, finished: stats.finished, total: stats.total });
+                hosted.push({ member, finished: stats.finished, total: stats.total, autoCancelled: stats.autoCancelled });
             } else if (stats.finished > 0) {
-                partial.push({ member, finished: stats.finished, total: stats.total });
+                partial.push({ member, finished: stats.finished, total: stats.total, autoCancelled: stats.autoCancelled });
             } else {
-                noSession.push({ member, total: stats.total });
+                noSession.push({ member, total: stats.total, autoCancelled: stats.autoCancelled });
+            }
+            if (stats && stats.autoCancelled > 0) {
+                noShows.push({ member, autoCancelled: stats.autoCancelled });
             }
         }
 
@@ -630,6 +635,7 @@ async function postWeeklyHostSummary(client) {
         partial.sort((a, b)   => name(a).localeCompare(name(b)));
         noSession.sort((a, b) => name(a).localeCompare(name(b)));
         noSignup.sort((a, b)  => a.displayName.localeCompare(b.displayName));
+        noShows.sort((a, b)   => name(a).localeCompare(name(b)));
 
         const fmt = (arr, fn) => arr.length ? arr.map(fn).join('\n') : '*None*';
 
@@ -643,25 +649,31 @@ async function postWeeklyHostSummary(client) {
             .addFields(
                 {
                     name: `✅ Met minimum (${MIN_SESSIONS_PER_WEEK}+) — ${hosted.length} staff`,
-                    value: fmt(hosted, ({ member, finished, total }) =>
-                        `<@${member.id}> — ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}`),
+                    value: fmt(hosted, ({ member, finished, total, autoCancelled }) =>
+                        `<@${member.id}> — ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}${autoCancelled > 0 ? ` ⚠️ ${autoCancelled} no-show${autoCancelled > 1 ? 's' : ''}` : ''}`),
                     inline: false
                 },
                 {
                     name: `🟡 Partially hosted (1–${MIN_SESSIONS_PER_WEEK - 1}) — ${partial.length} staff`,
-                    value: fmt(partial, ({ member, finished, total }) =>
-                        `<@${member.id}> — ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}`),
+                    value: fmt(partial, ({ member, finished, total, autoCancelled }) =>
+                        `<@${member.id}> — ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}${autoCancelled > 0 ? ` ⚠️ ${autoCancelled} no-show${autoCancelled > 1 ? 's' : ''}` : ''}`),
                     inline: false
                 },
                 {
                     name: `🔴 Signed up but hosted 0 — ${noSession.length} staff`,
-                    value: fmt(noSession, ({ member, total }) =>
-                        `<@${member.id}> — ${total} claim${total !== 1 ? 's' : ''} (none finished)`),
+                    value: fmt(noSession, ({ member, total, autoCancelled }) =>
+                        `<@${member.id}> — ${total} claim${total !== 1 ? 's' : ''} (none finished)${autoCancelled > 0 ? ` ⚠️ ${autoCancelled} auto-cancelled` : ''}`),
                     inline: false
                 },
                 {
                     name: `⬛ No sign-up at all — ${noSignup.length} staff`,
                     value: fmt(noSignup, m => `<@${m.id}>`),
+                    inline: false
+                },
+                {
+                    name: `🚨 No-shows this week — ${noShows.length} staff`,
+                    value: fmt(noShows, ({ member, autoCancelled }) =>
+                        `<@${member.id}> — ${autoCancelled} session${autoCancelled > 1 ? 's' : ''} auto-cancelled (no DM response)`),
                     inline: false
                 }
             )
@@ -1461,6 +1473,35 @@ async function handleSessionRecap(interaction, client) {
 
     const fmt = (arr, fn) => arr.length ? arr.map(fn).join('\n') : '*None*';
 
+    // ── Cross-week streak: check last 4 weeks for below-minimum runs ──────────
+    // Build week starts for the 4 weeks ending with the chosen week
+    function weekStartMinus(base, weeksBack) {
+        const [y, mo, d] = base.split('-').map(Number);
+        const dt = new Date(Date.UTC(y, mo - 1, d - weeksBack * 7));
+        return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+    }
+    const lookbackWeeks = [weekStart, weekStartMinus(weekStart, 1), weekStartMinus(weekStart, 2), weekStartMinus(weekStart, 3)];
+    const historySessions = await Session.find({ weekStart: { $in: lookbackWeeks } }).lean();
+    // Map weekStart → { hostId → finishedCount }
+    const weekHostMap = {};
+    for (const s of historySessions) {
+        if (!weekHostMap[s.weekStart]) weekHostMap[s.weekStart] = {};
+        if (!weekHostMap[s.weekStart][s.hostId]) weekHostMap[s.weekStart][s.hostId] = 0;
+        if (s.status === 'finished') weekHostMap[s.weekStart][s.hostId]++;
+    }
+    // For each staff member, count consecutive weeks (from most recent) below minimum
+    const streakWarnings = [];
+    for (const member of staffMembers) {
+        let streak = 0;
+        for (const ws of lookbackWeeks) {
+            const count = weekHostMap[ws]?.[member.id] ?? 0;
+            if (count < MIN_SESSIONS_PER_WEEK) streak++;
+            else break;
+        }
+        if (streak >= 2) streakWarnings.push({ member, streak });
+    }
+    streakWarnings.sort((a, b) => b.streak - a.streak); // worst first
+
     const label = choice === 'last' ? 'Last Week' : 'This Week';
     const embed = new EmbedBuilder()
         .setTitle(`📊  Session Hosting Recap — ${label}`)
@@ -1488,6 +1529,13 @@ async function handleSessionRecap(interaction, client) {
             {
                 name: `⬛ No sign-up at all — ${noSignup.length} staff`,
                 value: fmt(noSignup, m => `<@${m.id}>`),
+                inline: false
+            },
+            {
+                name: `🔁 Below minimum 2+ weeks in a row — ${streakWarnings.length} staff`,
+                value: streakWarnings.length
+                    ? streakWarnings.map(({ member, streak }) => `<@${member.id}> — **${streak} week${streak > 1 ? 's' : ''}** in a row below ${MIN_SESSIONS_PER_WEEK}`).join('\n')
+                    : '*None*',
                 inline: false
             }
         )
