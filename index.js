@@ -537,6 +537,18 @@ async function postOrUpdateSessionInfoPanel() {
     } catch (err) { console.error('[sessionInfoPanel] Error:', err); }
 }
 
+// ========== SESSION EMBED HELPERS ==========
+// Builds a visual quota progress bar like ██████░░░░ 2/2
+async function getHostQuotaBar(hostId, weekStart) {
+    const MIN = 2;
+    const BAR_LEN = 10;
+    const finished = await Session.countDocuments({ hostId, weekStart, status: 'finished' });
+    const filled = Math.min(finished, BAR_LEN);
+    const bar = '█'.repeat(filled) + '░'.repeat(BAR_LEN - filled);
+    const met = finished >= MIN;
+    return { bar, finished, min: MIN, met };
+}
+
 // ========== SESSION SCHEDULING ==========
 async function scheduleSession(session) {
     const fireAt = new Date(session.sessionFireAt).getTime();
@@ -573,7 +585,17 @@ async function scheduleSession(session) {
                             const host = await client.users.fetch(latestSession.hostId);
                             await host.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setDescription(`Your **${latestSession.shiftType}** session at **${latestSession.time}** has been automatically cancelled as we did not receive a response.\n\n***Sincerely,***\n**Kavià Café Staff Team**`).setColor(0xE74C3C).setTimestamp()] });
                         } catch {}
-                        try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('❌ Session Auto Cancelled').setColor(0xE74C3C).setDescription(`<@${latestSession.hostId}>'s **${latestSession.shiftType}** at **${latestSession.time}** has been **automatically cancelled** due to no response.`).setTimestamp()] }); } catch {}
+                        try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder()
+                            .setTitle('❌ Session Auto-Cancelled — No-Show')
+                            .setColor(0xE74C3C)
+                            .addFields(
+                                { name: '💼 Host',      value: `<@${latestSession.hostId}>`, inline: true },
+                                { name: '🎯 Type',      value: latestSession.shiftType,       inline: true },
+                                { name: '🕒 Time',      value: latestSession.time.split('|')[0].trim(), inline: true },
+                                { name: '📋 Reason',    value: 'No confirmation within 8 minutes', inline: false }
+                            )
+                            .setFooter({ text: 'Kavià Café • Session Log' })
+                            .setTimestamp()] }); } catch {}
                         // Post no-show alert to host recap channel immediately
                         try {
                             const recapCh = await client.channels.fetch('1493737413296525383');
@@ -623,14 +645,34 @@ async function postAnnouncement(session) {
         const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
         const cohost = session.coHostId ? await client.users.fetch(session.coHostId) : null;
         const cohostText = cohost ? `<@${cohost.id}>` : 'None';
-        const announcementContent = session.shiftType === 'Training'
-            ? `Hello <@&${TRAINING_PING_ROLE_ID}> !\n‼️ Get ready! I'm excited to announce that I'll be hosting a training at ${session.time} alongside my co-host, ${cohostText}!\n📈 If you're an LR aiming for promotion, this is your moment to step up and shine.\nDon't miss your chance!\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Training Center](https://www.roblox.com/games/85441213175174/Kavi-Training-Center)`
-           : `## 🚀 | Shift Commencement\n\n<@&${SHIFT_PING_ROLE_ID}>\n\n**‼️ | We are excited to announce that a shift is now being hosted at our lovely café!**\n\n💼 | Hosted by: <@${session.hostId}>\n\n🔗 | [Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about)\n🔗 | [Game Link](https://www.roblox.com/games/109860649571330/Kavi-Cafe)`;
+        const isTraining = session.shiftType === 'Training';
+        const pingRole = isTraining ? `<@&${TRAINING_PING_ROLE_ID}>` : `<@&${SHIFT_PING_ROLE_ID}>`;
+        const gameLink = isTraining
+            ? 'https://www.roblox.com/games/85441213175174/Kavi-Training-Center'
+            : 'https://www.roblox.com/games/109860649571330/Kavi-Cafe';
+        const timeShortAnn = session.time.split('|')[0].trim();
+
+        const announcementEmbed = new EmbedBuilder()
+            .setTitle(isTraining ? '📋 Training Session Starting!' : '☕ Shift Starting Now!')
+            .setColor(isTraining ? 0x9B59B6 : 0x5865F2)
+            .setDescription(isTraining
+                ? `A **Training Session** is beginning! If you're an LR aiming for promotion, this is your chance to shine.`
+                : `A shift is now being hosted at **Kavià Café**! Head in-game and join the fun.`)
+            .addFields(
+                { name: '💼 Host',      value: `<@${session.hostId}>`, inline: true },
+                { name: '🤝 Co-Host',   value: cohostText,             inline: true },
+                { name: '🕒 Time',      value: timeShortAnn,           inline: true },
+                { name: '🎯 Type',      value: session.shiftType,      inline: true },
+                { name: '🔗 Links',     value: `[Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about) • [Join Game](${gameLink})`, inline: false }
+            )
+            .setFooter({ text: 'Kavià Café • Click Check In once you join!' })
+            .setTimestamp();
+
         const sessionButtons = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`ses_checkin_${session._id}`).setLabel('✅ Check In').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`ses_requestcohost_${session._id}`).setLabel('🤝 Request Co-Host').setStyle(ButtonStyle.Primary)
         );
-        const msg = await announcementChannel.send({ content: announcementContent, components: [sessionButtons] });
+        const msg = await announcementChannel.send({ content: pingRole, embeds: [announcementEmbed], components: [sessionButtons] });
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, { announcementMessageId: msg.id, announcementChannelId: ANNOUNCEMENT_CHANNEL_ID, sessionStarted: true, status: 'active', autoDeleteAt });
         scheduleAutoDelete(session._id, msg.id, 24 * 60 * 60 * 1000);
@@ -2325,7 +2367,25 @@ if (interaction.customId.startsWith('dmreply_')) {
                 let linkText = '';
                 if (session.shiftType === 'Training') linkText = `\n\nPlease review the training guide before your session:\n${TRAINING_LINK}`;
                 else if (session.shiftType === 'Regular Shift') linkText = `\n\nPlease review the shift guide before your session:\n${SHIFT_LINK}`;
-                await user.send({ content: `# <:kaviacafe:1387492814916685845> **Session Request Accepted**\nHello, ${user},\nWe are delighted to inform you that your **${session.shiftType}** request has been **accepted** at **Kavià Café**!\n> <:pink_pin:1166850035611353148> **Shift Type →** *${session.shiftType}*\n> <:pink_pin:1166850035611353148> **Time →** *${session.time}*\n> <:pink_pin:1166850035611353148> **Status →** *Accepted ✅*\nShould you have any questions or concerns prior to your session, please do not hesitate to reach out.${linkText}\n***Signed,***\n**${interaction.user.username}**\n**Kavià Café Staff Team**` });
+                const weekStart = getCurrentWeekStart(0);
+                const quota = await getHostQuotaBar(session.hostId, weekStart);
+                const quotaStatus = quota.met ? '✅ Quota met this week!' : `${quota.finished}/${quota.min} sessions — keep it up!`;
+                const timeShortApproved = session.time.split('|')[0].trim();
+                const approvedDMEmbed = new EmbedBuilder()
+                    .setTitle('<:kaviacafe:1387492814916685845> Session Request Accepted!')
+                    .setColor(0x2ECC71)
+                    .setThumbnail(user.displayAvatarURL())
+                    .setDescription(`Hello, ${user}! 🎉\nYour session request has been **accepted** at **Kavià Café**. We look forward to seeing you in action!`)
+                    .addFields(
+                        { name: '🎯 Shift Type', value: session.shiftType,      inline: true },
+                        { name: '🕒 Time',        value: timeShortApproved,     inline: true },
+                        { name: '📅 Status',      value: 'Accepted ✅',          inline: true },
+                        { name: '📊 Weekly Quota', value: `\`${quota.bar}\` ${quota.finished}/${quota.min} · ${quotaStatus}`, inline: false }
+                    )
+                    .setFooter({ text: `Approved by ${interaction.user.username} • Kavià Café` })
+                    .setTimestamp();
+                if (linkText) approvedDMEmbed.addFields({ name: '🔗 Useful Link', value: linkText.trim(), inline: false });
+                await user.send({ embeds: [approvedDMEmbed] });
                 await interaction.editReply({ embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x2ECC71).setTitle('📋 Session Request — ✅ Accepted').setFooter({ text: `Accepted by ${interaction.user.username} • Session ID: ${sessionId}` })], components: [] });
                 session.status = 'approved';
                 await scheduleSession(session);
@@ -2486,7 +2546,17 @@ if (interaction.customId.startsWith('dmreply_')) {
             if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
             await Session.findByIdAndUpdate(sessionId, { hostConfirmed: true });
-            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('✅ Host Confirmed').setDescription(`<@${session.hostId}> has confirmed they are still hosting their **${session.shiftType}** at **${session.time}**. The announcement will be posted at the scheduled time!`).setColor(0x2ECC71).setTimestamp()] }); } catch {}
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder()
+                .setTitle('✅ Host Confirmed')
+                .setColor(0x2ECC71)
+                .addFields(
+                    { name: '💼 Host',   value: `<@${session.hostId}>`,                    inline: true },
+                    { name: '🎯 Type',   value: session.shiftType,                          inline: true },
+                    { name: '🕒 Time',   value: session.time.split('|')[0].trim(),          inline: true },
+                    { name: '📋 Status', value: 'Confirmed ✅ — announcement will post on time', inline: false }
+                )
+                .setFooter({ text: 'Kavià Café • Session Log' })
+                .setTimestamp()] }); } catch {}
             return;
         }
 
@@ -2574,7 +2644,16 @@ if (interaction.customId.startsWith('dmreply_')) {
                 const requester = await client.users.fetch(requesterId);
                 await requester.send({ embeds: [new EmbedBuilder().setTitle('✅ Co-Host Request Accepted').setDescription(`Your request to co-host **${session.shiftType}** has been **accepted** by the host! Welcome aboard.`).setColor(0x2ECC71).setTimestamp()] });
             } catch {}
-            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('🤝 Co-Host Added').setDescription(`<@${requesterId}> has been accepted as co-host for <@${session.hostId}>'s **${session.shiftType}**.`).setColor(0x2ECC71).setTimestamp()] }); } catch {}
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder()
+                .setTitle('🤝 Co-Host Added')
+                .setColor(0x2ECC71)
+                .addFields(
+                    { name: '💼 Host',      value: `<@${session.hostId}>`, inline: true },
+                    { name: '🤝 Co-Host',   value: `<@${requesterId}>`,    inline: true },
+                    { name: '🎯 Type',      value: session.shiftType,       inline: true }
+                )
+                .setFooter({ text: 'Kavià Café • Session Log' })
+                .setTimestamp()] }); } catch {}
             return;
         }
 
@@ -2607,14 +2686,25 @@ if (interaction.customId.startsWith('dmreply_')) {
                 attendanceLine = attendees.map(id => `<@${id}>`).join(', ') + ` (${attendees.length} total)`;
             }
             const coHostLine = session.coHostId ? `<@${session.coHostId}>` : 'None';
+            const finishedHost = await client.users.fetch(session.hostId).catch(() => null);
+            const weekStartFinished = getCurrentWeekStart(0);
+            const finishedQuota = await getHostQuotaBar(session.hostId, weekStartFinished);
+            const finishedQuotaStatus = finishedQuota.met ? '✅ Quota met!' : `${finishedQuota.finished}/${finishedQuota.min} · not yet met`;
+            const finishedTimeShort = session.time ? session.time.split('|')[0].trim() : 'Unknown';
             try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder()
                 .setTitle('✅ Session Finished')
-                .setDescription(`<@${session.hostId}>'s **${session.shiftType}** has been marked as finished. Great job!`)
+                .setColor(0x2ECC71)
+                .setThumbnail(finishedHost?.displayAvatarURL() ?? null)
+                .setDescription(`Great work! **${finishedHost?.username ?? `<@${session.hostId}>`}**'s **${session.shiftType}** session has concluded.`)
                 .addFields(
-                    { name: '🤝 Co-Host', value: coHostLine, inline: true },
-                    { name: `👥 Attendance (${attendees.length})`, value: attendanceLine, inline: false }
+                    { name: '💼 Host',          value: `<@${session.hostId}>`, inline: true },
+                    { name: '🤝 Co-Host',       value: coHostLine,             inline: true },
+                    { name: '🕒 Time',          value: finishedTimeShort,      inline: true },
+                    { name: `👥 Attendees (${attendees.length})`, value: attendanceLine, inline: false },
+                    { name: '📊 Weekly Quota',  value: `\`${finishedQuota.bar}\` ${finishedQuota.finished}/${finishedQuota.min} · ${finishedQuotaStatus}`, inline: false }
                 )
-                .setColor(0x2ECC71).setTimestamp()] }); } catch {}
+                .setFooter({ text: 'Kavià Café • Session Log' })
+                .setTimestamp()] }); } catch {}
             postOrUpdateSessionInfoPanel().catch(() => {}); // refresh panel — session ended
             return;
         }
@@ -2624,7 +2714,16 @@ if (interaction.customId.startsWith('dmreply_')) {
             const session = await Session.findById(sessionId);
             if (!session || interaction.user.id !== session.hostId) return interaction.reply({ content: '❌ Only the host can click this button.', flags: 64 });
             await interaction.update({ components: [] });
-            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder().setTitle('⏳ Session Still Going').setDescription(`<@${session.hostId}>'s **${session.shiftType}** is still in progress. We'll check back in another 25 minutes.`).setColor(0xF39C12).setTimestamp()] }); } catch {}
+            try { const logCh = await client.channels.fetch(SESSION_LOG_CHANNEL_ID); if (logCh?.isTextBased()) await logCh.send({ embeds: [new EmbedBuilder()
+                .setTitle('⏳ Session Still Going')
+                .setColor(0xF39C12)
+                .addFields(
+                    { name: '💼 Host',   value: `<@${session.hostId}>`,           inline: true },
+                    { name: '🎯 Type',   value: session.shiftType,                 inline: true },
+                    { name: '📋 Status', value: 'Still in progress — checking again in 25 min', inline: false }
+                )
+                .setFooter({ text: 'Kavià Café • Session Log' })
+                .setTimestamp()] }); } catch {}
             setTimeout(async () => { await sendFinishCheck(sessionId); }, 25 * 60 * 1000);
             return;
         }
