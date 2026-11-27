@@ -2397,7 +2397,11 @@ if (interaction.customId.startsWith('dmreply_')) {
                 session.status = 'approved';
                 await scheduleSession(session);
                 postOrUpdateSessionInfoPanel().catch(() => {}); // refresh panel — new session approved
-            } catch (err) { console.error('Error accepting session:', err); await interaction.followUp({ content: '❌ Error accepting request.', flags: 64 }).catch(() => {}); }
+            } catch (err) {
+                if (err.code === 40060) return; // already acknowledged — harmless double-fire, ignore silently
+                console.error('Error accepting session:', err);
+                await interaction.followUp({ content: '❌ Error accepting request.', flags: 64 }).catch(() => {});
+            }
             return;
         }
 
