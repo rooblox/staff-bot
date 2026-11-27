@@ -641,38 +641,148 @@ async function scheduleSession(session) {
 
 async function postAnnouncement(session) {
     try {
+        const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+        // Use the bundled fonts (same as the weekly schedule banner) so text renders on Railway
+        try { GlobalFonts.registerFromPath(path.join(__dirname, 'commands', 'banner-font-bold.ttf'), 'KaviaFont'); } catch {}
+        try { GlobalFonts.registerFromPath(path.join(__dirname, 'commands', 'banner-font-regular.ttf'), 'KaviaFontReg'); } catch {}
         const announcementGuild = await client.guilds.fetch(ANNOUNCEMENT_GUILD_ID);
         const announcementChannel = await announcementGuild.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
-        const cohost = session.coHostId ? await client.users.fetch(session.coHostId) : null;
+        const cohost = session.coHostId ? await client.users.fetch(session.coHostId).catch(() => null) : null;
         const cohostText = cohost ? `<@${cohost.id}>` : 'None';
-        const isTraining = session.shiftType === 'Training';
-        const pingRole = isTraining ? `<@&${TRAINING_PING_ROLE_ID}>` : `<@&${SHIFT_PING_ROLE_ID}>`;
-        const gameLink = isTraining
-            ? 'https://www.roblox.com/games/85441213175174/Kavi-Training-Center'
-            : 'https://www.roblox.com/games/109860649571330/Kavi-Cafe';
+        const pingRole = `<@&${SHIFT_PING_ROLE_ID}>`;
         const timeShortAnn = session.time.split('|')[0].trim();
+        const hostUser = await client.users.fetch(session.hostId).catch(() => null);
+        const hostName = hostUser ? (hostUser.globalName || hostUser.username) : 'Host';
 
+        // ── Generate banner image ──────────────────────────────────────────────
+        let bannerAttachment = null;
+        try {
+            const bgIndex = Math.floor(Math.random() * 3) + 1;
+            const bgPath = path.join(__dirname, 'commands', `banner-bg${bgIndex}.png`);
+            const BW = 1200, BH = 300;
+            const canvas = createCanvas(BW, BH);
+            const ctx = canvas.getContext('2d');
+
+            // Draw background
+            const bg = await loadImage(bgPath);
+            ctx.drawImage(bg, 0, 0, BW, BH);
+
+            // Dark overlay
+            ctx.fillStyle = 'rgba(10,0,25,0.32)';
+            ctx.fillRect(0, 0, BW, BH);
+
+            // ── KAVIA CAFÉ title ──
+            ctx.save();
+            ctx.font = 'bold 100px KaviaFont, sans-serif';
+            ctx.textAlign = 'center';
+            // glow
+            ctx.shadowColor = 'rgba(200,80,255,0.9)';
+            ctx.shadowBlur = 32;
+            ctx.fillStyle = 'rgba(200,80,255,0.4)';
+            ctx.fillText('KAVIA CAFÉ', BW / 2, 108);
+            ctx.shadowBlur = 14;
+            ctx.fillStyle = 'rgba(200,80,255,0.3)';
+            ctx.fillText('KAVIA CAFÉ', BW / 2, 108);
+            // solid white
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('KAVIA CAFÉ', BW / 2, 108);
+            ctx.restore();
+
+            // ── Slogan ──
+            ctx.save();
+            ctx.font = '26px KaviaFontReg, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(220,185,255,0.95)';
+            ctx.fillText('Serve. Sip. Smile.', BW / 2, 142);
+            ctx.restore();
+
+            // ── Pill row: Shift | Host | HAPPENING NOW ──
+            const pills = [
+                { label: `Shift: ${session.shiftType || 'Regular Shift'}`, bg: 'rgba(70,30,110,0.82)',  fg: 'rgba(230,200,255,1)', glow: false },
+                { label: `Host: ${hostName}`, bg: 'rgba(25,50,110,0.82)', fg: 'rgba(180,215,255,1)', glow: false },
+                { label: 'HAPPENING NOW',                                       bg: 'rgba(110,20,70,0.82)', fg: 'rgba(255,175,230,1)', glow: true  },
+            ];
+
+            ctx.save();
+            ctx.font = 'bold 22px KaviaFont, sans-serif';
+            const PAD_X = 18, PAD_Y = 9, GAP = 16, RADIUS = 20;
+            const pillWidths = pills.map(p => ctx.measureText(p.label).width + PAD_X * 2);
+            const totalW = pillWidths.reduce((a, b) => a + b, 0) + GAP * (pills.length - 1);
+            let px = (BW - totalW) / 2;
+            const py = 200, ph = 44;
+
+            for (let i = 0; i < pills.length; i++) {
+                const { label, bg, fg, glow } = pills[i];
+                const pw = pillWidths[i];
+
+                // pill background
+                ctx.beginPath();
+                ctx.roundRect(px, py, pw, ph, RADIUS);
+                ctx.fillStyle = bg;
+                ctx.fill();
+
+                // glow for HAPPENING NOW
+                if (glow) {
+                    ctx.shadowColor = 'rgba(220,60,180,0.8)';
+                    ctx.shadowBlur = 14;
+                }
+
+                ctx.fillStyle = fg;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(label, px + PAD_X, py + ph / 2);
+                ctx.shadowBlur = 0;
+                px += pw + GAP;
+            }
+            ctx.restore();
+
+            const bannerBuffer = canvas.toBuffer('image/png');
+            bannerAttachment = { attachment: bannerBuffer, name: 'banner.png' };
+        } catch (bannerErr) {
+            console.error('[postAnnouncement] Banner generation failed:', bannerErr);
+        }
+
+        // ── Build embed ────────────────────────────────────────────────────────
         const announcementEmbed = new EmbedBuilder()
-            .setTitle(isTraining ? '📋 Training Session Starting!' : '☕ Shift Starting Now!')
-            .setColor(isTraining ? 0x9B59B6 : 0x5865F2)
-            .setDescription(isTraining
-                ? `A **Training Session** is beginning! If you're an LR aiming for promotion, this is your chance to shine.`
-                : `A shift is now being hosted at **Kavià Café**! Head in-game and join the fun.`)
+            .setTitle('☕ Shift Starting Now!')
+            .setColor(0x9B59B6)
+            .setDescription(`A shift is now being hosted at **Kavià Café**! Head in-game and join the fun.`)
+            .setThumbnail(hostUser?.displayAvatarURL() ?? null)
             .addFields(
-                { name: '💼 Host',      value: `<@${session.hostId}>`, inline: true },
-                { name: '🤝 Co-Host',   value: cohostText,             inline: true },
-                { name: '🕒 Time',      value: timeShortAnn,           inline: true },
-                { name: '🎯 Type',      value: session.shiftType,      inline: true },
-                { name: '🔗 Links',     value: `[Roblox Group](https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about) • [Join Game](${gameLink})`, inline: false }
+                { name: '💼 Host',    value: `<@${session.hostId}>`,        inline: true },
+                { name: '🤝 Co-Host', value: cohostText,                     inline: true },
+                { name: '🕒 Time',    value: timeShortAnn,                   inline: true },
+                { name: '🎯 Type',    value: session.shiftType || 'Regular Shift', inline: true }
             )
-            .setFooter({ text: 'Kavià Café • Click Check In once you join!' })
+            .setFooter({ text: 'Kavià Café • Session System' })
             .setTimestamp();
 
+        if (bannerAttachment) announcementEmbed.setImage('attachment://banner.png');
+
         const sessionButtons = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`ses_checkin_${session._id}`).setLabel('✅ Check In').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`ses_requestcohost_${session._id}`).setLabel('🤝 Request Co-Host').setStyle(ButtonStyle.Primary)
+            new ButtonBuilder()
+                .setLabel('🎮 Join Game')
+                .setStyle(ButtonStyle.Link)
+                .setURL('https://www.roblox.com/games/109860649571330/Kavi-Cafe'),
+            new ButtonBuilder()
+                .setLabel('👥 Group')
+                .setStyle(ButtonStyle.Link)
+                .setURL('https://www.roblox.com/communities/13827902/Kavi-Cafe#!/about'),
+            new ButtonBuilder()
+                .setLabel('📋 Apply')
+                .setStyle(ButtonStyle.Link)
+                .setURL('https://www.roblox.com/games/109860649571330/Kavi-Cafe')
         );
-        const msg = await announcementChannel.send({ content: pingRole, embeds: [announcementEmbed], components: [sessionButtons] });
+
+        const msgPayload = {
+            content: pingRole,
+            embeds: [announcementEmbed],
+            components: [sessionButtons],
+        };
+        if (bannerAttachment) msgPayload.files = [bannerAttachment];
+
+        const msg = await announcementChannel.send(msgPayload);
         const autoDeleteAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await Session.findByIdAndUpdate(session._id, { announcementMessageId: msg.id, announcementChannelId: ANNOUNCEMENT_CHANNEL_ID, sessionStarted: true, status: 'active', autoDeleteAt });
         scheduleAutoDelete(session._id, msg.id, 24 * 60 * 60 * 1000);
