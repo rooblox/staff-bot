@@ -4,7 +4,7 @@ const path = require('path');
 const { Client, Collection, GatewayIntentBits, EmbedBuilder, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, UserSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
 const { connectDB, Reminder, Session, LOA, CompletedTrainings, Ticket, Review, TicketPanel, Birthday, Checklist, Payment, MessageLog, WeeklyStats, DeptConfigCache, Resignation, RobloxLink, SessionReminder, AppDMSession } = require('./db');
 const { createServer, handleRankButton } = require('./server');
-const { initScheduleSystem, handleScheduleInteraction, handleSessionRecap, sessionRecapCommand, checkAndSendReminders } = require('./commands/sesschedule');
+const { initScheduleSystem, handleScheduleInteraction, handleSessionRecap, sessionRecapCommand, checkAndSendReminders, getCurrentWeekStart } = require('./commands/sesschedule');
 const { handleOnboardingInteraction, checkOnboardingCleanup, restoreOnboardingSessions } = require('./commands/botonboarding');
 const { handleBuilderInteraction, handleBuilderMessage } = require('./commands/appbuilder');
 const { handleLinkRoblox, linkRobloxCommand } = require('./commands/linkroblox');
@@ -2564,7 +2564,7 @@ if (interaction.customId.startsWith('dmreply_')) {
                     { name: '💼 Host',   value: `<@${session.hostId}>`,                    inline: true },
                     { name: '🎯 Type',   value: session.shiftType,                          inline: true },
                     { name: '🕒 Time',   value: session.time.split('|')[0].trim(),          inline: true },
-                    { name: '📅 Day',    value: session.day || 'TBD',                       inline: true },
+                    { name: '📅 Day',    value: session.scheduledDay || 'TBD',                       inline: true },
                     { name: '📋 Status', value: 'Confirmed ✅ — announcement will post on time', inline: false }
                 )
                 .setFooter({ text: 'Kavià Café • Session Log' })
@@ -4758,7 +4758,7 @@ if (interaction.customId.startsWith('dmreplymodal_')) {
                     .setDescription(`Your **${session.shiftType}** session request at **Kavià Café** has been declined.`)
                     .addFields(
                         { name: '🎭 Shift Type', value: session.shiftType, inline: true },
-                        { name: '📅 Day',        value: session.day || 'N/A', inline: true },
+                        { name: '📅 Day',        value: session.scheduledDay || 'N/A', inline: true },
                         { name: '🕒 Time',       value: session.time?.split('|')[0].trim() || 'N/A', inline: true },
                         { name: '📝 Reason',     value: reason, inline: false }
                     )

@@ -1568,4 +1568,5 @@ module.exports = {
     SHIFT_PING_ROLE_ID,
     TRAINING_PING_ROLE_ID,
     parseSessionTime,
+    getCurrentWeekStart,
 };
