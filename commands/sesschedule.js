@@ -1,5 +1,5 @@
 /**
- * sesschedule.js â Weekly Session Schedule System for KaviÃ  CafÃ©
+ * sesschedule.js — Weekly Session Schedule System for Kavià Café
  *
  * Replaces the /sesrequest slash command with a weekly interactive schedule post.
  * Posts every Sunday at 11 PM EST. Users click day buttons to claim time slots.
@@ -9,7 +9,7 @@
  *   const { initScheduleSystem } = require('./commands/sesschedule');
  *   client.once('ready', () => { initScheduleSystem(client); });
  *
- *   // Button/select/modal handler â add inside interactionCreate:
+ *   // Button/select/modal handler — add inside interactionCreate:
  *   const { handleScheduleInteraction } = require('./commands/sesschedule');
  *   if (await handleScheduleInteraction(interaction, client)) return;
  */
@@ -23,7 +23,7 @@ const {
 const { Session, SchedulePost } = require('../db');
 const path = require('path');
 
-// âââ /sessionrecap slash command definition âââââââââââââââââââââââââââââââââââ
+// ─── /sessionrecap slash command definition ───────────────────────────────────
 const SESSION_RECAP_ROLE_ID = '1434563855354167358'; // Human Resources
 
 const sessionRecapCommand = new SlashCommandBuilder()
@@ -39,7 +39,7 @@ const sessionRecapCommand = new SlashCommandBuilder()
             )
     );
 
-// Lazy-load canvas â if not installed the banner is silently skipped
+// Lazy-load canvas — if not installed the banner is silently skipped
 let _canvas = null;
 function getCanvas() {
     if (_canvas) return _canvas;
@@ -47,7 +47,7 @@ function getCanvas() {
     return _canvas;
 }
 
-// âââ Constants ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Constants ────────────────────────────────────────────────────────────────
 const SCHEDULE_GUILD_ID    = '1434556801096876034';
 const SCHEDULE_CHANNEL_ID  = '1493737208597971045'; // weekly schedule post lives here
 const HOST_RECAP_CHANNEL_ID = '1493737413296525383'; // weekly host recap goes here
@@ -64,12 +64,12 @@ const MIN_SESSIONS_PER_WEEK = 2; // soft reminder only, not enforced
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-// Short index maps â keep custom IDs well under Discord's 100-char limit
+// Short index maps — keep custom IDs well under Discord's 100-char limit
 const SHIFT_TYPES = ['Regular Shift', 'Recruitment Shift']; // s0, s1
 // Time index helpers
-function timeIndex(val) { return SHIFT_TIMES.findIndex(t => t.value === val); }  // â 0â11
+function timeIndex(val) { return SHIFT_TIMES.findIndex(t => t.value === val); }  // → 0–11
 function timeFromIndex(i) { return SHIFT_TIMES[i]?.value ?? null; }
-function shiftIndex(val) { return SHIFT_TYPES.indexOf(val); }                    // â 0 or 1
+function shiftIndex(val) { return SHIFT_TYPES.indexOf(val); }                    // → 0 or 1
 function shiftFromIndex(i) { return SHIFT_TYPES[i] ?? null; }
 
 const SHIFT_TIMES = [
@@ -92,7 +92,7 @@ const SHIFT_TIMES = [
 let currentScheduleMessageId = null;
 let currentWeekStart = null; // ISO string of Monday 00:00 UTC for this week
 
-// âââ DST-aware time helpers (same logic as sesrequest.js) âââââââââââââââââââââ
+// ─── DST-aware time helpers (same logic as sesrequest.js) ─────────────────────
 function getEasternOffsetHours(utcDate) {
     const year = utcDate.getUTCFullYear();
     const dstStart = nthSundayUTC(year, 2, 2);
@@ -134,7 +134,7 @@ function parseSessionTime(timeStr) {
     return candidate;
 }
 
-// âââ Week helpers âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Week helpers ─────────────────────────────────────────────────────────────
 // Returns the UTC date string (YYYY-MM-DD) of Monday of the current ET week.
 // Pass offsetWeeks=1 to get next week's Monday (used when posting the new
 // schedule on Sunday night, since the new week hasn't started yet in ET).
@@ -172,7 +172,7 @@ function isDayAvailable(dayLabel) {
     return target >= etToday;
 }
 
-// âââ Build the schedule embed ââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Build the schedule embed ──────────────────────────────────────────────────
 async function buildScheduleEmbed(weekStartStr) {
     // Load all sessions for this week
     const sessions = await Session.find({
@@ -181,16 +181,16 @@ async function buildScheduleEmbed(weekStartStr) {
     }).sort({ time: 1 });
 
     const embed = new EmbedBuilder()
-        .setTitle('ð  Weekly Session Schedule')
+        .setTitle('📅  Weekly Session Schedule')
         .setColor(0x5865F2)
         .setDescription(
             `Welcome to this week's session schedule!\n\n` +
             `Click a **day button** below to claim a time slot.\n` +
             `You may claim up to **${MAX_SESSIONS_PER_WEEK} sessions** per week (minimum **${MIN_SESSIONS_PER_WEEK}**).\n` +
-            `All requests require staff approval â first come, first served.\n` +
+            `All requests require staff approval — first come, first served.\n` +
             `> Schedule resets every **Sunday at 11 PM EST**`
         )
-        .setFooter({ text: `KaviÃ  CafÃ© â¢ Week of ${weekStartStr}` })
+        .setFooter({ text: `Kavià Café • Week of ${weekStartStr}` })
         .setTimestamp();
 
     // Group sessions by day
@@ -208,7 +208,7 @@ async function buildScheduleEmbed(weekStartStr) {
         const available   = isDayAvailable(day);
         const dateObj     = getDateForDayThisWeek(day);
         const dateStr     = `${dateObj.getUTCMonth() + 1}/${dateObj.getUTCDate()}`;
-        const dayHeader   = `${available ? 'ð¢' : 'â¬'} **${day}** *(${dateStr})*`;
+        const dayHeader   = `${available ? '🟢' : '⬛'} **${day}** *(${dateStr})*`;
 
         let value;
         if (!available) {
@@ -217,10 +217,10 @@ async function buildScheduleEmbed(weekStartStr) {
             value = '*No sessions claimed yet*';
         } else {
             value = daySessions.map(s => {
-                const statusIcon = s.status === 'approved' ? 'â' : 'ð';
+                const statusIcon = s.status === 'approved' ? '✅' : '🕐';
                 const timeShort  = s.time.split('|')[0].trim();
                 const cohostPart = s.coHostId ? ` *(co-host: <@${s.coHostId}>)*` : '';
-                return `${statusIcon} <@${s.hostId}>${cohostPart}\nãã\`${timeShort}\``;
+                return `${statusIcon} <@${s.hostId}>${cohostPart}\n　　\`${timeShort}\``;
             }).join('\n');
         }
 
@@ -230,7 +230,7 @@ async function buildScheduleEmbed(weekStartStr) {
     return embed;
 }
 
-// âââ Build day buttons (row 1: MonâThu, row 2: FriâSun + Manage) ââââââââââââââ
+// ─── Build day buttons (row 1: Mon–Thu, row 2: Fri–Sun + Manage) ──────────────
 function buildDayButtons() {
     const row1 = new ActionRowBuilder();
     const row2 = new ActionRowBuilder();
@@ -260,26 +260,26 @@ function buildDayButtons() {
     row2.addComponents(
         new ButtonBuilder()
             .setCustomId('sched_manage')
-            .setLabel('ð Manage My Sessions')
+            .setLabel('📋 Manage My Sessions')
             .setStyle(ButtonStyle.Secondary)
     );
 
     return [row1, row2];
 }
 
-// âââ Banner image generator âââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Banner image generator ───────────────────────────────────────────────────
 // Returns an AttachmentBuilder (banner.png) for the weekly schedule post.
 // weekStartStr = 'YYYY-MM-DD' of Monday for the current week.
 async function generateScheduleBanner(weekStartStr) {
     const cv = getCanvas();
-    if (!cv) return null; // canvas not installed â skip banner gracefully
+    if (!cv) return null; // canvas not installed — skip banner gracefully
 
     const { createCanvas, loadImage, GlobalFonts } = cv;
     const W = 960, H = 200;
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
-    // ââ Background image ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Background image ──────────────────────────────────────────────────────
     const bgPath = path.join(__dirname, 'schedule-banner-bg.png');
     const bg     = await loadImage(bgPath);
     const srcW   = bg.width, srcH = bg.height;
@@ -295,11 +295,11 @@ async function generateScheduleBanner(weekStartStr) {
     tmpX.drawImage(canvas, 0, 0, W / 4, H / 4);
     ctx.drawImage(tmpC, 0, 0, W, H);
 
-    // ââ Brightness / color boost (simulate Pillow enhance) âââââââââââââââââââ
+    // ── Brightness / color boost (simulate Pillow enhance) ───────────────────
     // Darken slightly via semi-transparent overlay then draw image brighter using globalAlpha
     // We achieve this with a multiply-style dark overlay at the end instead.
 
-    // ââ Vignette â asymmetric: lighter on left, heavier on right âââââââââââââ
+    // ── Vignette — asymmetric: lighter on left, heavier on right ─────────────
     // Right-side vignette
     const gradR = ctx.createLinearGradient(W * 0.6, 0, W, 0);
     gradR.addColorStop(0, 'rgba(8,4,22,0)');
@@ -328,7 +328,7 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillStyle = gradB;
     ctx.fillRect(0, 0, W, H);
 
-    // ââ Neon strips âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Neon strips ───────────────────────────────────────────────────────────
     // Pink top strip
     ctx.fillStyle = 'rgb(235,65,185)';
     ctx.fillRect(0, 0, W, 2);
@@ -347,13 +347,13 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillStyle = gradBlueGlow;
     ctx.fillRect(0, H - 18, W, 16);
 
-    // ââ Register bundled fonts (shipped in commands/ folder) âââââââââââââââââ
+    // ── Register bundled fonts (shipped in commands/ folder) ─────────────────
     const boldFontPath = path.join(__dirname, 'banner-font-bold.ttf');
     const regFontPath  = path.join(__dirname, 'banner-font-regular.ttf');
     try { GlobalFonts.registerFromPath(boldFontPath, 'KaviaFont');    } catch {}
     try { GlobalFonts.registerFromPath(regFontPath,  'KaviaFontReg'); } catch {}
 
-    // ââ Title: "KAVIA CAFÃ" âââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Title: "KAVIA CAFÉ" ───────────────────────────────────────────────────
     const titleFont = 'bold 64px KaviaFont';
     const titleY    = 95; // baseline
 
@@ -363,31 +363,31 @@ async function generateScheduleBanner(weekStartStr) {
     // Shadow pass
     ctx.fillStyle   = 'rgba(5,3,15,0.9)';
     ctx.shadowColor = 'transparent';
-    ctx.fillText('KAVIA CAFÃ', W / 2 + 3, titleY + 4);
+    ctx.fillText('KAVIA CAFÉ', W / 2 + 3, titleY + 4);
 
     // Blue-purple neon glow (blurred via large shadow)
     ctx.shadowColor   = 'rgba(60,70,220,0.7)';
     ctx.shadowBlur    = 24;
     ctx.fillStyle     = 'rgba(60,70,220,0.6)';
-    ctx.fillText('KAVIA CAFÃ', W / 2, titleY);
+    ctx.fillText('KAVIA CAFÉ', W / 2, titleY);
 
     // Second glow pass (wider)
     ctx.shadowColor = 'rgba(40,50,180,0.5)';
     ctx.shadowBlur  = 42;
     ctx.fillStyle   = 'rgba(40,50,180,0.4)';
-    ctx.fillText('KAVIA CAFÃ', W / 2, titleY);
+    ctx.fillText('KAVIA CAFÉ', W / 2, titleY);
 
-    // Main text â blue-purple
+    // Main text — blue-purple
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur  = 0;
     ctx.fillStyle   = 'rgb(155,165,255)';
-    ctx.fillText('KAVIA CAFÃ', W / 2, titleY);
+    ctx.fillText('KAVIA CAFÉ', W / 2, titleY);
 
     // White-soft highlight
     ctx.fillStyle = 'rgb(230,225,255)';
-    ctx.fillText('KAVIA CAFÃ', W / 2 - 1, titleY - 1);
+    ctx.fillText('KAVIA CAFÉ', W / 2 - 1, titleY - 1);
 
-    // ââ Subtitle: "SESSION SCHEDULE" âââââââââââââââââââââââââââââââââââââââââ
+    // ── Subtitle: "SESSION SCHEDULE" ─────────────────────────────────────────
     const subFont = 'bold 14px KaviaFont';
     const subText = 'S E S S I O N   S C H E D U L E';
     const subY    = titleY + 24;
@@ -433,15 +433,15 @@ async function generateScheduleBanner(weekStartStr) {
         ctx.fill();
     }
 
-    // ââ Date pill âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    // Compute "MON DD â MON DD" for the week
+    // ── Date pill ─────────────────────────────────────────────────────────────
+    // Compute "MON DD – MON DD" for the week
     const [wy, wm, wd] = weekStartStr.split('-').map(Number);
     const monday = new Date(Date.UTC(wy, wm - 1, wd));
     const sunday = new Date(monday.getTime() + 6 * 86400 * 1000);
     const MONTHS  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
     const monStr  = `${MONTHS[monday.getUTCMonth()]} ${monday.getUTCDate()}`;
     const sunStr  = `${MONTHS[sunday.getUTCMonth()]} ${sunday.getUTCDate()}`;
-    const dateRange  = `${monStr} â ${sunStr}`;
+    const dateRange  = `${monStr} – ${sunStr}`;
     const weekLabel  = 'WEEK OF';
 
     const bigFont  = 'bold 17px KaviaFont';
@@ -494,14 +494,14 @@ async function generateScheduleBanner(weekStartStr) {
     ctx.fillStyle = 'rgb(210,215,255)';
     ctx.fillText(dateRange, bx + blockW / 2, by + 33);
 
-    // ââ Export as AttachmentBuilder âââââââââââââââââââââââââââââââââââââââââââ
+    // ── Export as AttachmentBuilder ───────────────────────────────────────────
     const buffer = canvas.toBuffer('image/png');
     // Return both the attachment and the attachment:// URL for embed.setImage()
     const attachment = new AttachmentBuilder(buffer, { name: 'schedule-banner.png' });
     return attachment;
 }
 
-// âââ Post (or refresh) the weekly schedule ââââââââââââââââââââââââââââââââââââ
+// ─── Post (or refresh) the weekly schedule ────────────────────────────────────
 // weekStartOverride: pass an explicit 'YYYY-MM-DD' when posting Sunday night
 // for the upcoming week (since getCurrentWeekStart() still returns this week
 // until midnight ET flips to Monday).
@@ -534,7 +534,7 @@ async function postWeeklySchedule(client, forceNew = false, weekStartOverride = 
                 currentWeekStart = weekStart;
                 return msg;
             } catch {
-                // Message gone â fall through to post new
+                // Message gone — fall through to post new
             }
         }
 
@@ -544,7 +544,7 @@ async function postWeeklySchedule(client, forceNew = false, weekStartOverride = 
             try {
                 const oldMsg = await channel.messages.fetch(currentScheduleMessageId);
                 await oldMsg.delete();
-            } catch { /* already deleted or not found â that's fine */ }
+            } catch { /* already deleted or not found — that's fine */ }
             currentScheduleMessageId = null;
         }
 
@@ -559,7 +559,7 @@ async function postWeeklySchedule(client, forceNew = false, weekStartOverride = 
             { weekStart, messageId: msg.id, channelId: SCHEDULE_CHANNEL_ID, updatedAt: new Date() },
             { upsert: true }
         );
-        console.log(`â Weekly session schedule posted: ${msg.id} (week ${weekStart})`);
+        console.log(`✅ Weekly session schedule posted: ${msg.id} (week ${weekStart})`);
         return msg;
 
     } catch (err) {
@@ -567,12 +567,12 @@ async function postWeeklySchedule(client, forceNew = false, weekStartOverride = 
     }
 }
 
-// âââ Refresh the schedule embed in-place (called after any claim/cancel) ââââââ
+// ─── Refresh the schedule embed in-place (called after any claim/cancel) ──────
 async function refreshSchedule(client) {
     await postWeeklySchedule(client, false);
 }
 
-// âââ Weekly host summary ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Weekly host summary ──────────────────────────────────────────────────────
 // Posts a "who hosted / who didn't" recap to SCHEDULE_CHANNEL_ID before the
 // new schedule goes up. Queries sessions for the closing week and all role
 // holders, then emits a colour-coded embed.
@@ -586,7 +586,7 @@ async function postWeeklyHostSummary(client) {
         // All sessions this week (any status so we can tell "had one but cancelled")
         const allSessions = await Session.find({ weekStart }).lean();
 
-        // Build maps: hostId â { finished, total, autoCancelled }
+        // Build maps: hostId → { finished, total, autoCancelled }
         const hostMap = {};
         for (const s of allSessions) {
             const id = s.hostId;
@@ -607,8 +607,8 @@ async function postWeeklyHostSummary(client) {
             staffMembers = [...guild.members.cache.filter(m => !m.user.bot && m.roles.cache.has(REQUIRED_ROLE_ID)).values()];
         }
 
-        const hosted      = []; // â¥ MIN_SESSIONS_PER_WEEK finished sessions
-        const partial     = []; // â¥ 1 finished but < minimum
+        const hosted      = []; // ≥ MIN_SESSIONS_PER_WEEK finished sessions
+        const partial     = []; // ≥ 1 finished but < minimum
         const noSession   = []; // signed up but 0 finished
         const noSignup    = []; // didn't sign up at all
         const noShows     = []; // had at least one auto_cancelled session
@@ -640,44 +640,44 @@ async function postWeeklyHostSummary(client) {
         const fmt = (arr, fn) => arr.length ? arr.map(fn).join('\n') : '*None*';
 
         const embed = new EmbedBuilder()
-            .setTitle('ð  Weekly Session Hosting Recap')
+            .setTitle('📊  Weekly Session Hosting Recap')
             .setDescription(
-                `Week of **${weekStart}** â recap before the schedule resets.\n` +
+                `Week of **${weekStart}** — recap before the schedule resets.\n` +
                 `Minimum expected: **${MIN_SESSIONS_PER_WEEK} hosted sessions**.`
             )
             .setColor(0x5865F2)
             .addFields(
                 {
-                    name: `â Met minimum (${MIN_SESSIONS_PER_WEEK}+) â ${hosted.length} staff`,
+                    name: `✅ Met minimum (${MIN_SESSIONS_PER_WEEK}+) — ${hosted.length} staff`,
                     value: fmt(hosted, ({ member, finished, total, autoCancelled }) =>
-                        `<@${member.id}> â ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}${autoCancelled > 0 ? ` â ï¸ ${autoCancelled} no-show${autoCancelled > 1 ? 's' : ''}` : ''}`),
+                        `<@${member.id}> — ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}${autoCancelled > 0 ? ` ⚠️ ${autoCancelled} no-show${autoCancelled > 1 ? 's' : ''}` : ''}`),
                     inline: false
                 },
                 {
-                    name: `ð¡ Partially hosted (1â${MIN_SESSIONS_PER_WEEK - 1}) â ${partial.length} staff`,
+                    name: `🟡 Partially hosted (1–${MIN_SESSIONS_PER_WEEK - 1}) — ${partial.length} staff`,
                     value: fmt(partial, ({ member, finished, total, autoCancelled }) =>
-                        `<@${member.id}> â ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}${autoCancelled > 0 ? ` â ï¸ ${autoCancelled} no-show${autoCancelled > 1 ? 's' : ''}` : ''}`),
+                        `<@${member.id}> — ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}${autoCancelled > 0 ? ` ⚠️ ${autoCancelled} no-show${autoCancelled > 1 ? 's' : ''}` : ''}`),
                     inline: false
                 },
                 {
-                    name: `ð´ Signed up but hosted 0 â ${noSession.length} staff`,
+                    name: `🔴 Signed up but hosted 0 — ${noSession.length} staff`,
                     value: fmt(noSession, ({ member, total, autoCancelled }) =>
-                        `<@${member.id}> â ${total} claim${total !== 1 ? 's' : ''} (none finished)${autoCancelled > 0 ? ` â ï¸ ${autoCancelled} auto-cancelled` : ''}`),
+                        `<@${member.id}> — ${total} claim${total !== 1 ? 's' : ''} (none finished)${autoCancelled > 0 ? ` ⚠️ ${autoCancelled} auto-cancelled` : ''}`),
                     inline: false
                 },
                 {
-                    name: `â¬ No sign-up at all â ${noSignup.length} staff`,
+                    name: `⬛ No sign-up at all — ${noSignup.length} staff`,
                     value: fmt(noSignup, m => `<@${m.id}>`),
                     inline: false
                 },
                 {
-                    name: `ð¨ No-shows this week â ${noShows.length} staff`,
+                    name: `🚨 No-shows this week — ${noShows.length} staff`,
                     value: fmt(noShows, ({ member, autoCancelled }) =>
-                        `<@${member.id}> â ${autoCancelled} session${autoCancelled > 1 ? 's' : ''} auto-cancelled (no DM response)`),
+                        `<@${member.id}> — ${autoCancelled} session${autoCancelled > 1 ? 's' : ''} auto-cancelled (no DM response)`),
                     inline: false
                 }
             )
-            .setFooter({ text: 'KaviÃ  CafÃ© â¢ Session Schedule' })
+            .setFooter({ text: 'Kavià Café • Session Schedule' })
             .setTimestamp();
 
         await channel.send({ embeds: [embed] });
@@ -687,7 +687,7 @@ async function postWeeklyHostSummary(client) {
     }
 }
 
-// âââ Sunday 11 PM EST reset scheduler ââââââââââââââââââââââââââââââââââââââââ
+// ─── Sunday 11 PM EST reset scheduler ────────────────────────────────────────
 function scheduleSundayReset(client) {
     function msUntilNextSundayReset() {
         const now      = new Date();
@@ -715,12 +715,12 @@ function scheduleSundayReset(client) {
     }
 
     async function doReset() {
-        // At 11 PM Sunday ET the new week starts tomorrow â pass offsetWeeks=1
+        // At 11 PM Sunday ET the new week starts tomorrow — pass offsetWeeks=1
         // so the schedule shows next week's dates, not the closing week's.
         const nextWeekStart = getCurrentWeekStart(1);
         await postWeeklyHostSummary(client);
         await postWeeklySchedule(client, true, nextWeekStart);
-        // After firing it is just past 11 PM Sunday â always 7 days to next reset.
+        // After firing it is just past 11 PM Sunday — always 7 days to next reset.
         console.log('[sesschedule] Reset done, next reset in 10080 minutes (7 days)');
         setTimeout(doReset, 7 * 24 * 60 * 60 * 1000);
     }
@@ -733,7 +733,7 @@ function scheduleSundayReset(client) {
 
     scheduleNext();
 
-    // ââ Daily midnight refresh â re-edits the schedule embed so past days flip to â¬ ââ
+    // ── Daily midnight refresh — re-edits the schedule embed so past days flip to ⬛ ──
     function scheduleMidnightRefresh() {
         const now = new Date();
         const etOffset = getEasternOffsetHours(now);
@@ -748,7 +748,7 @@ function scheduleSundayReset(client) {
         const ms = nextMidnightUTC.getTime() - now.getTime();
         setTimeout(async () => {
             try {
-                console.log('[sesschedule] Midnight refresh â updating schedule embed for new day');
+                console.log('[sesschedule] Midnight refresh — updating schedule embed for new day');
                 await postWeeklySchedule(client, false); // edit in place, don't force new
             } catch (err) {
                 console.error('[sesschedule] Midnight refresh error:', err);
@@ -761,7 +761,7 @@ function scheduleSundayReset(client) {
     scheduleMidnightRefresh();
 }
 
-// âââ Permission check âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Permission check ─────────────────────────────────────────────────────────
 async function hasSessionRole(client, userId) {
     try {
         const guild  = await client.guilds.fetch(SCHEDULE_GUILD_ID);
@@ -770,12 +770,12 @@ async function hasSessionRole(client, userId) {
     } catch { return false; }
 }
 
-// âââ Main interaction handler âââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Main interaction handler ─────────────────────────────────────────────────
 // Returns true if the interaction was handled by this module
 async function handleScheduleInteraction(interaction, client) {
     const id = interaction.customId || '';
 
-    // ââ Day claim button ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Day claim button ──────────────────────────────────────────────────────
     if (id.startsWith('sched_claim_')) {
         const day = id.replace('sched_claim_', '');
         if (!DAYS_OF_WEEK.includes(day)) return false;
@@ -783,12 +783,12 @@ async function handleScheduleInteraction(interaction, client) {
         try { await interaction.deferReply({ flags: 64 }); } catch { return true; }
 
         if (!await hasSessionRole(client, interaction.user.id)) {
-            await interaction.editReply({ content: 'â You do not have permission to claim session slots.' });
+            await interaction.editReply({ content: '❌ You do not have permission to claim session slots.' });
             return true;
         }
 
         if (!isDayAvailable(day)) {
-            await interaction.editReply({ content: `â **${day}** has already passed this week.` });
+            await interaction.editReply({ content: `❌ **${day}** has already passed this week.` });
             return true;
         }
 
@@ -801,14 +801,14 @@ async function handleScheduleInteraction(interaction, client) {
             status: { $in: ['pending', 'approved', 'active'] }
         });
         if (myCount >= MAX_SESSIONS_PER_WEEK) {
-            await interaction.editReply({ content: `â You've reached the maximum of **${MAX_SESSIONS_PER_WEEK} sessions** this week.` });
+            await interaction.editReply({ content: `❌ You've reached the maximum of **${MAX_SESSIONS_PER_WEEK} sessions** this week.` });
             return true;
         }
 
         // Show time select
         const availableTimes = await getAvailableTimesForDay(day, weekStart);
         if (availableTimes.length === 0) {
-            await interaction.editReply({ content: `â All time slots for **${day}** are taken or pending approval.` });
+            await interaction.editReply({ content: `❌ All time slots for **${day}** are taken or pending approval.` });
             return true;
         }
 
@@ -820,13 +820,13 @@ async function handleScheduleInteraction(interaction, client) {
             ));
 
         await interaction.editReply({
-            content: `**ð Claiming a slot for ${day}**\nSelect your preferred time:`,
+            content: `**📅 Claiming a slot for ${day}**\nSelect your preferred time:`,
             components: [new ActionRowBuilder().addComponents(selectMenu)]
         });
         return true;
     }
 
-    // ââ Time select âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Time select ───────────────────────────────────────────────────────────
     if (id.startsWith('sched_time_')) {
         const day      = id.replace('sched_time_', '');
         const timeVal  = interaction.values?.[0];
@@ -845,7 +845,7 @@ async function handleScheduleInteraction(interaction, client) {
         });
         if (taken) {
             await interaction.editReply({
-                content: `â That slot was just taken! Please try a different time.`,
+                content: `❌ That slot was just taken! Please try a different time.`,
                 components: []
             });
             return true;
@@ -862,13 +862,13 @@ async function handleScheduleInteraction(interaction, client) {
             ]);
 
         await interaction.editReply({
-            content: `**ð ${day} â \`${timeVal.split('|')[0].trim()}\`**\nSelect your shift type:`,
+            content: `**📅 ${day} — \`${timeVal.split('|')[0].trim()}\`**\nSelect your shift type:`,
             components: [new ActionRowBuilder().addComponents(shiftSelect)]
         });
         return true;
     }
 
-    // ââ Shift type select âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Shift type select ─────────────────────────────────────────────────────
     if (id.startsWith('sched_shifttype_')) {
         const parts     = id.replace('sched_shifttype_', '').split('_');
         const day       = parts[0];
@@ -880,11 +880,11 @@ async function handleScheduleInteraction(interaction, client) {
         await interaction.deferUpdate().catch(() => {});
 
         const si = shiftIndex(shiftType);
-        // Ask about co-host â IDs: sched_cohost_{yes|no}_{day}_{ti}_{si}
+        // Ask about co-host — IDs: sched_cohost_{yes|no}_{day}_{ti}_{si}
         const coHostBtn = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`sched_cohost_yes_${day}_${ti}_${si}`)
-                .setLabel('â Add a Co-Host')
+                .setLabel('➕ Add a Co-Host')
                 .setStyle(ButtonStyle.Secondary),
             new ButtonBuilder()
                 .setCustomId(`sched_cohost_no_${day}_${ti}_${si}`)
@@ -893,13 +893,13 @@ async function handleScheduleInteraction(interaction, client) {
         );
 
         await interaction.editReply({
-            content: `**ð ${day} â \`${timeVal.split('|')[0].trim()}\` â ${shiftType}**\nWould you like to add a co-host?`,
+            content: `**📅 ${day} — \`${timeVal.split('|')[0].trim()}\` — ${shiftType}**\nWould you like to add a co-host?`,
             components: [coHostBtn]
         });
         return true;
     }
 
-    // ââ Co-host: no âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Co-host: no ───────────────────────────────────────────────────────────
     if (id.startsWith('sched_cohost_no_')) {
         const parts     = id.replace('sched_cohost_no_', '').split('_');
         const day       = parts[0];
@@ -912,7 +912,7 @@ async function handleScheduleInteraction(interaction, client) {
         return true;
     }
 
-    // ââ Co-host: yes â show modal âââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Co-host: yes → show modal ─────────────────────────────────────────────
     if (id.startsWith('sched_cohost_yes_')) {
         const parts     = id.replace('sched_cohost_yes_', '').split('_');
         const day       = parts[0];
@@ -922,7 +922,7 @@ async function handleScheduleInteraction(interaction, client) {
         const shiftType = shiftFromIndex(parseInt(si, 10));
         if (!timeVal || !shiftType) return false;
 
-        // Modal ID: sched_cohost_modal_{day}_{ti}_{si}  â well under 100 chars
+        // Modal ID: sched_cohost_modal_{day}_{ti}_{si}  — well under 100 chars
         const modal = new ModalBuilder()
             .setCustomId(`sched_cohost_modal_${day}_${ti}_${si}`)
             .setTitle('Add a Co-Host');
@@ -932,7 +932,7 @@ async function handleScheduleInteraction(interaction, client) {
                     .setCustomId('cohost_id')
                     .setLabel('Co-host Discord User ID')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('Right-click user â Copy User ID')
+                    .setPlaceholder('Right-click user → Copy User ID')
                     .setRequired(true)
             )
         );
@@ -940,7 +940,7 @@ async function handleScheduleInteraction(interaction, client) {
         return true;
     }
 
-    // ââ Co-host modal submit ââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Co-host modal submit ──────────────────────────────────────────────────
     if (id.startsWith('sched_cohost_modal_')) {
         const parts     = id.replace('sched_cohost_modal_', '').split('_');
         const day       = parts[0];
@@ -955,7 +955,7 @@ async function handleScheduleInteraction(interaction, client) {
         let coHostUser = null;
         try { coHostUser = await interaction.client.users.fetch(rawId); } catch {}
         if (!coHostUser) {
-            await interaction.editReply({ content: `â Couldn't find a user with ID \`${rawId}\`. Please check and try again.` });
+            await interaction.editReply({ content: `❌ Couldn't find a user with ID \`${rawId}\`. Please check and try again.` });
             return true;
         }
 
@@ -963,7 +963,7 @@ async function handleScheduleInteraction(interaction, client) {
         return true;
     }
 
-    // ââ Reminder preference âââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Reminder preference ───────────────────────────────────────────────────
     if (id.startsWith('sched_reminder_')) {
         // Format: sched_reminder_{rtype}_{day}_{ti}_{si}_{coHostId|none}
         const parts        = id.replace('sched_reminder_', '').split('_');
@@ -979,7 +979,7 @@ async function handleScheduleInteraction(interaction, client) {
         return true;
     }
 
-    // ââ Manage my sessions ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Manage my sessions ────────────────────────────────────────────────────
     if (id === 'sched_manage') {
         try { await interaction.deferReply({ flags: 64 }); } catch { return true; }
 
@@ -991,18 +991,18 @@ async function handleScheduleInteraction(interaction, client) {
         }).sort({ scheduledDay: 1 });
 
         if (mySessions.length === 0) {
-            await interaction.editReply({ content: 'ð You have no sessions claimed this week.' });
+            await interaction.editReply({ content: '📋 You have no sessions claimed this week.' });
             return true;
         }
 
         const embed = new EmbedBuilder()
-            .setTitle('ð Your Sessions This Week')
+            .setTitle('📋 Your Sessions This Week')
             .setColor(0x5865F2)
             .setDescription(mySessions.map((s, i) => {
-                const statusIcon = s.status === 'approved' ? 'â Approved' : 'ð Pending';
+                const statusIcon = s.status === 'approved' ? '✅ Approved' : '🕐 Pending';
                 const timeShort  = s.time.split('|')[0].trim();
-                const cohost     = s.coHostId ? ` â¢ Co-host: <@${s.coHostId}>` : '';
-                return `**${i + 1}.** ${s.scheduledDay} â \`${timeShort}\` â ${s.shiftType}\nãã${statusIcon}${cohost}`;
+                const cohost     = s.coHostId ? ` • Co-host: <@${s.coHostId}>` : '';
+                return `**${i + 1}.** ${s.scheduledDay} — \`${timeShort}\` — ${s.shiftType}\n　　${statusIcon}${cohost}`;
             }).join('\n\n'))
             .setFooter({ text: `${mySessions.length}/${MAX_SESSIONS_PER_WEEK} sessions this week` });
 
@@ -1028,7 +1028,7 @@ async function handleScheduleInteraction(interaction, client) {
             const addRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('sched_addmore')
-                    .setLabel('â Claim Another Slot')
+                    .setLabel('➕ Claim Another Slot')
                     .setStyle(ButtonStyle.Success)
             );
             rows.push(addRow);
@@ -1038,18 +1038,18 @@ async function handleScheduleInteraction(interaction, client) {
         return true;
     }
 
-    // ââ Cancel a specific session âââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Cancel a specific session ─────────────────────────────────────────────
     if (id.startsWith('sched_cancel_')) {
         const sessionId = id.replace('sched_cancel_', '');
         await interaction.deferUpdate().catch(() => {});
 
         const session = await Session.findById(sessionId);
         if (!session) {
-            await interaction.editReply({ content: 'â Session not found.', components: [] });
+            await interaction.editReply({ content: '❌ Session not found.', components: [] });
             return true;
         }
         if (session.hostId !== interaction.user.id) {
-            await interaction.editReply({ content: 'â You can only cancel your own sessions.', components: [] });
+            await interaction.editReply({ content: '❌ You can only cancel your own sessions.', components: [] });
             return true;
         }
 
@@ -1061,7 +1061,7 @@ async function handleScheduleInteraction(interaction, client) {
             const timeShort = session.time.split('|')[0].trim();
             await channel.send({
                 embeds: [new EmbedBuilder()
-                    .setTitle('â Session Cancelled')
+                    .setTitle('❌ Session Cancelled')
                     .setColor(0xe74c3c)
                     .setDescription(`<@${interaction.user.id}> cancelled their **${session.scheduledDay}** session at \`${timeShort}\`.`)
                     .setTimestamp()
@@ -1072,36 +1072,36 @@ async function handleScheduleInteraction(interaction, client) {
         await refreshSchedule(client);
 
         await interaction.editReply({
-            content: `â Your **${session.scheduledDay}** session has been cancelled.`,
+            content: `✅ Your **${session.scheduledDay}** session has been cancelled.`,
             embeds: [],
             components: []
         });
         return true;
     }
 
-    // ââ Add more slot shortcut ââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Add more slot shortcut ────────────────────────────────────────────────
     if (id === 'sched_addmore') {
         await interaction.deferUpdate().catch(() => {});
         // Re-show the available days
         const rows = buildDayButtons();
         await interaction.editReply({
-            content: '**ð Claim another slot** â select a day:',
+            content: '**📅 Claim another slot** — select a day:',
             embeds: [],
             components: rows
         });
         return true;
     }
 
-    // ââ Staff: accept session âââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ── Staff: accept session ─────────────────────────────────────────────────
     if (id.startsWith('sesaccept_')) {
-        // Handled by existing index.js code â not ours
+        // Handled by existing index.js code — not ours
         return false;
     }
 
     return false;
 }
 
-// âââ Helper: get available times for a day (excluding taken/pending + past times today) ââ
+// ─── Helper: get available times for a day (excluding taken/pending + past times today) ──
 async function getAvailableTimesForDay(day, weekStart) {
     const taken = await Session.find({
         scheduledDay: day,
@@ -1133,38 +1133,38 @@ async function getAvailableTimesForDay(day, weekStart) {
         if (period === 'PM' && hours !== 12) hours += 12;
         if (period === 'AM' && hours === 12) hours = 0;
 
-        // Compare against current ET hour â only hide slots that have already started
+        // Compare against current ET hour — only hide slots that have already started
         const etCurrentHour = etNow.getUTCHours() + etNow.getUTCMinutes() / 60;
         return hours > etCurrentHour;
     });
 }
 
-// âââ Helper: show reminder preference buttons âââââââââââââââââââââââââââââââââ
+// ─── Helper: show reminder preference buttons ─────────────────────────────────
 // ID format: sched_reminder_{rtype}_{day}_{ti}_{si}_{coHostId|none}
-// Max example: sched_reminder_10min_Wednesday_11_1_123456789012345678 = 60 chars â
+// Max example: sched_reminder_10min_Wednesday_11_1_123456789012345678 = 60 chars ✓
 async function showReminderOptions(interaction, day, timeVal, shiftType, coHostId, coHostTag) {
     const ti  = timeIndex(timeVal);
     const si  = shiftIndex(shiftType);
     const ch  = coHostId || 'none';
-    const coHostLine = coHostId ? `\nð¥ Co-host: **${coHostTag || coHostId}**` : '';
+    const coHostLine = coHostId ? `\n👥 Co-host: **${coHostTag || coHostId}**` : '';
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(`sched_reminder_24h_${day}_${ti}_${si}_${ch}`)
-            .setLabel('ð Remind me 24 hrs before')
+            .setLabel('🔔 Remind me 24 hrs before')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId(`sched_reminder_12h_${day}_${ti}_${si}_${ch}`)
-            .setLabel('ð Remind me 12 hrs before')
+            .setLabel('🔔 Remind me 12 hrs before')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId(`sched_reminder_10min_${day}_${ti}_${si}_${ch}`)
-            .setLabel('â° 10 min before only')
+            .setLabel('⏰ 10 min before only')
             .setStyle(ButtonStyle.Secondary)
     );
 
     const content =
-        `**ð ${day} â \`${timeVal.split('|')[0].trim()}\` â ${shiftType}**${coHostLine}\n\n` +
+        `**📅 ${day} — \`${timeVal.split('|')[0].trim()}\` — ${shiftType}**${coHostLine}\n\n` +
         `When would you like to be reminded?`;
 
     if (interaction.deferred || interaction.replied) {
@@ -1174,10 +1174,9 @@ async function showReminderOptions(interaction, day, timeVal, shiftType, coHostI
     }
 }
 
-// âââ Helper: actually create the session in DB and notify staff âââââââââââââââ
+// ─── Helper: actually create the session in DB and notify staff ───────────────
 const _submitInFlight = new Set();
 async function submitSessionClaim(interaction, client, day, timeVal, shiftType, coHostId, reminderType) {
-    // Double-submit guard: prevent concurrent duplicate submissions
     const _uid = interaction.user.id;
     if (_submitInFlight.has(_uid)) return;
     _submitInFlight.add(_uid);
@@ -1193,7 +1192,7 @@ async function submitSessionClaim(interaction, client, day, timeVal, shiftType, 
     });
     if (stillTaken) {
         await interaction.editReply({
-            content: 'â That slot was just taken by someone else! Please go back and pick another time.',
+            content: '❌ That slot was just taken by someone else! Please go back and pick another time.',
             components: []
         });
         return;
@@ -1248,11 +1247,11 @@ async function submitSessionClaim(interaction, client, day, timeVal, shiftType, 
     const approvalRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(`sesaccept_${session._id}`)
-            .setLabel('â Accept')
+            .setLabel('✅ Accept')
             .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
             .setCustomId(`sesdecline_${session._id}`)
-            .setLabel('â Decline')
+            .setLabel('❌ Decline')
             .setStyle(ButtonStyle.Danger)
     );
 
@@ -1280,17 +1279,17 @@ async function submitSessionClaim(interaction, client, day, timeVal, shiftType, 
 
     await interaction.editReply({
         content:
-            `â **Session claimed!**\n\n` +
-            `ð **${day}** â \`${timeShort}\` â ${shiftType}\n` +
-            (coHostId ? `ð¥ Co-host: <@${coHostId}>\n` : '') +
+            `✅ **Session claimed!**\n\n` +
+            `📅 **${day}** — \`${timeShort}\` — ${shiftType}\n` +
+            (coHostId ? `👥 Co-host: <@${coHostId}>\n` : '') +
             `\n${reminderNote}\n\n` +
-            `â³ Waiting for staff approval â you'll be notified once it's reviewed.`,
+            `⏳ Waiting for staff approval — you'll be notified once it's reviewed.`,
         components: []
     });
     } finally { _submitInFlight.delete(_uid); }
 }
 
-// âââ Parse a time string on a specific UTC date (not "today or tomorrow") âââââ
+// ─── Parse a time string on a specific UTC date (not "today or tomorrow") ─────
 function parseSessionTimeOnDate(timeStr, targetDateUTC) {
     const estPart   = timeStr.split('|')[0].trim();
     const cleanTime = estPart.replace('EST', '').replace('EDT', '').trim();
@@ -1303,7 +1302,7 @@ function parseSessionTimeOnDate(timeStr, targetDateUTC) {
     // We calculate the offset using a date near the actual fire time (not midnight)
     // so DST boundary sessions are handled correctly.
     const candidateHourUTC = hours + getEasternOffsetHours(targetDateUTC);
-    // If candidateHourUTC >= 24, we're wrapping into the next UTC day â that's fine,
+    // If candidateHourUTC >= 24, we're wrapping into the next UTC day — that's fine,
     // Date.UTC handles overflow. But recalculate DST offset for the actual fire moment.
     const rough = new Date(Date.UTC(
         targetDateUTC.getUTCFullYear(),
@@ -1321,12 +1320,12 @@ function parseSessionTimeOnDate(timeStr, targetDateUTC) {
         hours + finalOffset,
         minutes, 0, 0
     ));
-    console.log(`[parseSessionTimeOnDate] "${timeStr}" on ${targetDateUTC.toISOString().split('T')[0]} â fireAt ${result.toISOString()} (UTC offset used: ${finalOffset})`);
+    console.log(`[parseSessionTimeOnDate] "${timeStr}" on ${targetDateUTC.toISOString().split('T')[0]} → fireAt ${result.toISOString()} (UTC offset used: ${finalOffset})`);
     return result;
 }
 
-// âââ Reminder dispatcher (call from your session scheduler in index.js) âââââââ
-// Called when checking sessions â sends 24h or 12h DM reminders
+// ─── Reminder dispatcher (call from your session scheduler in index.js) ───────
+// Called when checking sessions — sends 24h or 12h DM reminders
 async function checkAndSendReminders(client) {
     const now = new Date();
     const sessions = await Session.find({
@@ -1353,11 +1352,11 @@ async function checkAndSendReminders(client) {
             const label = s.reminderType === '24h' ? '24 hours' : s.reminderType === '12h' ? '12 hours' : '10 minutes';
             await host.send({
                 embeds: [new EmbedBuilder()
-                    .setTitle('â° Session Reminder')
+                    .setTitle('⏰ Session Reminder')
                     .setColor(0xF39C12)
                     .setDescription(
                         `Your **${s.shiftType}** is starting in **${label}**!\n\n` +
-                        `ð **${s.scheduledDay}** â \`${timeShort}\``
+                        `📅 **${s.scheduledDay}** — \`${timeShort}\``
                     )
                     .setTimestamp()
                 ]
@@ -1369,7 +1368,7 @@ async function checkAndSendReminders(client) {
     }
 }
 
-// âââ Init: call from client.once('ready') ââââââââââââââââââââââââââââââââââââ
+// ─── Init: call from client.once('ready') ────────────────────────────────────
 async function initScheduleSystem(client) {
     try {
         const weekStart = getCurrentWeekStart();
@@ -1381,21 +1380,21 @@ async function initScheduleSystem(client) {
             try {
                 const channel = await client.channels.fetch(SCHEDULE_CHANNEL_ID);
                 await channel.messages.fetch(record.messageId);
-                // Message exists â reuse it, just refresh the embed content
+                // Message exists — reuse it, just refresh the embed content
                 currentScheduleMessageId = record.messageId;
                 currentWeekStart = weekStart;
                 console.log(`[sesschedule] Recovered existing schedule post ${record.messageId} (week ${weekStart})`);
                 await postWeeklySchedule(client, false); // edit in place, no new post
             } catch {
-                // Message was deleted â post a fresh one
+                // Message was deleted — post a fresh one
                 currentScheduleMessageId = null;
                 await postWeeklySchedule(client, true);
             }
         } else {
-            // Different week or no record â the weekly reset was missed while bot was
+            // Different week or no record — the weekly reset was missed while bot was
             // down. Post a recap of the closing week then start the new schedule.
             if (record && record.weekStart && record.weekStart !== weekStart) {
-                console.log(`[sesschedule] Missed weekly reset (saved: ${record.weekStart}, now: ${weekStart}) â posting recap + fresh schedule`);
+                console.log(`[sesschedule] Missed weekly reset (saved: ${record.weekStart}, now: ${weekStart}) — posting recap + fresh schedule`);
                 await postWeeklyHostSummary(client);
             }
             await postWeeklySchedule(client, true);
@@ -1404,18 +1403,18 @@ async function initScheduleSystem(client) {
         // Start Sunday reset timer
         scheduleSundayReset(client);
 
-        console.log('â Session schedule system initialised');
+        console.log('✅ Session schedule system initialised');
     } catch (err) {
         console.error('[sesschedule] Init error:', err);
     }
 }
 
-// âââ /sessionrecap command handler âââââââââââââââââââââââââââââââââââââââââââ
+// ─── /sessionrecap command handler ───────────────────────────────────────────
 async function handleSessionRecap(interaction, client) {
     // Role check
     const member = interaction.member;
     if (!member?.roles?.cache?.has(SESSION_RECAP_ROLE_ID)) {
-        return interaction.reply({ content: 'â You don\'t have permission to use this command.', flags: 64 });
+        return interaction.reply({ content: '❌ You don\'t have permission to use this command.', flags: 64 });
     }
 
     await interaction.deferReply({ flags: 64 });
@@ -1447,7 +1446,7 @@ async function handleSessionRecap(interaction, client) {
     // Fetch staff members with the required role
     let guild;
     try { guild = await client.guilds.fetch(SCHEDULE_GUILD_ID); } catch {
-        return interaction.editReply({ content: 'â Could not fetch the guild.' });
+        return interaction.editReply({ content: '❌ Could not fetch the guild.' });
     }
     let staffMembers;
     try {
@@ -1483,7 +1482,7 @@ async function handleSessionRecap(interaction, client) {
 
     const fmt = (arr, fn) => arr.length ? arr.map(fn).join('\n') : '*None*';
 
-    // ââ Cross-week streak: check last 4 weeks for below-minimum runs ââââââââââ
+    // ── Cross-week streak: check last 4 weeks for below-minimum runs ──────────
     // Build week starts for the 4 weeks ending with the chosen week
     function weekStartMinus(base, weeksBack) {
         const [y, mo, d] = base.split('-').map(Number);
@@ -1492,7 +1491,7 @@ async function handleSessionRecap(interaction, client) {
     }
     const lookbackWeeks = [weekStart, weekStartMinus(weekStart, 1), weekStartMinus(weekStart, 2), weekStartMinus(weekStart, 3)];
     const historySessions = await Session.find({ weekStart: { $in: lookbackWeeks } }).lean();
-    // Map weekStart â { hostId â finishedCount }
+    // Map weekStart → { hostId → finishedCount }
     const weekHostMap = {};
     for (const s of historySessions) {
         if (!weekHostMap[s.weekStart]) weekHostMap[s.weekStart] = {};
@@ -1514,42 +1513,42 @@ async function handleSessionRecap(interaction, client) {
 
     const label = choice === 'last' ? 'Last Week' : 'This Week';
     const embed = new EmbedBuilder()
-        .setTitle(`ð  Session Hosting Recap â ${label}`)
+        .setTitle(`📊  Session Hosting Recap — ${label}`)
         .setDescription(`Week of **${weekStart}** | Minimum expected: **${MIN_SESSIONS_PER_WEEK} hosted sessions**`)
         .setColor(0x5865F2)
         .addFields(
             {
-                name: `â Met minimum (${MIN_SESSIONS_PER_WEEK}+) â ${hosted.length} staff`,
+                name: `✅ Met minimum (${MIN_SESSIONS_PER_WEEK}+) — ${hosted.length} staff`,
                 value: fmt(hosted, ({ member, finished, total }) =>
-                    `<@${member.id}> â ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}`),
+                    `<@${member.id}> — ${finished} hosted${total > finished ? ` (${total - finished} not finished)` : ''}`),
                 inline: false
             },
             {
-                name: `ð¡ Partially hosted (1â${MIN_SESSIONS_PER_WEEK - 1}) â ${partial.length} staff`,
+                name: `🟡 Partially hosted (1–${MIN_SESSIONS_PER_WEEK - 1}) — ${partial.length} staff`,
                 value: fmt(partial, ({ member, finished, total }) =>
-                    `<@${member.id}> â ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}`),
+                    `<@${member.id}> — ${finished} hosted${total > finished ? ` / ${total} claimed` : ''}`),
                 inline: false
             },
             {
-                name: `ð´ Signed up but hosted 0 â ${noSession.length} staff`,
+                name: `🔴 Signed up but hosted 0 — ${noSession.length} staff`,
                 value: fmt(noSession, ({ member, total }) =>
-                    `<@${member.id}> â ${total} claim${total !== 1 ? 's' : ''} (none finished)`),
+                    `<@${member.id}> — ${total} claim${total !== 1 ? 's' : ''} (none finished)`),
                 inline: false
             },
             {
-                name: `â¬ No sign-up at all â ${noSignup.length} staff`,
+                name: `⬛ No sign-up at all — ${noSignup.length} staff`,
                 value: fmt(noSignup, m => `<@${m.id}>`),
                 inline: false
             },
             {
-                name: `ð Below minimum 2+ weeks in a row â ${streakWarnings.length} staff`,
+                name: `🔁 Below minimum 2+ weeks in a row — ${streakWarnings.length} staff`,
                 value: streakWarnings.length
-                    ? streakWarnings.map(({ member, streak }) => `<@${member.id}> â **${streak} week${streak > 1 ? 's' : ''}** in a row below ${MIN_SESSIONS_PER_WEEK}`).join('\n')
+                    ? streakWarnings.map(({ member, streak }) => `<@${member.id}> — **${streak} week${streak > 1 ? 's' : ''}** in a row below ${MIN_SESSIONS_PER_WEEK}`).join('\n')
                     : '*None*',
                 inline: false
             }
         )
-        .setFooter({ text: 'KaviÃ  CafÃ© â¢ Session Schedule' })
+        .setFooter({ text: 'Kavià Café • Session Schedule' })
         .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
