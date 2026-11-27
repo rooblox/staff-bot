@@ -831,8 +831,15 @@ async function restoreSessions() {
                 }
             }
             if (session.status === 'active' && session.announcementMessageId) {
-                const timeLeft = new Date(session.autoDeleteAt).getTime() - Date.now();
+                // On restart, cap auto-delete to 2.5 hours after session fired (not full 24h)
+                const fireAt = new Date(session.sessionFireAt).getTime();
+                const cappedDeleteAt = fireAt + 2.5 * 60 * 60 * 1000;
+                const timeLeft = Math.min(
+                    new Date(session.autoDeleteAt).getTime() - Date.now(),
+                    cappedDeleteAt - Date.now()
+                );
                 if (timeLeft > 0) scheduleAutoDelete(session._id, session.announcementMessageId, timeLeft);
+                else scheduleAutoDelete(session._id, session.announcementMessageId, 0);
                 const finishCheckDelay = new Date(session.sessionFireAt).getTime() + 25 * 60 * 1000 - Date.now();
                 if (finishCheckDelay > 0) {
                     setTimeout(async () => { await sendFinishCheck(session._id); }, finishCheckDelay);
