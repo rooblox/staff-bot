@@ -652,7 +652,12 @@ async function postAnnouncement(session) {
         const pingRole = `<@&${SHIFT_PING_ROLE_ID}>`;
         const timeShortAnn = session.time.split('|')[0].trim();
         const hostUser = await client.users.fetch(session.hostId).catch(() => null);
-        const hostName = hostUser ? (hostUser.globalName || hostUser.username) : 'Host';
+        // Banner font only covers normal letters - fancy Unicode names render as boxes,
+        // so use the display name only if it's plain text, otherwise the username.
+        const plainText = s => typeof s === 'string' && /^[\x20-\x7E\u00C0-\u017F]+$/.test(s.trim());
+        const hostName = !hostUser ? 'Host'
+            : plainText(hostUser.globalName) ? hostUser.globalName.trim()
+            : hostUser.username;
 
         // ── Generate banner image ──────────────────────────────────────────────
         let bannerAttachment = null;
